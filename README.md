@@ -24,7 +24,8 @@ instead of the URL you use to get to a site in your browser for now.
 ## Goals
 
 Educational purposes for now. I would like to get the quality of code in this repo
-ready for upstream mering into CLIPS someday.
+ready for upstream merging into CLIPS someday. For now, it's so I can make
+some fun web applications using CLIPS!
 
 ## Installation
 
