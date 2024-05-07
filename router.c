@@ -73,6 +73,7 @@
 #include "envrnmnt.h"
 #include "extnfunc.h"
 #include "filertr.h"
+#include "socketrtr.h"
 #include "memalloc.h"
 #include "prntutil.h"
 #include "scanner.h"
@@ -111,6 +112,7 @@ void InitializeDefaultRouters(
 
    InitializeFileRouter(theEnv);
    InitializeStringRouter(theEnv);
+   InitializeSocketRouter(theEnv);
   }
 
 /*************************************************/

@@ -92,6 +92,146 @@ you'll see a slightly different message.
 
 ## Notes for Developers
 
+### API
+
+#### `(accept ?socketfdOrLogicalName)`
+
+Accepts a connection on a socket file descriptor.
+Returns an integer representing the client's file descriptor
+or FALSE if it fails.
+
+#### `(bind-socket ?socketfd ?ipOrDir <?port>)`
+
+Binds a socket to a given IP/PORT or directory (in case of unix sockets).
+Returns an integer representing the client's file descriptor
+or FALSE if it fails.
+
+#### `(connect ?socketfd ?ipOrDir <?port>)`
+
+Connects a socket to a given IP/PORT or directory (in case of unix sockets).
+Returns an integer representing the client's file descriptor
+or FALSE if it fails.
+
+#### `(close-connection ?socketfdOrLogicalName)`
+
+Closes a socket bound or connected on a given IP/PORT or directory (in case of unix sockets).
+Returns TRUE if connection closed successfully, FALSE if it fails.
+
+#### `(create-socket ?domain ?type <?protocol>)`
+
+Binds a socket to a given IP/PORT or directory (in case of unix sockets).
+Returns an integer representing the client's file descriptor
+or FALSE if it fails.
+
+The following domains are currently supported:
+
+* `AF_UNIX`: used for unix sockets
+* `AF_INET`: IPv4
+* `AF_INET6`: IPv6
+
+The following types are currently supported:
+
+* `SOCK_STREAM`: typically used for TCP
+* `SOCK_DGRAM`: typically used for UDP
+
+Protocol is optional and can typically be left blank.
+
+#### `(empty-connection ?socketfdOrLogicalName)`
+
+Use this to "empty" the buffer of data received from the client.
+**WARNING: If this is run on a blocking request, you may block indefinitely**.
+
+#### `(fcntl-add-status-flags ?socketfdOrLogicalName $?flags)`
+#### `(fcntl-remove-status-flags ?socketfdOrLogicalName $?flags)`
+
+Add/remove certain flags on a socket as specified after the socket fd or logical name.
+
+The following flags are currently supported:
+
+* `O_NONBLOCK`
+* `O_APPEND`
+* `O_ASYNC`
+
+#### `(flush-connection ?socketfdOrLogicalName)`
+
+Flushes the buffer to the recipient.
+
+#### `(get-socket-logical-name ?socketfd)`
+
+Converts an integer representing a socket file descriptor
+to a symbol representing the name of the I/O router.
+Use this name to read and write to the socket.
+
+#### `(get-timeout ?socketfdOrLogicalName)`
+#### `(set-timeout ?socketfdOrLogicalName ?microseconds)`
+
+Gets or Sets the timeout on the socket in microseconds.
+
+#### `(listen ?socketfdOrLogicalName ?backlog)`
+
+Listens for connections on a socket. After running this,
+you can now `(accept` clients connecting to your server
+via the socket.
+
+#### `(poll ?socketfdOrLogicalName ?milliseconds $?optionalFlags)`
+
+Polls the socket for a number of milliseconds for any given number of flags.
+
+Specify `0` as `?milliseconds` so that it returns immediately.
+
+Possible flags:
+
+* `POLLIN`
+* `POLLOUT`
+* `POLLERR`
+* `POLLHUP`
+* `POLLNVAL`
+* `POLLPRI`
+* `POLLRDNORM`
+* `POLLRDBAND`
+* `POLLWRNORM`
+* `POLLWRBAND`
+
+Returns TRUE if it got the FLAG, FALSE if it did not before timeout expires.
+
+#### `(getsockopt ?socketfdOrLogicalName ?level ?optionName)`
+#### `(setsockopt ?socketfdOrLogicalName ?level ?optionName ?value)`
+
+Gets or Sets options on the socket.
+
+Possible values for `?level` currently supported:
+
+* `SOL_SOCKET`
+* `IPPROTO_TCP`
+
+Possible values for `?optionName` currently supported:
+
+* `SO_REUSEADDR`
+* `TCP_NODELAY`
+
+`?value` is an integer to set the flag to.
+
+#### `(set-fully-buffered ?socketfdOrLogicalName)`
+#### `(set-not-buffered ?socketfdOrLogicalName)`
+#### `(set-line-buffered ?socketfdOrLogicalName)`
+
+Changes the buffering style for a connection.
+As a means of example, stderr is "not buffered,"
+stdout via your terminal is probably "line buffered," 
+and files are normally "block buffered."
+
+#### `(shutdown-connection ?socketfdOrLogicalName ?optionalHow)`
+
+Shut down part or all of a full-duplex connection.
+
+Possible values of `?optionalHow`:
+
+* `SHUT_RD`: further receptions will be disallowed
+* `SHUT_WR`: further transmissions will be disallowed
+* `SHUT_RDWR`: further receptions and transmissions will be disallowed
+
+### Debugging
+
 In order to watch all activity on your computer's port 8888
 (which the example server and client use by default),
 use `tcpdump`. You may need to run as `root` or with `sudo`:
@@ -99,6 +239,8 @@ use `tcpdump`. You may need to run as `root` or with `sudo`:
 ```
 tcpdump -nn -i any port 8888
 ```
+
+### Small technical braindump
 
 This codebase is based on
 [CLIPS version 6.4.1](https://sourceforge.net/projects/clipsrules/files/CLIPS/6.4.1/)

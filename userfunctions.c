@@ -49,8 +49,10 @@
 /***************************************************************************/
 
 #include "clips.h"
+#include "socketrtr.h"
 
 void UserFunctions(Environment *);
+
 
 /*********************************************************/
 /* UserFunctions: Informs the expert system environment  */
@@ -64,7 +66,24 @@ void UserFunctions(Environment *);
 void UserFunctions(
   Environment *env)
   {
-#if MAC_XCD
-#pragma unused(env)
-#endif
+	  AddUDF(env,"accept","bl",1,1,"l",AcceptFunction,"AcceptFunction",NULL);
+	  AddUDF(env,"bind-socket","bsy",2,3,";l;sy;l",BindSocketFunction,"BindSocketFunction",NULL);
+	  AddUDF(env,"connect","bl",2,3,";l;sy;l",ConnectFunction,"ConnectFunction",NULL);
+	  AddUDF(env,"close-connection","b",1,1,";lsy",CloseConnectionFunction,"CloseConnectionFunction",NULL);
+	  AddUDF(env,"create-socket","bl",2,3,"sy",CreateSocketFunction,"CreateSocketFunction",NULL);
+	  AddUDF(env,"empty-connection","bl",1,1,"lsy",EmptyConnectionFunction,"EmptyConnectionFunction",NULL);
+	  AddUDF(env,"fcntl-add-status-flags","bl",2,UNBOUNDED,"sy;l;",FcntlAddStatusFlagsFunction,"FcntlAddStatusFlagsFunction",NULL);
+	  AddUDF(env,"fcntl-remove-status-flags","bl",2,UNBOUNDED,"sy;l;",FcntlRemoveStatusFlagsFunction,"FcntlRemoveStatusFlagsFunction",NULL);
+	  AddUDF(env,"flush-connection","l",1,1,"lsy",FlushConnectionFunction,"FlushConnectionFunction",NULL);
+	  AddUDF(env,"get-socket-logical-name","y",1,1,"l",GetSocketLogicalNameFunction,"GetSocketLogicalNameFunction",NULL);
+	  AddUDF(env,"get-timeout","l",1,1,"lsy",GetTimeoutFunction,"GetTimeoutFunction",NULL);
+	  AddUDF(env,"getsockopt","bl",3,3,";l;sy;sy",GetsockoptFunction,"GetsockoptFunction",NULL);
+	  AddUDF(env,"listen","b",1,2,";lsy;l",ListenFunction,"ListenFunction",NULL);
+	  AddUDF(env,"poll","b",1,11,"sy;lsy;l;sy;",PollFunction,"PollFunction",NULL);
+	  AddUDF(env,"set-fully-buffered","b",1,1,"lsy",SetFullyBufferedFunction,"SetFullyBufferedFunction",NULL);
+	  AddUDF(env,"set-not-buffered","b",1,1,"lsy",SetNotBufferedFunction,"SetNotBufferedFunction",NULL);
+	  AddUDF(env,"set-line-buffered","b",1,1,"lsy",SetLineBufferedFunction,"SetLineBufferedFunction",NULL);
+	  AddUDF(env,"set-timeout","l",2,2,";lsy;l",SetTimeoutFunction,"SetTimeoutFunction",NULL);
+	  AddUDF(env,"setsockopt","l",4,4,";l;sy;sy;l",SetsockoptFunction,"SetsockoptFunction",NULL);
+	  AddUDF(env,"shutdown-connection","l",1,1,"lsy",ShutdownConnectionFunction,"ShutdownConnectionFunction",NULL);
   }

@@ -53,7 +53,7 @@ OBJS = agenda.o analysis.o argacces.o bload.o bmathfun.o bsave.o \
  	pprint.o prccode.o prcdrfun.o prcdrpsr.o prdctfun.o prntutil.o \
  	proflfun.o reorder.o reteutil.o retract.o router.o rulebin.o \
  	rulebld.o rulebsc.o rulecmp.o rulecom.o rulecstr.o ruledef.o \
- 	ruledlt.o rulelhs.o rulepsr.o scanner.o sortfun.o strngfun.o \
+ 	ruledlt.o rulelhs.o rulepsr.o scanner.o socketrtr.o sortfun.o strngfun.o \
  	strngrtr.o symblbin.o symblcmp.o symbol.o sysdep.o textpro.o \
  	tmpltbin.o tmpltbsc.o tmpltcmp.o tmpltdef.o tmpltfun.o tmpltlhs.o \
  	tmpltpsr.o tmpltrhs.o tmpltutl.o userdata.o userfunctions.o \
@@ -67,7 +67,7 @@ debug : LDLIBS = -lm
 debug : clips
 
 release : CC = gcc
-release : CFLAGS = -std=c99 -O3 -fno-strict-aliasing
+release : CFLAGS = -std=gnu99 -O3 -fno-strict-aliasing
 release : LDLIBS = -lm
 release : clips
 

@@ -1,0 +1,7 @@
+clips
+libclips.a
+*.o
+*.a
+*.so
+._*
+*.swp
