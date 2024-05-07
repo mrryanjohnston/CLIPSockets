@@ -28,16 +28,16 @@ ready for upstream mering into CLIPS someday.
 
 ## Installation
 
-Run `make`:
+Navigate into the `src` directory and run `make`:
 
 ```
 make
 ```
 
-You should now have a `./clips` file in your current directory.
+You should now have a `./clips` file in your `src` directory.
 Use this to run the example server and client network applications
-provided by the files `./server-simple.bat`, `./server-complex.bat`,
-and `./client.bat`.
+provided by the files `src/server-simple.bat`, `src/server-complex.bat`,
+and `src/client.bat`.
 
 ### Example Servers
 
