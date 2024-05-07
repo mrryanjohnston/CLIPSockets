@@ -1,0 +1,110 @@
+# CLIPSockets
+
+**I have only tested this codebase in Ubuntu 23.10 so far**.
+
+## Purpose
+
+Provide low-level networking functions to
+[CLIPS](https://www.clipsrules.net/)
+environments
+via socket file descriptors. Allows CLIPS-based applications
+to send and receive messages to/from other computers on a network
+via I/O Router[^1]-based reading and writing operations.
+
+[^1]: See **Section 9: I/O Routers** of the [CLIPS Advanced Programming Guide](https://www.clipsrules.net/documentation/v641/apg641.pdf)
+
+This library adds functions that let you create network servers
+and clients. That is: you can make CLIPS applications that
+*receive* network requests and *make* network requests.
+
+It does *not* currently support DNS resolution: you'll need to know
+the IP/PORT combination or location of unix socket
+instead of the URL you use to get to a site in your browser for now.
+
+## Goals
+
+Educational purposes for now. I would like to get the quality of code in this repo
+ready for upstream mering into CLIPS someday.
+
+## Installation
+
+Run `make`:
+
+```
+make
+```
+
+You should now have a `./clips` file in your current directory.
+Use this to run the example server and client network applications
+provided by the files `./server-simple.bat`, `./server-complex.bat`,
+and `./client.bat`.
+
+### Example Servers
+
+There are two example servers provided in this repository. One simply
+receives a single tcp connection and then exits.
+The other can be used to serve multiple concurrent requests until it is
+`ctrl+z` and `kill`ed.
+
+```
+./clips -f2 server-simple.bat
+```
+
+or
+
+```
+./clips -f2 server-complex.bat
+```
+
+### Example Client
+
+```
+./clips -f2 client.bat
+```
+
+### Other ways to test things out
+
+You should now also be able to connect to 127.0.0.1:8888
+via telnet, curl, or a browser.
+
+#### `curl`
+
+```
+curl --http0.9 http://localhost:8888/
+```
+
+#### `telnet`
+
+```
+telnet localhost 8888
+```
+
+#### Browser
+
+Visit [http://localhost:8888](http://localhost:8888)
+in the browser of your choice. The message displayed back
+is the first line of text that your browser sends to the webserver
+under the hood. This can be used to build web applications
+that let the users navigate to different "pages" in your web app.
+For example, if you try to go to
+[http://localhost:8888/asdf-123](http://localhost:8888/asdf-123),
+you'll see a slightly different message.
+
+## Notes for Developers
+
+In order to watch all activity on your computer's port 8888
+(which the example server and client use by default),
+use `tcpdump`. You may need to run as `root` or with `sudo`:
+
+```
+tcpdump -nn -i any port 8888
+```
+
+This codebase is based on
+[CLIPS version 6.4.1](https://sourceforge.net/projects/clipsrules/files/CLIPS/6.4.1/)
+released on 4/8/23. I added a `socketrtr.h` and socketrtr.c` to support reading/writing to sockets.
+I add user defined functions (UDFs) to CLIPS environments compiled with this source code
+in `userfunctions.c`. I initialize the socket router in `router.c`
+inside of the function `InitializeDefaultRouters`. Finally, I updated the makefile
+to use gnu99 as well as to include the new `socketrtr.c` files.
+
