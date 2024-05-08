@@ -1,6 +1,10 @@
 # CLIPSockets
 
-**I have only tested this codebase in Ubuntu 23.10 so far** and **the library is only built for linux-based systems for now**.
+## Forward
+
+* This repository is for educational purposes only :)
+* I have only tested this codebase in Ubuntu 23.10 so far
+* the library is only built for linux-based systems for now
 
 ## Purpose
 

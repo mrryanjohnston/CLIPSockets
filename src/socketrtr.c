@@ -19,6 +19,7 @@
 /*                                                                     */
 /**********************************************************************/
 
+#include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
@@ -961,6 +962,7 @@ void BindSocketFunction(
 	UDFValue theArg, optionalArg;
 	int domain;
 	StringBuilder *logicalNameStringBuilder = CreateStringBuilder(theEnv, 0);
+	size_t addr_len;
 
 	// sockfd
 	UDFNextArgument(context,INTEGER_BIT,&theArg);
@@ -969,7 +971,10 @@ void BindSocketFunction(
 	// address
 	UDFNextArgument(context,LEXEME_BITS,&theArg);
 	// port
-	UDFNextArgument(context,INTEGER_BIT,&optionalArg);
+	if (UDFHasNextArgument(context))
+	{
+		UDFNextArgument(context,INTEGER_BIT,&optionalArg);
+	}
 
 	socklen_t domain_len = sizeof(domain);
 	GenGetsockopt(theEnv, sockfd, SOL_SOCKET, SO_DOMAIN, &domain, &domain_len);
@@ -985,6 +990,7 @@ void BindSocketFunction(
 			SBAppend(logicalNameStringBuilder, theArg.lexemeValue->contents);
 			SBAddChar(logicalNameStringBuilder, ':');
 			SBAppendInteger(logicalNameStringBuilder, optionalArg.integerValue->contents);
+			addr_len = sizeof(*addr);
 			break;
 		case AF_INET6:
 			struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&serv_addr;
@@ -996,12 +1002,16 @@ void BindSocketFunction(
 			SBAddChar(logicalNameStringBuilder, ']');
 			SBAddChar(logicalNameStringBuilder, ':');
 			SBAppendInteger(logicalNameStringBuilder, optionalArg.integerValue->contents);
+			addr_len = sizeof(*addr6);
 			break;
 		case AF_UNIX:
 			struct sockaddr_un *addrun = (struct sockaddr_un *)&serv_addr;
 			addrun->sun_family = domain;
-			strcpy(addrun->sun_path, theArg.lexemeValue->contents);
+			strncpy(addrun->sun_path, theArg.lexemeValue->contents, sizeof(addrun->sun_path) - 1);
+			addrun->sun_path[sizeof(addrun->sun_path) - 1] = '\0';
 			SBAppend(logicalNameStringBuilder, theArg.lexemeValue->contents);
+			addr_len = offsetof(struct sockaddr_un, sun_path) + strlen(addrun->sun_path);
+			unlink(theArg.lexemeValue->contents);
 			break;
 		case AF_UNSPEC:
 		default:
@@ -1016,7 +1026,7 @@ void BindSocketFunction(
 	/* Bind the socket with the address.  */
 	/*====================================*/
 
-	if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+	if (bind(sockfd, (struct sockaddr *)&serv_addr, addr_len) < 0)
 	{
 		WriteString(theEnv,STDERR,"Could not bind ");
 		WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
@@ -1413,7 +1423,10 @@ void ConnectFunction(
 	// address
 	UDFNextArgument(context,LEXEME_BITS,&theArg);
 	// port
-	UDFNextArgument(context,INTEGER_BIT,&optionalArg);
+	if (UDFHasNextArgument(context))
+	{
+		UDFNextArgument(context,INTEGER_BIT,&optionalArg);
+	}
 	memset(&serv_addr, 0, sizeof(serv_addr));
 	switch (domain)
 	{
@@ -1425,6 +1438,7 @@ void ConnectFunction(
 			SBAppend(logicalNameStringBuilder, theArg.lexemeValue->contents);
 			SBAddChar(logicalNameStringBuilder, ':');
 			SBAppendInteger(logicalNameStringBuilder, optionalArg.integerValue->contents);
+			addr_len = sizeof(*addr);
 			break;
 		case AF_INET6:
 			struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&serv_addr;
@@ -1436,12 +1450,15 @@ void ConnectFunction(
 			SBAddChar(logicalNameStringBuilder, ']');
 			SBAddChar(logicalNameStringBuilder, ':');
 			SBAppendInteger(logicalNameStringBuilder, optionalArg.integerValue->contents);
+			addr_len = sizeof(*addr6);
 			break;
 		case AF_UNIX:
 			struct sockaddr_un *addrun = (struct sockaddr_un *)&serv_addr;
 			addrun->sun_family = domain;
-			strcpy(addrun->sun_path, theArg.lexemeValue->contents);
+			strncpy(addrun->sun_path, theArg.lexemeValue->contents, sizeof(addrun->sun_path) - 1);
+			addrun->sun_path[sizeof(addrun->sun_path) - 1] = '\0';
 			SBAppend(logicalNameStringBuilder, theArg.lexemeValue->contents);
+			addr_len = offsetof(struct sockaddr_un, sun_path) + strlen(addrun->sun_path);
 			break;
 		case AF_UNSPEC:
 		default:
