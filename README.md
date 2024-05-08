@@ -35,7 +35,7 @@ Navigate into the `src` directory and run `make`:
 make
 ```
 
-You should now have a `./clips` file in your `src` directory.
+You should now have a `clips` executable file in your `src` directory.
 Use this to run the example server and client network applications
 provided by the files `src/server-simple.bat`, `src/server-complex.bat`,
 and `src/client.bat`.
@@ -245,7 +245,7 @@ tcpdump -nn -i any port 8888
 
 This codebase is based on
 [CLIPS version 6.4.1](https://sourceforge.net/projects/clipsrules/files/CLIPS/6.4.1/)
-released on 4/8/23. I added a `socketrtr.h` and socketrtr.c` to support reading/writing to sockets.
+released on 4/8/23. I added a `socketrtr.h` and `socketrtr.c` to support reading/writing to sockets.
 I add user defined functions (UDFs) to CLIPS environments compiled with this source code
 in `userfunctions.c`. I initialize the socket router in `router.c`
 inside of the function `InitializeDefaultRouters`. Finally, I updated the makefile
