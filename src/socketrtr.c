@@ -494,7 +494,8 @@ void SetsockoptFunction(
 }
 
 /******************************************************************/
-/* CreateSocketFunction: Creates a socket with the specified access mode */
+/* CreateSocketFunction: Creates a socket                         */
+/*   with the specified access mode                               */
 /*   and stores the opened stream on the list of sockets          */
 /*   associated with logical names. Returns true if the           */
 /*   socket was succesfully opened, otherwise false.              */
@@ -509,7 +510,7 @@ void CreateSocketFunction(
 	UDFValue theArg;
 
 	/*====================*/
-	/* Get the domain. */
+	/* Get the domain.    */
 	/*====================*/
 
 	UDFNextArgument(context,SYMBOL_BIT,&theArg);
@@ -599,6 +600,11 @@ bool FlushConnection(
 	return GenFlush(theEnv,stream);
 }
 
+/******************************************************************************/
+/* FlushConnectionFunction: Flushed the connection                            */
+/* associated with the specified logical name or file descriptor.             */
+/* Returns TRUE on success, FALSE on failure.                                 */
+/******************************************************************************/
 void
 FlushConnectionFunction(
 		Environment *theEnv,
@@ -644,6 +650,11 @@ bool EmptyConnection(
 	return true;
 }
 
+/******************************************************************************/
+/* EmptyConnectionFunction: Empty the stream buffer                           */
+/* associated with the specified logical name or file descriptor.             */
+/* Returns TRUE on success, FALSE on failure.                                 */
+/******************************************************************************/
 void
 EmptyConnectionFunction(
 		Environment *theEnv,
@@ -717,11 +728,11 @@ bool CloseFileDescriptorConnection(
 	return false;
 }
 
-/*************************************************************/
+/******************************************************************************/
 /* CloseNamedConnection: Closes the connection associated with the specified  */
 /*   connection logical name. Returns true if the connection was successfully */
-/*   closed, otherwise false.                                */
-/*************************************************************/
+/*   closed, otherwise false.                                                 */
+/******************************************************************************/
 bool CloseNamedConnection(
 		Environment *theEnv,
 		const char *logicalName)
@@ -778,6 +789,13 @@ void CloseConnectionFunction(
 	}
 }
 
+/***************************************************/
+/* ShutdownConnectionFunction: H/L access function */
+/*    for running shutown on all bound/connected   */
+/*    sockets associated with an I/O Router.       */
+/*    Let's you specify that no more data can be   */
+/*    sent, received or both.                      */
+/***************************************************/
 void ShutdownConnectionFunction(
 		Environment *theEnv,
 		UDFContext *context,
@@ -826,6 +844,12 @@ void ShutdownConnectionFunction(
 	returnValue->lexemeValue = CreateBoolean(theEnv,GenShutdown(theEnv,sockfd,how));
 }
 
+/****************************************************/
+/* PollFunction: H/L access function                */
+/*    to check whether certain events have occurred */
+/*    in the socket, such as data received          */
+/*    or client is waiting to be accepted.          */
+/****************************************************/
 void PollFunction(
 		Environment *theEnv,
 		UDFContext *context,
@@ -1719,6 +1743,10 @@ void FcntlRemoveStatusFlagsFunction(
 
 }
 
+/************************************************/
+/* CloseAllSockets: Close all sockets           */
+/*    currently registered as socketio routers. */
+/************************************************/
 void CloseAllSockets(Environment *theEnv)
 {
 	struct socketRouter *sptr, *prev;
