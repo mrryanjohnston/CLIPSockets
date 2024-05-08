@@ -5,6 +5,10 @@
 * This repository is for educational purposes only :)
 * I have only tested this codebase in Ubuntu 23.10 so far
 * the library is only built for linux-based systems for now
+* Don't know CLIPS? Try the
+  [Tour of CLIPS](https://ryjo.codes/tour-of-clips.html)
+  I wrote to learn!
+  
 
 ## Purpose
 
