@@ -11,7 +11,7 @@ Write CLIPS code that can talk to the internet!
   [Tour of CLIPS](https://ryjo.codes/tour-of-clips.html)
   I wrote to learn!
 
-## Intro
+## High-Level Functionality Provided
 
 Create a server that listens, accepts, and reads a message from a client:
 
@@ -21,9 +21,9 @@ CLIPS> (create-socket AF_INET SOCK_STREAM)
 3
 CLIPS> (bind-socket 3 127.0.0.1 8889)
 127.0.0.1:8889
-CLIPS> (listen 127.0.0.1:8889)
+CLIPS> (listen 3) ; NOTE: 127.0.0.1:8889 would work here, too
 TRUE
-CLIPS> (accept 127.0.0.1:8889)
+CLIPS> (accept 3) ; NOTE: 127.0.0.1:8889 would work here, too
 4
 CLIPS> (get-socket-logical-name 4)
 127.0.0.1:42616
@@ -40,7 +40,7 @@ CLIPS> (create-socket AF_INET SOCK_STREAM)
 CLIPS> (connect 3 127.0.0.1 8889)
 3
 CLIPS> (printout 127.0.0.1:8889 "Hello, server :)" crlf)
-CLIPS> (flush-connection 3)
+CLIPS> (flush-connection 3) ; NOTE: 127.0.0.1:8889 would work here, too
 TRUE
 ```
 
