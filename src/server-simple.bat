@@ -1,4 +1,4 @@
-(watch all)
+;(watch all)
 (defrule always =>
 	(assert (socket (create-socket AF_INET SOCK_STREAM))))
 
