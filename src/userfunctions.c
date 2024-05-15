@@ -66,7 +66,7 @@ void UserFunctions(Environment *);
 void UserFunctions(
   Environment *env)
   {
-	  AddUDF(env,"accept","bl",1,1,"l",AcceptFunction,"AcceptFunction",NULL);
+	  AddUDF(env,"accept","bl",1,1,"lsy",AcceptFunction,"AcceptFunction",NULL);
 	  AddUDF(env,"bind-socket","bsy",2,3,";l;sy;l",BindSocketFunction,"BindSocketFunction",NULL);
 	  AddUDF(env,"connect","bl",2,3,";l;sy;l",ConnectFunction,"ConnectFunction",NULL);
 	  AddUDF(env,"close-connection","b",1,1,";lsy",CloseConnectionFunction,"CloseConnectionFunction",NULL);
