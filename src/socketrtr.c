@@ -591,14 +591,15 @@ void CreateSocketFunction(
 
 /******************************************************************************/
 /* FlushConnection: Flushed the connection associated with the specified      */
-/*   connection logical name. Returns true if the connection was successfully */
-/*   flushed, otherwise false.                                                */
+/*   connection logical name. Simply wraps GenFlush and discards return value */
+/*   for now.                                                                 */
 /******************************************************************************/
 bool FlushConnection(
 		Environment *theEnv,
 		FILE *stream)
 {
-	return GenFlush(theEnv,stream);
+	GenFlush(theEnv,stream);
+	return true;
 }
 
 /******************************************************************************/
