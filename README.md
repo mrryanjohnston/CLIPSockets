@@ -1,5 +1,7 @@
 # CLIPSockets
 
+Write CLIPS code that can talk to the internet!
+
 ## Forward
 
 * This repository is for educational purposes only :)
@@ -8,9 +10,44 @@
 * Don't know CLIPS? Try the
   [Tour of CLIPS](https://ryjo.codes/tour-of-clips.html)
   I wrote to learn!
-  
 
-## Purpose
+## Intro
+
+Create a server that listens, accepts, and reads a message from a client:
+
+```clips
+         CLIPS (6.4.1 4/8/23)
+CLIPS> (create-socket AF_INET SOCK_STREAM)
+3
+CLIPS> (bind-socket 3 127.0.0.1 8889)
+127.0.0.1:8889
+CLIPS> (listen 127.0.0.1:8889)
+TRUE
+CLIPS> (accept 127.0.0.1:8889)
+4
+CLIPS> (get-socket-logical-name 4)
+127.0.0.1:42616
+CLIPS> (readline 127.0.0.1:42616)
+
+```
+
+A client that would connect to that server would look like this:
+
+```clips
+         CLIPS (6.4.1 4/8/23)
+CLIPS> (create-socket AF_INET SOCK_STREAM)
+3
+CLIPS> (connect 3 127.0.0.1 8889)
+3
+CLIPS> (printout 127.0.0.1:8889 "Hello, server :)" crlf)
+CLIPS> (flush-connection 3)
+TRUE
+```
+
+You should see the message from the client in the previously mentioned server's rules engine
+when the client flushes their connection!
+
+## Immediate Purpose
 
 Provide low-level networking functions to
 [CLIPS](https://www.clipsrules.net/)
@@ -29,7 +66,7 @@ It does *not* currently support DNS resolution: you'll need to know
 the IP/PORT combination or location of unix socket
 instead of the URL you use to get to a site in your browser for now.
 
-## Goals
+## Long-Term Goals
 
 Educational purposes for now. I would like to get the quality of code in this repo
 ready for upstream merging into CLIPS someday. For now, it's so I can make
