@@ -74,20 +74,21 @@ some fun web applications using CLIPS!
 
 ## Installation
 
-Navigate into the `src` directory and run `make`:
+The project can be built from the root directory with `make`:
 
 ```
 make
 ```
 
-You should now have a `clips` executable file in your `src` directory.
+This will create the binary `clips` file in the root directory.
 Use this to run the example server and client network applications
-provided by the files `src/server-simple.bat`, `src/server-complex.bat`,
-and `src/client.bat`.
+provided by the files in the `examples` directory.
 
 ### Example Servers
 
-There are two example servers provided in this repository. One simply
+There are 4 example servers provided in this repository and 3 clients.
+
+The simplest server
 receives a single tcp connection and then exits.
 The other can be used to serve multiple concurrent requests until it is
 `ctrl+z` and `kill`ed.
