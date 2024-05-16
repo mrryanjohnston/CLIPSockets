@@ -1476,6 +1476,35 @@ void ConnectFunction(
 	returnValue->integerValue = CreateInteger(theEnv, sockfd);
 }
 
+bool GenSetBuffered(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *returnValue,
+		int mode,
+		const char *func)
+{
+	UDFValue theArg;
+	FILE *socketStream;
+
+	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
+	{
+		WriteString(theEnv,STDERR,"set-");
+		WriteString(theEnv,STDERR,func);
+		WriteString(theEnv,STDERR,"-buffered: Could not find bound socket; are you sure it's bound?\n");
+		return false;
+	}
+
+	if (0 > GenSetvbuf(theEnv, socketStream, NULL, mode, 0))
+	{
+		WriteString(theEnv,STDERR,"set-");
+		WriteString(theEnv,STDERR,func);
+		WriteString(theEnv,STDERR,"-buffered failed\n");
+		return false;
+	}
+
+	return true;
+}
+
 /*********************************************************************/
 /* SetNotBufferedFunction: H/L access function for set-not-buffered. */
 /* Sets the buffer type to unbuffered for a FILE * (stream)          */
@@ -1488,23 +1517,7 @@ void SetNotBufferedFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
-	UDFValue theArg;
-	FILE *socketStream;
-
-	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
-	{
-		WriteString(theEnv,STDERR,"set-not-buffered: Could not find bound socket; are you sure it's bound?\n");
-		return;
-	}
-
-	if (0 > GenSetvbuf(theEnv, socketStream, NULL, _IONBF, 0))
-	{
-		WriteString(theEnv,STDERR,"set-not-buffered failed\n");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
-		return;
-	}
-
-	returnValue->lexemeValue = TrueSymbol(theEnv);
+	GenSetBuffered(theEnv, context, returnValue, _IONBF, "not");
 }
 
 /***********************************************************************/
@@ -1519,23 +1532,7 @@ void SetLineBufferedFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
-	UDFValue theArg;
-	FILE *socketStream;
-
-	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
-	{
-		WriteString(theEnv,STDERR,"set-line-buffered: Could not find bound socket; are you sure it's bound?\n");
-		return;
-	}
-
-	if (0 > GenSetvbuf(theEnv, socketStream, NULL, _IOLBF, 0))
-	{
-		WriteString(theEnv,STDERR,"set-line-buffered failed\n");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
-		return;
-	}
-
-	returnValue->lexemeValue = TrueSymbol(theEnv);
+	GenSetBuffered(theEnv, context, returnValue, _IOLBF, "line");
 }
 
 /*************************************************************************/
@@ -1549,23 +1546,7 @@ void SetFullyBufferedFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
-	UDFValue theArg;
-	FILE *socketStream;
-
-	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
-	{
-		WriteString(theEnv,STDERR,"set-fully-buffered: Could not find bound socket; are you sure it's bound?\n");
-		return;
-	}
-
-	if (0 > GenSetvbuf(theEnv, socketStream, NULL, _IOFBF, 0))
-	{
-		WriteString(theEnv,STDERR,"set-fully-buffered failed\n");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
-		return;
-	}
-
-	returnValue->lexemeValue = TrueSymbol(theEnv);
+	GenSetBuffered(theEnv, context, returnValue, _IOFBF, "fully");
 }
 
 /*******************************************************************/
