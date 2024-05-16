@@ -238,7 +238,7 @@
 (defrule get-next-char-while-message-not-done
 	?f <- (socket (fd ?sfd) (clients-connected ?clientsConnected))
 	?c <- (client (socketfd ?sfd) (name ?name)
-		(raw-ascii-codes $?rawAsciiCodes&:(< (length$ ?rawAsciiCodes) 512) ?lastAsciiCode&~10&~-1))
+		(raw-ascii-codes $?rawAsciiCodes&:(< (length$ ?rawAsciiCodes) 512) ?lastAsciiCode&~10&:(>= ?lastAsciiCode 0)&:(<= ?lastAsciiCode 127)))
 	=>
 	(modify ?f
 		(current-time (time)))
