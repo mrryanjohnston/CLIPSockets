@@ -94,19 +94,19 @@ The other can be used to serve multiple concurrent requests until it is
 `ctrl+z` and `kill`ed.
 
 ```
-./clips -f2 server-simple.bat
+./clips -f2 examples/server-simple.bat
 ```
 
 or
 
 ```
-./clips -f2 server-complex.bat
+./clips -f2 examples/server-complex.bat
 ```
 
 ### Example Client
 
 ```
-./clips -f2 client.bat
+./clips -f2 examples/client.bat
 ```
 
 ### Other ways to test things out
