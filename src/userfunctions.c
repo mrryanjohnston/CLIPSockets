@@ -77,13 +77,13 @@ void UserFunctions(
 	  AddUDF(env,"flush-connection","l",1,1,"lsy",FlushConnectionFunction,"FlushConnectionFunction",NULL);
 	  AddUDF(env,"get-socket-logical-name","y",1,1,"l",GetSocketLogicalNameFunction,"GetSocketLogicalNameFunction",NULL);
 	  AddUDF(env,"get-timeout","l",1,1,"lsy",GetTimeoutFunction,"GetTimeoutFunction",NULL);
-	  AddUDF(env,"getsockopt","bl",3,3,";l;sy;sy",GetsockoptFunction,"GetsockoptFunction",NULL);
+	  AddUDF(env,"getsockopt","bl",3,3,";lsy;sy;sy",GetsockoptFunction,"GetsockoptFunction",NULL);
 	  AddUDF(env,"listen","b",1,2,";lsy;l",ListenFunction,"ListenFunction",NULL);
 	  AddUDF(env,"poll","b",1,11,"sy;lsy;l;sy;",PollFunction,"PollFunction",NULL);
 	  AddUDF(env,"set-fully-buffered","b",1,1,"lsy",SetFullyBufferedFunction,"SetFullyBufferedFunction",NULL);
 	  AddUDF(env,"set-not-buffered","b",1,1,"lsy",SetNotBufferedFunction,"SetNotBufferedFunction",NULL);
 	  AddUDF(env,"set-line-buffered","b",1,1,"lsy",SetLineBufferedFunction,"SetLineBufferedFunction",NULL);
 	  AddUDF(env,"set-timeout","l",2,2,";lsy;l",SetTimeoutFunction,"SetTimeoutFunction",NULL);
-	  AddUDF(env,"setsockopt","l",4,4,";l;sy;sy;l",SetsockoptFunction,"SetsockoptFunction",NULL);
+	  AddUDF(env,"setsockopt","l",4,4,";lsy;sy;sy;l",SetsockoptFunction,"SetsockoptFunction",NULL);
 	  AddUDF(env,"shutdown-connection","l",1,1,"lsy",ShutdownConnectionFunction,"ShutdownConnectionFunction",NULL);
   }

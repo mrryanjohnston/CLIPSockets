@@ -108,7 +108,7 @@ bool FindSocket(
 		const char *logicalName,
 		void *context)
 {
-	return FindSptr(theEnv, logicalName) != NULL;
+	return LogicalNameToSocketRouter(theEnv, logicalName) != NULL;
 }
 
 /*****************************************************************/
@@ -214,6 +214,7 @@ int GetFilenoFromArgument(
 		UDFContext *context,
 		UDFValue *theArg)
 {
+	FILE *stream;
 	int sockfd = -1;
 	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,theArg);
 	if (theArg->header->type == INTEGER_TYPE)
@@ -222,7 +223,7 @@ int GetFilenoFromArgument(
 	}
 	else if (theArg->header->type == STRING_TYPE || theArg->header->type == SYMBOL_TYPE)
 	{
-		FILE *stream = FindSptr(theEnv, theArg->lexemeValue->contents);
+		stream = FindSptr(theEnv, theArg->lexemeValue->contents);
 		if (stream != NULL)
 		{
 			sockfd = fileno(stream);
@@ -425,10 +426,14 @@ void GetsockoptFunction(
 	UDFValue theArg;
 	int sockfd, level, optname, flag; 
 	/*====================*/
-	/* Get the sockfd. */
+	/* Get the sockfd.    */
 	/*====================*/
-	UDFNextArgument(context,INTEGER_BIT,&theArg);
-	sockfd = theArg.integerValue->contents;
+	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
+	{
+		WriteString(theEnv,STDERR,"remove-status-flags: could not find router for socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
 	/*====================*/
 	/* Get the level. */
 	/*====================*/
@@ -498,8 +503,12 @@ void SetsockoptFunction(
 	/*====================*/
 	/* Get the sockfd.    */
 	/*====================*/
-	UDFNextArgument(context,INTEGER_BIT,&theArg);
-	sockfd = theArg.integerValue->contents;
+	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
+	{
+		WriteString(theEnv,STDERR,"remove-status-flags: could not find router for socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
 	/*====================*/
 	/* Get the level.     */
 	/*====================*/
