@@ -101,7 +101,7 @@ FILE *FindSptr(
 }
 
 /*************************************************************************/
-/* FindSocket high level function for Router Query Callback. */
+/* FindSocket high level function for Router Query Callback.             */
 /*************************************************************************/
 bool FindSocket(
 		Environment *theEnv,
@@ -201,6 +201,70 @@ struct socketRouter *FileDescriptorToSocketRouter(
 	if (sptr != NULL) return sptr;
 
 	return NULL;
+}
+
+/*************************************************************************************/
+/* GetFilenoFromArgument: Return the integer socket file descriptor                  */
+/*    from the first argument which can either be the socket file descriptor integer */
+/*    or the logical name of the socket after it's been bound or connected.          */
+/*    Returns the file descriptor integer or -1 on failure.                          */
+/*************************************************************************************/
+int GetFilenoFromArgument(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *theArg)
+{
+	int sockfd = -1;
+	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,theArg);
+	if (theArg->header->type == INTEGER_TYPE)
+	{
+		sockfd = theArg->integerValue->contents;
+	}
+	else if (theArg->header->type == STRING_TYPE || theArg->header->type == SYMBOL_TYPE)
+	{
+		FILE *stream = FindSptr(theEnv, theArg->lexemeValue->contents);
+		if (stream != NULL)
+		{
+			sockfd = fileno(stream);
+		}
+	}
+	return sockfd;
+}
+
+struct socketRouter *GetSocketRouterFromArgument(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *theArg
+		)
+{
+	struct socketRouter *sptr = NULL;
+
+	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,theArg);
+	if (theArg->header->type == INTEGER_TYPE)
+	{
+		sptr = FileDescriptorToSocketRouter(theEnv, theArg->integerValue->contents);
+	}
+	else if (theArg->header->type == STRING_TYPE || theArg->header->type == SYMBOL_TYPE)
+	{
+		sptr = LogicalNameToSocketRouter(theEnv, theArg->lexemeValue->contents);
+	}
+
+	return sptr;
+}
+
+FILE *GetBoundOrConnectedFilenoFromArgument(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *theArg)
+{
+	struct socketRouter *sptr = NULL;
+
+	if (NULL == (sptr = GetSocketRouterFromArgument(theEnv, context, theArg)))
+	{
+		return NULL;
+	}
+
+	return sptr->stream;
 }
 
 /*********************************************************/
@@ -614,31 +678,16 @@ FlushConnectionFunction(
 		UDFValue *returnValue)
 {
 	UDFValue theArg;
-	FILE *stream = NULL;
-	int sockfd = -1;
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
-	{
-		sockfd = theArg.integerValue->contents;
-		struct socketRouter *sptr;
+	FILE *socketStream;
 
-		sptr = FileDescriptorToSocketRouter(theEnv, sockfd);
-
-		if (sptr != NULL) stream = sptr->stream;
-	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
+	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		stream = FindSptr(theEnv, theArg.lexemeValue->contents);
-	}
-
-	if (stream == NULL)
-	{
-		WriteString(theEnv,STDERR,"Could not find FILE wrapped connection\n");
-		perror("perror");
+		WriteString(theEnv,STDERR,"flush-connection: Could not find socket with that logical name\n");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
-	returnValue->lexemeValue = CreateBoolean(theEnv,FlushConnection(theEnv,stream));
+
+	returnValue->lexemeValue = CreateBoolean(theEnv,FlushConnection(theEnv,socketStream));
 }
 
 bool EmptyConnection(
@@ -664,36 +713,15 @@ EmptyConnectionFunction(
 		UDFValue *returnValue)
 {
 	UDFValue theArg;
-	FILE *stream = NULL;
-	int sockfd = -1;
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
-	{
-		sockfd = theArg.integerValue->contents;
-		struct socketRouter *sptr;
+	FILE *socketStream;
 
-		/*==============================================================*/
-		/* Look up the logical name on the global socket list.          */
-		/*==============================================================*/
-		sptr = SocketRouterData(theEnv)->ListOfSocketRouters;
-		while ((sptr != NULL) ? sockfd != fileno(sptr->stream) : false)
-		{ sptr = sptr->next; }
-
-		if (sptr != NULL) stream = sptr->stream;
-	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
+	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		stream = FindSptr(theEnv, theArg.lexemeValue->contents);
-	}
-
-	if (stream == NULL)
-	{
-		WriteString(theEnv,STDERR,"Could not find FILE wrapped connection\n");
-		perror("perror");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
+		WriteString(theEnv,STDERR,"empty-connection: Could not find socket; are you sure it's accepted or connected?\n");
 		return;
 	}
-	returnValue->lexemeValue = CreateBoolean(theEnv,EmptyConnection(theEnv,stream));
+
+	returnValue->lexemeValue = CreateBoolean(theEnv,EmptyConnection(theEnv,socketStream));
 }
 
 /***************************************************************************************/
@@ -805,27 +833,15 @@ void ShutdownConnectionFunction(
 {
 	UDFValue theArg;
 
-	int sockfd = -1;
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
+	int sockfd, how;
+	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		sockfd = theArg.integerValue->contents;
-	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		FILE *stream = FindSptr(theEnv, theArg.lexemeValue->contents);
-		sockfd = fileno(stream);
-	}
-
-	// by default, shutdown with SHUT_RDWR
-	if (!UDFHasNextArgument(context))
-	{
-		returnValue->lexemeValue =
-			CreateBoolean(theEnv,GenShutdown(theEnv,sockfd,SHUT_RDWR));
+		WriteString(theEnv,STDERR,"get-timeout: could not find router for socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
 
-	int how = SHUT_RDWR;
+	how = SHUT_RDWR;
 	if (UDFHasNextArgument(context))
 	{
 		UDFNextArgument(context,SYMBOL_BIT,&theArg);
@@ -859,24 +875,16 @@ void PollFunction(
 {
 	UDFValue theArg;
 
-	// first arg is sockfd to poll
-	// or name of a socketrouter
-	int sockfd = -1;
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
+	int sockfd, timeout;
+	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		sockfd = theArg.integerValue->contents;
-	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		FILE *stream = FindSptr(theEnv, theArg.lexemeValue->contents);
-		sockfd = fileno(stream);
+		WriteString(theEnv,STDERR,"get-timeout: could not find router for socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
 	}
 
-	// second arg is number of milliseconds should block
-	// waiting for socket to become ready
 	UDFNextArgument(context,INTEGER_BIT,&theArg);
-	int timeout = theArg.integerValue->contents;
+	timeout = theArg.integerValue->contents;
 
 	// by default, poll for all flags
 	if (!UDFHasNextArgument(context))
@@ -1080,29 +1088,17 @@ void ListenFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
+	FILE *socketStream;
 	int sockfd, backlog;
-	struct socketRouter *sptr = NULL;
 	UDFValue theArg;
 
-	//sockfd
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
+	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents);
-	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		sptr = LogicalNameToSocketRouter(theEnv, theArg.lexemeValue->contents);
-	}
-
-	if (sptr == NULL)
-	{
-		WriteString(theEnv,STDERR,"listen: could not find router for socket file descriptor. Is the socket bound?\n");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
+		WriteString(theEnv,STDERR,"listen: Could not find bound socket; are you sure it's bound?\n");
 		return;
 	}
 
-	sockfd = fileno(sptr->stream);
+	sockfd = fileno(socketStream);
 
 	if (UDFHasNextArgument(context))
 	{
@@ -1161,40 +1157,28 @@ void AcceptFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
-	FILE *newstream;
+	FILE *socketStream, *newstream;
 	StringBuilder *logicalNameStringBuilder;
 	UDFValue theArg;
 	int domain;
 	struct sockaddr_storage client_addr;
 	int sockfd, connection_fd;
-	struct socketRouter *sptr = NULL, *newRouter;
+	struct socketRouter *newRouter;
 	socklen_t client_addr_len;
 
-	client_addr_len = sizeof(client_addr);
-
-	logicalNameStringBuilder = CreateStringBuilder(theEnv, 0);
-
-	//sockfd
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
+	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents);
-	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		sptr = LogicalNameToSocketRouter(theEnv, theArg.lexemeValue->contents);
-	}
-
-	if (sptr == NULL)
-	{
-		WriteString(theEnv,STDERR,"accept: could not find router for socket file descriptor. Is the socket bound?\n");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
+		WriteString(theEnv,STDERR,"accept: Could not find bound socket; are you sure it's bound?\n");
 		return;
 	}
 
-	sockfd = fileno(sptr->stream);
+	sockfd = fileno(socketStream);
 
+	logicalNameStringBuilder = CreateStringBuilder(theEnv, 0);
+
+	client_addr_len = sizeof(client_addr);
 	socklen_t domain_len = sizeof(domain);
+
 	GenGetsockopt(theEnv, sockfd, SOL_SOCKET, SO_DOMAIN, &domain, &domain_len);
 
 	/*====================================*/
@@ -1301,27 +1285,15 @@ void GetTimeoutFunction(
 	int getsockopt_return_value;
 	struct timeval timeout;
 
-	int sockfd = -1;
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
+	int sockfd;
 
-	if (theArg.header->type == INTEGER_TYPE)
+	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		sockfd = theArg.integerValue->contents;
+		WriteString(theEnv,STDERR,"get-timeout: could not find router for socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
 	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		FILE *stream = FindSptr(theEnv, theArg.lexemeValue->contents);
-		if (stream == NULL)
-		{
-			WriteString(theEnv,STDERR,"Could not find connection '");
-			WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
-			WriteString(theEnv,STDERR,"'\n");
-			perror("perror");
-			returnValue->lexemeValue = FalseSymbol(theEnv);
-			return;
-		}
-		sockfd = fileno(stream);
-	}
+
 	socklen_t timeout_len = sizeof(timeout);
 	getsockopt_return_value = GenGetsockopt(
 			theEnv,
@@ -1355,26 +1327,16 @@ void SetTimeoutFunction(
 {
 	struct timeval tv;
 	UDFValue theArg;
-	int sockfd = -1;
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
+
+	int sockfd;
+
+	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		sockfd = theArg.integerValue->contents;
+		WriteString(theEnv,STDERR,"set-timeout: could not find router for socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
 	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		FILE *stream = FindSptr(theEnv, theArg.lexemeValue->contents);
-		if (stream == NULL)
-		{
-			WriteString(theEnv,STDERR,"Could not find connection '");
-			WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
-			WriteString(theEnv,STDERR,"'\n");
-			perror("perror");
-			returnValue->lexemeValue = FalseSymbol(theEnv);
-			return;
-		}
-		sockfd = fileno(stream);
-	}
+
 	UDFNextArgument(context,INTEGER_BIT,&theArg);
 	tv.tv_sec = 0;
 	tv.tv_usec = theArg.integerValue->contents;
@@ -1387,7 +1349,6 @@ void SetTimeoutFunction(
 				sizeof(tv)
 				));
 }
-
 
 /********************************************************/
 /* ConnectFunction: H/l access function                 */
@@ -1528,33 +1489,21 @@ void SetNotBufferedFunction(
 		UDFValue *returnValue)
 {
 	UDFValue theArg;
-	struct socketRouter *sptr = NULL;
-	/*====================*/
-	/* Get the stream.    */
-	/*====================*/
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
-	{
-		sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents);
-	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		sptr = LogicalNameToSocketRouter(theEnv, theArg.lexemeValue->contents);
-	}
+	FILE *socketStream;
 
-	if (sptr == NULL)
+	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		WriteString(theEnv,STDERR,"set-not-buffered: could not find router\n");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
+		WriteString(theEnv,STDERR,"set-not-buffered: Could not find bound socket; are you sure it's bound?\n");
 		return;
 	}
 
-	if (0 > GenSetvbuf(theEnv, sptr->stream, NULL, _IONBF, 0))
+	if (0 > GenSetvbuf(theEnv, socketStream, NULL, _IONBF, 0))
 	{
 		WriteString(theEnv,STDERR,"set-not-buffered failed\n");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
+
 	returnValue->lexemeValue = TrueSymbol(theEnv);
 }
 
@@ -1571,33 +1520,21 @@ void SetLineBufferedFunction(
 		UDFValue *returnValue)
 {
 	UDFValue theArg;
-	struct socketRouter *sptr = NULL;
-	/*====================*/
-	/* Get the stream.    */
-	/*====================*/
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
-	{
-		sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents);
-	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		sptr = LogicalNameToSocketRouter(theEnv, theArg.lexemeValue->contents);
-	}
+	FILE *socketStream;
 
-	if (sptr == NULL)
+	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		WriteString(theEnv,STDERR,"set-line-buffered: could not find router\n");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
+		WriteString(theEnv,STDERR,"set-line-buffered: Could not find bound socket; are you sure it's bound?\n");
 		return;
 	}
 
-	if (0 > GenSetvbuf(theEnv, sptr->stream, NULL, _IOLBF, 0))
+	if (0 > GenSetvbuf(theEnv, socketStream, NULL, _IOLBF, 0))
 	{
 		WriteString(theEnv,STDERR,"set-line-buffered failed\n");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
+
 	returnValue->lexemeValue = TrueSymbol(theEnv);
 }
 
@@ -1613,33 +1550,21 @@ void SetFullyBufferedFunction(
 		UDFValue *returnValue)
 {
 	UDFValue theArg;
-	struct socketRouter *sptr = NULL;
-	/*====================*/
-	/* Get the stream.    */
-	/*====================*/
-	UDFNextArgument(context,INTEGER_BIT|LEXEME_BITS,&theArg);
-	if (theArg.header->type == INTEGER_TYPE)
-	{
-		sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents);
-	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		sptr = LogicalNameToSocketRouter(theEnv, theArg.lexemeValue->contents);
-	}
+	FILE *socketStream;
 
-	if (sptr == NULL)
+	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		WriteString(theEnv,STDERR,"set-fully-buffered: could not find router\n");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
+		WriteString(theEnv,STDERR,"set-fully-buffered: Could not find bound socket; are you sure it's bound?\n");
 		return;
 	}
 
-	if (0 > GenSetvbuf(theEnv, sptr->stream, NULL, _IOFBF, 0))
+	if (0 > GenSetvbuf(theEnv, socketStream, NULL, _IOFBF, 0))
 	{
 		WriteString(theEnv,STDERR,"set-fully-buffered failed\n");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
+
 	returnValue->lexemeValue = TrueSymbol(theEnv);
 }
 
@@ -1657,8 +1582,12 @@ void FcntlAddStatusFlagsFunction(
 	/* Get the sockfd.    */
 	/*====================*/
 	UDFValue theArg;
-	UDFNextArgument(context,INTEGER_BIT,&theArg);
-	sockfd = theArg.integerValue->contents;
+	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
+	{
+		WriteString(theEnv,STDERR,"add-status-flags: could not find router for socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
 	/*====================*/
 	/* Get the flags.     */
 	/*====================*/
@@ -1716,9 +1645,12 @@ void FcntlRemoveStatusFlagsFunction(
 	/* Get the sockfd.    */
 	/*====================*/
 	UDFValue theArg;
-	UDFNextArgument(context,INTEGER_BIT,&theArg);
-	sockfd = theArg.integerValue->contents;
-
+	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
+	{
+		WriteString(theEnv,STDERR,"remove-status-flags: could not find router for socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
 	/*====================*/
 	/* Get the flags.     */
 	/*====================*/

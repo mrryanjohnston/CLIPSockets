@@ -72,8 +72,8 @@ void UserFunctions(
 	  AddUDF(env,"close-connection","b",1,1,";lsy",CloseConnectionFunction,"CloseConnectionFunction",NULL);
 	  AddUDF(env,"create-socket","bl",2,3,"sy",CreateSocketFunction,"CreateSocketFunction",NULL);
 	  AddUDF(env,"empty-connection","bl",1,1,"lsy",EmptyConnectionFunction,"EmptyConnectionFunction",NULL);
-	  AddUDF(env,"fcntl-add-status-flags","bl",2,UNBOUNDED,"sy;l;",FcntlAddStatusFlagsFunction,"FcntlAddStatusFlagsFunction",NULL);
-	  AddUDF(env,"fcntl-remove-status-flags","bl",2,UNBOUNDED,"sy;l;",FcntlRemoveStatusFlagsFunction,"FcntlRemoveStatusFlagsFunction",NULL);
+	  AddUDF(env,"fcntl-add-status-flags","bl",2,UNBOUNDED,"sy;syl;",FcntlAddStatusFlagsFunction,"FcntlAddStatusFlagsFunction",NULL);
+	  AddUDF(env,"fcntl-remove-status-flags","bl",2,UNBOUNDED,"sy;syl;",FcntlRemoveStatusFlagsFunction,"FcntlRemoveStatusFlagsFunction",NULL);
 	  AddUDF(env,"flush-connection","l",1,1,"lsy",FlushConnectionFunction,"FlushConnectionFunction",NULL);
 	  AddUDF(env,"get-socket-logical-name","y",1,1,"l",GetSocketLogicalNameFunction,"GetSocketLogicalNameFunction",NULL);
 	  AddUDF(env,"get-timeout","l",1,1,"lsy",GetTimeoutFunction,"GetTimeoutFunction",NULL);
