@@ -17,6 +17,7 @@
 	(slot delayed-until (default nil))
 	(slot delayed-until-increment (default 0.01))
 	(slot max-life-time (default 5))
+	(slot max-message-length (default 512))
 	(slot timeouts (default 0))
 	(multislot raw-ascii-codes (type INTEGER)))
 
@@ -400,7 +401,7 @@
 		(current-time ?time)))
 
 (defrule get-next-char-while-message-not-done
-"Continue reading for a client"
+"continue reading for a client"
 	?f <- (socket
 		(fd ?socketfd)
 		(listening TRUE)
@@ -419,14 +420,15 @@
 		; it's still alive
 		(created-at ?createdAt
 			&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
+		(max-message-length ?maxMessageLength)
 		(raw-ascii-codes
 			$?rawAsciiCodes
-				; including ?lastAsciiCode there have been less than 511 total chars so far
-				&:(< (length$ ?rawAsciiCodes) 511)
+				; including ?lastasciicode message is still bellow maxmessagelength threshold
+				&:(< (length$ ?rawAsciiCodes) (- ?maxMessageLength 1))
 			?lastAsciiCode
 				; wasn't the end of the message
 				&~10
-				; was within valid UTF-8 range
+				; was within valid utf-8 range
 				&:(>= ?lastAsciiCode 0)
 				&:(<= ?lastAsciiCode 127)))
 	(not (client
@@ -464,10 +466,11 @@
 		; it's still alive
 		(created-at ?createdAt
 			&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
+		(max-message-length ?maxMessageLength)
 		(raw-ascii-codes
 			$?rawAsciiCodes
-				; including ?lastAsciiCode there have been 512 exactly total chars
-				&:(= (length$ ?rawAsciiCodes) 511)
+				; including ?lastAsciiCode it's at max length
+				&:(= (length$ ?rawAsciiCodes) (- ?maxMessageLength 1))
 			?lastAsciiCode
 				; wasn't the end of the message
 				&~10))
@@ -493,3 +496,53 @@
 		(client-waiting nil)
 		(clients-connected (- ?clientsConnected 1)))
 )
+
+(defrule next-char-not-UTF-8
+"not valid UTF-8 character"
+	?f <- (socket
+		(fd ?socketfd)
+		(listening TRUE)
+		(current-time ?currenttime)
+		(clients-connected ?clientsconnected)
+		(max-clients ?maxclients)
+		(client-waiting ?waiting))
+	?c <- (client
+		(socketfd ?socketfd)
+		(name ?name)
+		(ready-to-read TRUE)
+		(max-life-time ?maxlifetime)
+		; it's waited long enough
+		(delayed-until ?delayeduntil
+			&:(<= ?delayeduntil ?currenttime))
+		; it's still alive
+		(created-at ?createdat
+			&:(<= (- ?currenttime ?createdat) ?maxlifetime))
+		(max-message-length ?maxmessagelength)
+		(raw-ascii-codes
+			$?rawasciicodes
+				; including ?lastasciicode message is still bellow maxmessagelength threshold
+				&:(< (length$ ?rawasciicodes) (- ?maxmessagelength 1))
+			?lastasciicode
+				; was not within valid utf-8 range
+				&:(> ?lastasciicode 127)))
+	(not (client
+		(socketfd ?socketfd)
+		(delayed-until ?d&:(> ?delayeduntil ?d))))
+	(test (or
+		(eq ?waiting FALSE)
+		(and
+			(eq ?waiting TRUE)
+			(= ?clientsconnected ?maxclients))))
+	=>
+	;(println "[SERVER] Client " ?name " took too long. Closing...")
+	(printout ?name "Your message contained non UTF-8 characters. Bye :(" crlf)
+	;(println "[SERVER] Cleaning up client connection " ?name "...")
+	(flush-connection ?name)
+	(empty-connection ?name)
+	(shutdown-connection ?name)
+	(close-connection ?name)
+	(retract ?c)
+	(modify ?f
+		(current-time (time))
+		(client-waiting nil)
+		(clients-connected (- ?clientsconnected 1))))
