@@ -218,53 +218,6 @@
 		(delayed-until-increment (+ 0.001 ?delayedUntilIncrement)))
 	(modify ?f (client-waiting nil) (current-time ?time)))
 
-(defrule read-request-from-client
-	?f <- (socket
-		(fd ?socketfd)
-		(listening TRUE)
-		(current-time ?currentTime)
-		(max-clients ?maxClients)
-		(client-waiting ?waiting)
-		(clients-connected ?clientsConnected))
-	?c <- (client
-		(fd ?clientfd)
-		(socketfd ?socketfd)
-		(delayed-until ?delayedUntil&:(<= ?delayedUntil ?currentTime))
-		(name ?name&~nil)
-		(ready-to-read TRUE)
-		(max-life-time ?maxLifeTime)
-		(created-at ?createdAt&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
-		(raw-ascii-codes))
-	(not (client (socketfd ?socketfd) (delayed-until ?d&:(> ?delayedUntil ?d))))
-	(test (or
-		(eq ?waiting FALSE)
-		(and (eq ?waiting TRUE) (= ?clientsConnected ?maxClients))))
-	=>
-	;(println "[SERVER] Client " ?name " is ready to be read!")
-	;(println "[SERVER] Setting client " ?name " to not buffered: " (set-not-buffered ?clientfd))
-	;(println "[SERVER] Reading client " ?name "...")
-	(bind ?time (time))
-	(set-not-buffered ?clientfd)
-	(modify ?c (delayed-until ?time) (raw-ascii-codes (get-char ?name)))
-	(modify ?f (client-waiting nil) (current-time ?time)))
-
-(defrule get-next-char-while-message-not-done
-	?f <- (socket
-		(fd ?sfd)
-		(clients-connected ?clientsConnected))
-	?c <- (client
-		(socketfd ?sfd)
-		(name ?name)
-		(raw-ascii-codes
-			$?rawAsciiCodes&:(< (length$ ?rawAsciiCodes) 512)
-			?lastAsciiCode&~10&:(>= ?lastAsciiCode 0)&:(<= ?lastAsciiCode 127)))
-	=>
-	(modify ?f
-		(current-time (time)))
-	(modify ?c
-		(raw-ascii-codes ?rawAsciiCodes ?lastAsciiCode
-			(get-char ?name))))
-
 (defrule check-ready-to-write
 	?f <- (socket
 		(fd ?socketfd)
@@ -390,6 +343,145 @@
 =>
 	;(println "[SERVER] Client " ?name " took too long. Closing...")
 	(printout ?name "You took too long to send anything. Bye :(" crlf)
+	;(println "[SERVER] Cleaning up client connection " ?name "...")
+	(flush-connection ?name)
+	(empty-connection ?name)
+	(shutdown-connection ?name)
+	(close-connection ?name)
+	(retract ?c)
+	(modify ?f
+		(current-time (time))
+		(client-waiting nil)
+		(clients-connected (- ?clientsConnected 1)))
+)
+
+(defrule get-first-char-of-message
+"get the first character sent by the client that has waited long enough"
+	?f <- (socket
+		(fd ?socketfd)
+		(listening TRUE)
+		(current-time ?currentTime)
+		(max-clients ?maxClients)
+		(client-waiting ?waiting)
+		(clients-connected ?clientsConnected))
+	?c <- (client
+		(fd ?clientfd)
+		(socketfd ?socketfd)
+		; it's waited long enough
+		(delayed-until ?delayedUntil
+			&:(<= ?delayedUntil ?currentTime))
+		(name ?name&~nil)
+		(ready-to-read TRUE)
+		(max-life-time ?maxLifeTime)
+		; it's still alive
+		(created-at ?createdAt
+			&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
+		; has not yet received data
+		(raw-ascii-codes))
+	(not (client
+		(socketfd ?socketfd)
+		(delayed-until ?d&:(> ?delayedUntil ?d))))
+	(test (or
+		(eq ?waiting FALSE)
+		(and
+			(eq ?waiting TRUE)
+			(= ?clientsConnected ?maxClients))))
+	=>
+	;(println "[SERVER] Client " ?name " is ready to be read!")
+	;(println "[SERVER] Setting client " ?name " to not buffered: " (set-not-buffered ?clientfd))
+	;(println "[SERVER] Reading client " ?name "...")
+	(bind ?time (time))
+	(set-not-buffered ?clientfd)
+	(modify ?c
+		(delayed-until ?time)
+		(raw-ascii-codes (get-char ?name)))
+	(modify ?f
+		(client-waiting nil)
+		(current-time ?time)))
+
+(defrule get-next-char-while-message-not-done
+"Continue reading for a client"
+	?f <- (socket
+		(fd ?socketfd)
+		(listening TRUE)
+		(current-time ?currentTime)
+		(clients-connected ?clientsConnected)
+		(max-clients ?maxClients)
+		(client-waiting ?waiting))
+	?c <- (client
+		(socketfd ?socketfd)
+		(name ?name)
+		(ready-to-read TRUE)
+		(max-life-time ?maxLifeTime)
+		; it's waited long enough
+		(delayed-until ?delayedUntil
+			&:(<= ?delayedUntil ?currentTime))
+		; it's still alive
+		(created-at ?createdAt
+			&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
+		(raw-ascii-codes
+			$?rawAsciiCodes
+				; including ?lastAsciiCode there have been less than 511 total chars so far
+				&:(< (length$ ?rawAsciiCodes) 511)
+			?lastAsciiCode
+				; wasn't the end of the message
+				&~10
+				; was within valid UTF-8 range
+				&:(>= ?lastAsciiCode 0)
+				&:(<= ?lastAsciiCode 127)))
+	(not (client
+		(socketfd ?socketfd)
+		(delayed-until ?d&:(> ?delayedUntil ?d))))
+	(test (or
+		(eq ?waiting FALSE)
+		(and
+			(eq ?waiting TRUE)
+			(= ?clientsConnected ?maxClients))))
+	=>
+	(modify ?f
+		(current-time (time)))
+	(modify ?c
+		(raw-ascii-codes ?rawAsciiCodes ?lastAsciiCode
+			(get-char ?name))))
+
+(defrule message-too-long
+"We disconnect a client when message is too long"
+	?f <- (socket
+		(fd ?socketfd)
+		(listening TRUE)
+		(current-time ?currentTime)
+		(clients-connected ?clientsConnected)
+		(max-clients ?maxClients)
+		(client-waiting ?waiting))
+	?c <- (client
+		(socketfd ?socketfd)
+		(name ?name)
+		(ready-to-read TRUE)
+		(max-life-time ?maxLifeTime)
+		; it's waited long enough
+		(delayed-until ?delayedUntil
+			&:(<= ?delayedUntil ?currentTime))
+		; it's still alive
+		(created-at ?createdAt
+			&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
+		(raw-ascii-codes
+			$?rawAsciiCodes
+				; including ?lastAsciiCode there have been 512 exactly total chars
+				&:(= (length$ ?rawAsciiCodes) 511)
+			?lastAsciiCode
+				; wasn't the end of the message
+				&~10))
+	(not (client
+		(socketfd ?socketfd)
+		(delayed-until ?d&:(> ?delayedUntil ?d))))
+	(test (or
+		(eq ?waiting FALSE)
+		(and
+			(eq ?waiting TRUE)
+			(= ?clientsConnected ?maxClients))))
+=>
+	;(println "[SERVER] Client " ?name " took too long. Closing...")
+	(printout ?name "Your message was too long; 512 characters max (including the newline at the end). Bye :(" crlf)
 	;(println "[SERVER] Cleaning up client connection " ?name "...")
 	(flush-connection ?name)
 	(empty-connection ?name)
