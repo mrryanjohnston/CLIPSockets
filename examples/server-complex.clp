@@ -146,6 +146,19 @@
 		(name (get-socket-logical-name ?clientfd)))
 	(modify ?f (current-time (time))))
 
+(defrule could-not-accept-client
+	?f <- (socket
+		(fd ?socketfd)
+		(current-time ?currentTime)
+		(clients-connected ?clientsConnected))
+	?c <- (client
+		(fd FALSE)
+		(socketfd ?socketfd))
+	=>
+	;(println "[SERVER] Client failed to accepted")
+	(retract ?c)
+	(modify ?f (current-time (time))))
+
 (defrule check-client-ready-to-read
 	?f <- (socket
 		(fd ?socketfd)
@@ -236,14 +249,21 @@
 	(modify ?f (client-waiting nil) (current-time ?time)))
 
 (defrule get-next-char-while-message-not-done
-	?f <- (socket (fd ?sfd) (clients-connected ?clientsConnected))
-	?c <- (client (socketfd ?sfd) (name ?name)
-		(raw-ascii-codes $?rawAsciiCodes&:(< (length$ ?rawAsciiCodes) 512) ?lastAsciiCode&~10&:(>= ?lastAsciiCode 0)&:(<= ?lastAsciiCode 127)))
+	?f <- (socket
+		(fd ?sfd)
+		(clients-connected ?clientsConnected))
+	?c <- (client
+		(socketfd ?sfd)
+		(name ?name)
+		(raw-ascii-codes
+			$?rawAsciiCodes&:(< (length$ ?rawAsciiCodes) 512)
+			?lastAsciiCode&~10&:(>= ?lastAsciiCode 0)&:(<= ?lastAsciiCode 127)))
 	=>
 	(modify ?f
 		(current-time (time)))
 	(modify ?c
-		(raw-ascii-codes ?rawAsciiCodes ?lastAsciiCode (get-char ?name))))
+		(raw-ascii-codes ?rawAsciiCodes ?lastAsciiCode
+			(get-char ?name))))
 
 (defrule check-ready-to-write
 	?f <- (socket
@@ -312,7 +332,7 @@
 		(name ?name) 
 		(timeouts ?timeouts)
 		(delayed-until-increment ?delayedUntilIncrement)
-		(raw-ascii-codes $?rawAsciiCodes&:(< (length$ ?rawAsciiCodes) 512) -1))
+		(raw-ascii-codes $?rawAsciiCodes -1))
 	=>
 	(bind ?time (time))
 	;(println "[SERVER] Client " ?name " failed to send an END_OF_MESSAGE character (newline) before " ?timeout "ms")
@@ -325,10 +345,17 @@
 		(client-waiting nil)
 		(current-time ?time)))
 
-(defrule respond-to-client
-	?f <- (socket (fd ?sfd) (clients-connected ?clientsConnected))
-	?c <- (client (socketfd ?sfd) (name ?name)
-		(raw-ascii-codes $?rawAsciiCodes&:(< (length$ ?rawAsciiCodes) 512) 10))
+(defrule end-of-message-received-respond-to-client
+"We respond to the client once we get a new line character as signified by ascii 10"
+	?f <- (socket
+		(fd ?sfd)
+		(clients-connected ?clientsConnected))
+	?c <- (client
+		(socketfd ?sfd)
+		(name ?name)
+		(raw-ascii-codes
+			$?rawAsciiCodes
+			10))
 	=>
 	;(println "[SERVER] Writing to client " ?name "...")
 	(bind ?message "")
@@ -348,6 +375,7 @@
 )
 
 (defrule timeout-client
+"We timeout the client when the client's age is bigger than its maxLifeTime"
 	?f <- (socket
 		(fd ?socketfd)
 		(current-time ?currentTime)
@@ -357,7 +385,8 @@
 		(name ?name)
 		(socketfd ?socketfd)
 		(max-life-time ?maxLifeTime)
-		(created-at ?createdAt&:(> (- ?currentTime ?createdAt) ?maxLifeTime)))
+		(created-at ?createdAt
+				&:(> (- ?currentTime ?createdAt) ?maxLifeTime)))
 =>
 	;(println "[SERVER] Client " ?name " took too long. Closing...")
 	(printout ?name "You took too long to send anything. Bye :(" crlf)
