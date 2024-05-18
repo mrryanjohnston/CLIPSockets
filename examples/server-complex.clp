@@ -19,6 +19,7 @@
 	(slot max-life-time (default 5))
 	(slot max-message-length (default 512))
 	(slot timeouts (default 0))
+	(multislot last-ascii-codes (type INTEGER) (default 10))
 	(multislot raw-ascii-codes (type INTEGER)))
 
 (defrule always =>
@@ -307,9 +308,10 @@
 	?c <- (client
 		(socketfd ?sfd)
 		(name ?name)
+		(last-ascii-codes $?lastAsciiCodes)
 		(raw-ascii-codes
 			$?rawAsciiCodes
-			10))
+			$?rawLastAsciiCodes&:(eq ?rawLastAsciiCodes ?lastAsciiCodes)))
 	=>
 	;(println "[SERVER] Writing to client " ?name "...")
 	(bind ?message "")
@@ -421,19 +423,25 @@
 		(created-at ?createdAt
 			&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
 		(max-message-length ?maxMessageLength)
+		(last-ascii-codes $?lastAsciiCodes)
 		(raw-ascii-codes
 			$?rawAsciiCodes
-				; including ?lastasciicode message is still bellow maxmessagelength threshold
-				&:(< (length$ ?rawAsciiCodes) (- ?maxMessageLength 1))
-			?lastAsciiCode
-				; wasn't the end of the message
-				&~10
-				; was within valid utf-8 range
-				&:(>= ?lastAsciiCode 0)
-				&:(<= ?lastAsciiCode 127)))
+			&:(> (length$ ?rawAsciiCodes) 0)
+			&:(>= (nth$ (length$ ?rawAsciiCodes) ?rawAsciiCodes) 0)
+			&:(<= (nth$ (length$ ?rawAsciiCodes) ?rawAsciiCodes) 127)
+			&:(neq ?lastAsciiCodes
+				(create$
+					(subseq$
+						?rawAsciiCodes
+						(- (length$ ?rawAsciiCodes) (length$ ?lastAsciiCodes))
+						(length$ ?rawAsciiCodes)))
+					)))
 	(not (client
 		(socketfd ?socketfd)
 		(delayed-until ?d&:(> ?delayedUntil ?d))))
+	(test (<
+		(length$ ?rawAsciiCodes)
+		?maxMessageLength))
 	(test (or
 		(eq ?waiting FALSE)
 		(and
@@ -443,7 +451,7 @@
 	(modify ?f
 		(current-time (time)))
 	(modify ?c
-		(raw-ascii-codes ?rawAsciiCodes ?lastAsciiCode
+		(raw-ascii-codes ?rawAsciiCodes
 			(get-char ?name))))
 
 (defrule message-too-long
@@ -467,13 +475,15 @@
 		(created-at ?createdAt
 			&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
 		(max-message-length ?maxMessageLength)
+		(last-ascii-codes $?lastAsciiCodes)
 		(raw-ascii-codes
 			$?rawAsciiCodes
-				; including ?lastAsciiCode it's at max length
-				&:(= (length$ ?rawAsciiCodes) (- ?maxMessageLength 1))
-			?lastAsciiCode
-				; wasn't the end of the message
-				&~10))
+			; wasn't the end of the message
+			$?rawLastAsciiCodes
+				&:(neq ?rawLastAsciiCodes ?lastAsciiCodes)
+				&:(=
+					(+ (length$ ?rawLastAsciiCodes) (length$ ?rawAsciiCodes))
+					?maxMessageLength)))
 	(not (client
 		(socketfd ?socketfd)
 		(delayed-until ?d&:(> ?delayedUntil ?d))))
