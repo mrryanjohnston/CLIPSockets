@@ -530,8 +530,6 @@
 		(max-message-length ?maxmessagelength)
 		(raw-ascii-codes
 			$?rawasciicodes
-				; including ?lastasciicode message is still bellow maxmessagelength threshold
-				&:(< (length$ ?rawasciicodes) (- ?maxmessagelength 1))
 			?lastasciicode
 				; was not within valid utf-8 range
 				&:(> ?lastasciicode 127)))

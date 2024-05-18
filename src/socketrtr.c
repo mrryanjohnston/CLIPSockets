@@ -752,6 +752,7 @@ bool CloseFileDescriptorConnection(
 		{
 			GenClose(theEnv,sptr->stream);
 			rm(theEnv,(void *) sptr->logicalName,strlen(sptr->logicalName) + 1);
+
 			if (prev == NULL)
 			{ SocketRouterData(theEnv)->ListOfSocketRouters = sptr->next; }
 			else
@@ -981,6 +982,7 @@ void BindSocketFunction(
 	int domain;
 	StringBuilder *logicalNameStringBuilder = CreateStringBuilder(theEnv, 0);
 	size_t addr_len;
+	char *theName;
 
 	// sockfd
 	UDFNextArgument(context,INTEGER_BIT,&theArg);
@@ -1037,6 +1039,7 @@ void BindSocketFunction(
 			WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
 			WriteString(theEnv,STDERR,"': socket domain not supported.\n");
 			returnValue->lexemeValue = FalseSymbol(theEnv);
+			SBDispose(logicalNameStringBuilder);
 			return;
 	}
 
@@ -1051,6 +1054,7 @@ void BindSocketFunction(
 		WriteString(theEnv,STDERR,"\n");
 		perror("perror");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
+		SBDispose(logicalNameStringBuilder);
 		return;
 	}
 
@@ -1065,6 +1069,7 @@ void BindSocketFunction(
 		WriteString(theEnv,STDERR,"\n");
 		perror("perror");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
+		SBDispose(logicalNameStringBuilder);
 		return;
 	}
 
@@ -1073,7 +1078,9 @@ void BindSocketFunction(
 	/*=============================*/
 
 	newRouter = get_struct(theEnv,socketRouter);
-	newRouter->logicalName = SBCopy(logicalNameStringBuilder);
+	theName = (char *) gm2(theEnv,strlen(logicalNameStringBuilder->contents) + 1);
+	genstrcpy(theName,logicalNameStringBuilder->contents);
+	newRouter->logicalName = theName;
 	SBDispose(logicalNameStringBuilder);
 	newRouter->stream = newstream;
 
@@ -1174,6 +1181,7 @@ void AcceptFunction(
 	int sockfd, connection_fd;
 	struct socketRouter *newRouter;
 	socklen_t client_addr_len;
+	char *theName;
 
 	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
@@ -1241,6 +1249,7 @@ void AcceptFunction(
 			WriteString(theEnv,STDERR,"Could not accept; socket domain '");
 			WriteInteger(theEnv,STDERR,domain);
 			WriteString(theEnv,STDERR,"' not supported.\n");
+			SBDispose(logicalNameStringBuilder);
 			returnValue->lexemeValue = FalseSymbol(theEnv);
 			return;
 	}
@@ -1255,6 +1264,7 @@ void AcceptFunction(
 		WriteString(theEnv,STDERR,logicalNameStringBuilder->contents);
 		WriteString(theEnv,STDERR,"\n");
 		perror("perror");
+		SBDispose(logicalNameStringBuilder);
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
@@ -1264,7 +1274,9 @@ void AcceptFunction(
 	/*=============================*/
 
 	newRouter = get_struct(theEnv,socketRouter);
-	newRouter->logicalName = SBCopy(logicalNameStringBuilder);
+	theName = (char *) gm2(theEnv,strlen(logicalNameStringBuilder->contents) + 1);
+	genstrcpy(theName,logicalNameStringBuilder->contents);
+	newRouter->logicalName = theName;
 	SBDispose(logicalNameStringBuilder);
 	newRouter->stream = newstream;
 
@@ -1377,6 +1389,7 @@ void ConnectFunction(
 	struct sockaddr_storage serv_addr;
 	socklen_t addr_len;
 	UDFValue theArg, optionalArg;
+	char *theName;
 
 	logicalNameStringBuilder = CreateStringBuilder(theEnv, 0);
 
@@ -1470,7 +1483,9 @@ void ConnectFunction(
 	/*=============================*/
 
 	newRouter = get_struct(theEnv,socketRouter);
-	newRouter->logicalName = SBCopy(logicalNameStringBuilder);
+	theName = (char *) gm2(theEnv,strlen(logicalNameStringBuilder->contents) + 1);
+	genstrcpy(theName,logicalNameStringBuilder->contents);
+	newRouter->logicalName = theName;
 	SBDispose(logicalNameStringBuilder);
 	newRouter->stream = newstream;
 
