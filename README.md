@@ -38,7 +38,7 @@ A client that would connect to that server would look like this:
 CLIPS> (create-socket AF_INET SOCK_STREAM)
 3
 CLIPS> (connect 3 127.0.0.1 8889)
-3
+127.0.0.1:8889
 CLIPS> (printout 127.0.0.1:8889 "Hello, server :)" crlf)
 CLIPS> (flush-connection 3) ; NOTE: 127.0.0.1:8889 would work here, too
 TRUE
@@ -156,7 +156,7 @@ or FALSE if it fails.
 #### `(connect ?socketfd ?ipOrDir <?port>)`
 
 Connects a socket to a given IP/PORT or directory (in case of unix sockets).
-Returns an integer representing the client's file descriptor
+Returns the logical name of the connection that can be read/written,
 or FALSE if it fails.
 
 #### `(close-connection ?socketfdOrLogicalName)`

@@ -584,7 +584,6 @@ void CreateSocketFunction(
 		UDFValue *returnValue)
 {
 	int sock, domain, type, protocol;
-	FILE *stream;
 	struct socketRouter *newRouter;
 	UDFValue theArg;
 
@@ -664,11 +663,19 @@ void CreateSocketFunction(
 		return;
 	}
 
+	/*=============================*/
+	/* Create a new socket router. */
+	/*=============================*/
+	newRouter = get_struct(theEnv,socketRouter);
+	newRouter->domain = domain;
+	newRouter->type = type;
+	newRouter->stream = fdopen(sock, "r+");
+
 	/*=========================================*/
 	/* Wrap the opened socket in a FILE        */
 	/* with fdopen.                            */
 	/*=========================================*/
-	if (NULL == (stream = fdopen(sock, "r+")))
+	if (NULL == (newRouter->stream))
 	{
 		WriteString(theEnv,STDERR,"Could not fdopen ");
 		WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
@@ -677,14 +684,6 @@ void CreateSocketFunction(
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
-
-	/*=============================*/
-	/* Create a new socket router. */
-	/*=============================*/
-	newRouter = get_struct(theEnv,socketRouter);
-	newRouter->stream = stream;
-	newRouter->domain = domain;
-	newRouter->type = type;
 
 	/*==========================================*/
 	/* Add the newly opened file to the list of */
@@ -1372,7 +1371,11 @@ void ConnectFunction(
 	/* get socket fd     */
 	/*********************/
 	UDFNextArgument(context,INTEGER_BIT,&theArg);
-	sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents);
+	if (NULL == (sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents)))
+	{
+		WriteString(theEnv,STDERR,"accept: argument was not recognized as a socket file descriptor\n");
+		return;
+	}
 
 	addr_len = sizeof(serv_addr);
 
