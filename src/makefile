@@ -92,7 +92,7 @@ release_cpp : clips
 	$(CC) -c -D$(CLIPS_OS) $(CFLAGS) $(WARNINGS) $<
 
 clips : main.o libclips.a
-	$(CC) -o clips main.o -L. -lclips $(LDLIBS)
+	$(CC) -o ../clips main.o -L. -lclips $(LDLIBS)
 	
 libclips.a : $(OBJS)
 	rm -f $@   
