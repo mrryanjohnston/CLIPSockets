@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  02/09/21             */
+   /*            CLIPS Version 6.42  05/08/23             */
    /*                                                     */
    /*         DEFMODULE BASIC COMMANDS HEADER FILE        */
    /*******************************************************/
@@ -41,6 +41,9 @@
 /*                                                           */
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
+/*                                                           */
+/*      6.42: Function ppdefmodule incorrectly handled an    */
+/*            invalid module name with logical name nil.     */
 /*                                                           */
 /*************************************************************/
 
@@ -247,7 +250,10 @@ void PPDefmoduleCommand(
       ppForm = PPDefmoduleNil(theEnv,defmoduleName);
       
       if (ppForm == NULL)
-        { CantFindItemErrorMessage(theEnv,"defmodule",defmoduleName,true); }
+        {
+         CantFindItemErrorMessage(theEnv,"defmodule",defmoduleName,true);
+         ppForm = "";
+        }
 
       returnValue->lexemeValue = CreateString(theEnv,ppForm);
       
@@ -270,11 +276,7 @@ const char *PPDefmoduleNil(
    Defmodule *defmodulePtr;
 
    defmodulePtr = FindDefmodule(theEnv,defmoduleName);
-   if (defmodulePtr == NULL)
-     {
-      CantFindItemErrorMessage(theEnv,"defmodule",defmoduleName,true);
-      return NULL;
-     }
+   if (defmodulePtr == NULL) return NULL;
 
    if (DefmodulePPForm(defmodulePtr) == NULL) return "";
    

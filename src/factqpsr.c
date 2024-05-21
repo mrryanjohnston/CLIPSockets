@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  09/22/17             */
+   /*            CLIPS Version 7.00  02/06/24             */
    /*                                                     */
    /*            FACT-SET QUERIES PARSER MODULE           */
    /*******************************************************/
@@ -251,13 +251,6 @@ Expression *FactParseQueryAction(
      }
 
    if (ReplaceFactVariables(theEnv,factQuerySetVars,top->argList,true,0))
-     {
-      ReturnExpression(theEnv,top);
-      ReturnExpression(theEnv,factQuerySetVars);
-      return NULL;
-     }
-
-   if (ReplaceFactVariables(theEnv,factQuerySetVars,top->argList->nextArg,false,0))
      {
       ReturnExpression(theEnv,top);
       ReturnExpression(theEnv,factQuerySetVars);
@@ -723,6 +716,7 @@ static bool ReplaceSlotReference(
         {
          eptr = vlist;
          posn = 0;
+
          while (eptr && ((i != strlen(eptr->lexemeValue->contents)) ||
                          strncmp(eptr->lexemeValue->contents,str,
                                  (STD_SIZE) i)))
@@ -771,24 +765,20 @@ static bool ReplaceSlotReference(
 static bool IsQueryFunction(
   Expression *theExp)
   {
-   int (*fptr)(void);
-
+   UserDefinedFunction *theFunction;
+   
    if (theExp->type != FCALL)
-     return false;
-   fptr = (int (*)(void)) ExpressionFunctionPointer(theExp);
+     { return false; }
+     
+   theFunction = theExp->functionValue->functionPointer;
 
-   if (fptr == (int (*)(void)) AnyFacts)
-     return true;
-   if (fptr == (int (*)(void)) QueryFindFact)
-     return true;
-   if (fptr == (int (*)(void)) QueryFindAllFacts)
-     return true;
-   if (fptr == (int (*)(void)) QueryDoForFact)
-     return true;
-   if (fptr == (int (*)(void)) QueryDoForAllFacts)
-     return true;
-   if (fptr == (int (*)(void)) DelayedQueryDoForAllFacts)
-     return true;
+   if ((theFunction == AnyFacts) ||
+       (theFunction == QueryFindFact) ||
+       (theFunction == QueryFindAllFacts) ||
+       (theFunction == QueryDoForFact) ||
+       (theFunction == QueryDoForAllFacts) ||
+       (theFunction == DelayedQueryDoForAllFacts))
+     { return true; }
 
    return false;
   }

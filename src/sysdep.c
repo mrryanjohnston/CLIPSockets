@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  01/27/23             */
+   /*            CLIPS Version 7.00  12/24/23             */
    /*                                                     */
    /*               SYSTEM DEPENDENT MODULE               */
    /*******************************************************/
@@ -126,6 +126,9 @@
 /*            Changed gengetcwd buffer length parameter from */
 /*            int to size_t.                                 */
 /*                                                           */
+/*      7.00: On macOS, changed calls of srand and rand to   */
+/*            srandom and random.                            */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -207,7 +210,7 @@ void InitializeSystemDependentData(
 /*   which indicates the present time. Used internally   */
 /*   for timing rule firings and debugging.              */
 /*********************************************************/
-double gentime()
+double gentime(void)
   {
 #if MAC_XCD || UNIX_V || DARWIN || LINUX || UNIX_7
    struct timeval now;
@@ -398,9 +401,13 @@ int gensnprintf(
 /******************************************************/
 /* genrand: Generic random number generator function. */
 /******************************************************/
-int genrand()
+int genrand(void)
   {
+#if MAC_XCD || DARWIN
+   return (int) random();
+#else
    return(rand());
+#endif
   }
 
 /**********************************************************************/
@@ -409,7 +416,11 @@ int genrand()
 void genseed(
   unsigned int seed)
   {
+#if MAC_XCD || DARWIN
+   srandom(seed);
+#else
    srand(seed);
+#endif
   }
 
 /*********************************************/

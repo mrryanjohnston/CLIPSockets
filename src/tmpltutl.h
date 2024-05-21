@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.41  11/10/22            */
+   /*             CLIPS Version 7.00  01/07/22            */
    /*                                                     */
    /*          DEFTEMPLATE UTILITIES HEADER FILE          */
    /*******************************************************/
@@ -49,6 +49,8 @@
 /*      6.41: Added error message for using ordered facts    */
 /*            with functions expecting deftemplate facts.    */
 /*                                                           */
+/*      7.00: Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_tmpltutl
@@ -70,7 +72,7 @@
    bool                           CheckRHSSlotTypes(Environment *,struct expr *,struct templateSlot *,const char *);
    struct templateSlot           *GetNthSlot(Deftemplate *,long long);
    int                            FindSlotPosition(Deftemplate *,CLIPSLexeme *);
-   void                           PrintTemplateFact(Environment *,const char *,Fact *,bool,bool,const char *);
+   void                           PrintTemplateFact(Environment *,const char *,Fact *,bool,bool,CLIPSBitMap *);
    void                           UpdateDeftemplateScope(Environment *);
    struct templateSlot           *FindSlot(Deftemplate *,CLIPSLexeme *,unsigned short *);
    Deftemplate                   *CreateImpliedDeftemplate(Environment *,CLIPSLexeme *,bool);

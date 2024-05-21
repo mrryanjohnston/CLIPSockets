@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  11/14/17            */
+   /*             CLIPS Version 7.00  03/02/24            */
    /*                                                     */
    /*            INSTANCE COMMAND HEADER MODULE           */
    /*******************************************************/
@@ -56,6 +56,9 @@
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
 /*                                                           */
 /*            UDF redesign.                                  */
+/*                                                           */
+/*      6.42: Fixed GC bug by including garbage fact and     */
+/*            instances in the GC frame.                     */
 /*                                                           */
 /*************************************************************/
 
@@ -113,7 +116,6 @@ struct instanceData
    bool MaintainGarbageInstances;
    bool MkInsMsgPass;
    bool ChangesToInstances;
-   IGARBAGE *InstanceGarbageList;
    struct patternEntityRecord InstanceInfo;
    Instance *InstanceList;
    unsigned long GlobalNumberOfInstances;

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/23/20            */
+   /*             CLIPS Version 7.00  01/23/24            */
    /*                                                     */
    /*                FACT BUILD HEADER FILE               */
    /*******************************************************/
@@ -30,6 +30,8 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      7.00: Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_factbld
@@ -47,7 +49,7 @@ struct factPatternNode
   {
    struct patternNodeHeader header;
    unsigned long bsaveID;
-   unsigned short whichField; // TBD seems to be 1 based rather than 0 based
+   unsigned short whichField;
    unsigned short whichSlot;
    unsigned short leaveFields;
    struct expr *networkTest;
@@ -55,9 +57,13 @@ struct factPatternNode
    struct factPatternNode *lastLevel;
    struct factPatternNode *leftNode;
    struct factPatternNode *rightNode;
+   CLIPSBitMap *modifySlots;
   };
 
    void                           InitializeFactPatterns(Environment *);
    void                           DestroyFactPatternNetwork(Environment *,struct factPatternNode *);
-
+   void                           IncrementalResetAddGoalExpressions(Environment *);
+   void                           IncrementalResetGoals(Environment *);
+   void                           ReleaseGoalUpdates(Environment *);
+  
 #endif /* _H_factbld */

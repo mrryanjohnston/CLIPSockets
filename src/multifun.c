@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  11/04/22             */
+   /*            CLIPS Version 7.00  04/30/24             */
    /*                                                     */
    /*             MULTIFIELD FUNCTIONS MODULE             */
    /*******************************************************/
@@ -79,6 +79,8 @@
 /*                                                           */
 /*      6.41: Added intersection$, union$, and difference$   */
 /*            functions.                                     */
+/*                                                           */
+/*      6.42: Fixed member$ function bug.                    */
 /*                                                           */
 /*************************************************************/
 
@@ -307,7 +309,7 @@ void ReplaceFunction(
    /* Verify the start and end index arguments. */
    /*===========================================*/
 
-   start = value2.integerValue->contents; // TBD Refactor
+   start = value2.integerValue->contents;
    end = value3.integerValue->contents;
 
    if ((end < start) || (start < 1) || (end < 1) ||
@@ -346,7 +348,7 @@ void ReplaceFunction(
    /* Delete the section out of the multifield value. */
    /*=================================================*/
 
-   if (value4.header->type == MULTIFIELD_TYPE) // TBD Refactor
+   if (value4.header->type == MULTIFIELD_TYPE)
      { dstLen = srcLen - (re - rs + 1) + value4.range; }
    else
      { dstLen = srcLen - (re - rs); }
@@ -426,7 +428,7 @@ void DeleteMemberFunction(
       else
         { valueSoughtLength = 1; }
         
-      while ((rs = FindValueInMultifield(&valueSought,&resultValue)) != VALUE_NOT_FOUND)  // TBD Refactor
+      while ((rs = FindValueInMultifield(&valueSought,&resultValue)) != VALUE_NOT_FOUND)
         {
          update = CreateMultifield(theEnv,resultValue.range - valueSoughtLength);
          re = rs + valueSoughtLength - 1;
@@ -931,7 +933,7 @@ void MemberFunction(
         {
          if (item1.value == item2.multifieldValue->contents[i].value)
            {
-            returnValue->integerValue = CreateInteger(theEnv,(long long) (i + 1));
+            returnValue->integerValue = CreateInteger(theEnv,(long long) (i + 1 - item2.begin));
             return;
            }
         }
@@ -965,88 +967,6 @@ void MemberFunction(
      }
   }
 
-/********************************************/
-/* IntersectionFunction: H/L access routine */
-/*   for the intersection$ function.        */
-/********************************************/
-/*
-void IntersectionFunction2(
-  Environment *theEnv,
-  UDFContext *context,
-  UDFValue *returnValue)
-  {
-   CLIPSValue *valueArray;
-   UDFValue item1, item2;
-   size_t i, j, maxElements, actualElements = 0;
-   bool found;
-   
-   // TBD Use HashMap to determine intersection
-   
-   if (! UDFFirstArgument(context,MULTIFIELD_BIT,&item1))
-     { return; }
-
-   if (! UDFNextArgument(context,MULTIFIELD_BIT,&item2))
-     { return; }
-
-   if ((item1.range == 0) ||
-       (item2.range == 0))
-     {
-      SetMultifieldErrorValue(theEnv,returnValue);
-      return;
-     }
-
-   if (item1.range >= item2.range)
-     { maxElements = item1.range; }
-   else
-     { maxElements = item2.range; }
-     
-   valueArray = (CLIPSValue *) gm2(theEnv,sizeof(CLIPSValue) * maxElements);
-
-   for (i = item1.begin; i < (item1.begin + item1.range); i++)
-     {
-      found = false;
-      
-      for (j = item2.begin; j < (item2.begin + item2.range); j++)
-        {
-         if (item1.multifieldValue->contents[i].value == item2.multifieldValue->contents[j].value)
-           {
-            found = true;
-            break;
-           }
-        }
-        
-      if (! found) continue;
-
-      found = false;
-
-      for (j = 0; j < actualElements; j++)
-        {
-         if (item1.multifieldValue->contents[i].value == valueArray[j].value)
-           {
-            found = true;
-            break;
-           }
-        }
-
-      if (! found)
-        {
-         valueArray[actualElements].value = item1.multifieldValue->contents[i].value;
-         actualElements++;
-        }
-        
-      if (actualElements == maxElements) break;
-     }
-     
-   returnValue->begin = 0;
-   returnValue->range = actualElements;
-   returnValue->multifieldValue = CreateMultifield(theEnv,actualElements);
-
-   for (i = 0; i < actualElements; i++)
-     { returnValue->multifieldValue->contents[i].value = valueArray[i].value; }
-
-   rm(theEnv,valueArray,sizeof(CLIPSValue) * maxElements);
-  }
-  */
 /********************************************/
 /* IntersectionFunction: H/L access routine */
 /*   for the intersection$ function.        */
@@ -1796,8 +1716,8 @@ static void ReplaceMvPrognFieldVars(
         }
       else if (theExp->argList != NULL)
         {
-         if ((theExp->type == FCALL) && ((theExp->value == (void *) FindFunction(theEnv,"progn$")) ||
-                                        (theExp->value == (void *) FindFunction(theEnv,"foreach")) ))
+         if ((theExp->type == FCALL) && ((theExp->functionValue == FindFunction(theEnv,"progn$")) ||
+                                        (theExp->functionValue == FindFunction(theEnv,"foreach")) ))
            ReplaceMvPrognFieldVars(theEnv,fieldVar,theExp->argList,depth+1);
          else
            ReplaceMvPrognFieldVars(theEnv,fieldVar,theExp->argList,depth);

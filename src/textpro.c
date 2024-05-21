@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  08/25/16             */
+   /*            CLIPS Version 6.42  05/07/24             */
    /*                                                     */
    /*               TEXT PROCESSING MODULE                */
    /*******************************************************/
@@ -59,6 +59,9 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      6.42: Removed arbitrary limit on text processing     */
+/*            file and entry name lengths.                   */
+/*                                                           */
 /*************************************************************/
 
 
@@ -93,7 +96,6 @@
 
 #if TEXTPRO_FUNCTIONS
 
-#define NAMESIZE 80
 #define NULLCHAR '\0'
 #define BLANK (' ')
 #define TAB ('\t')
@@ -125,7 +127,7 @@ struct entries
   {
    int level;              /*Level of entry node in the lookup tree  */
    int type;               /*Entry node data type : menu or info     */
-   char name[NAMESIZE];    /*Entry node name                         */
+   char *name;
    long offset;            /*Location of entry info in the file      */
    struct entries *child;  /*Address of list of subtopic entries     */
    struct entries *parent; /*Address of parent topic entry           */
@@ -137,7 +139,7 @@ struct entries
 /*=========================================*/
 struct lists
   {
-   char file[NAMESIZE];       /*File name                                */
+   char *file;                /*File name                                */
    struct entries *topics;    /*Address of list of entry topics for file */
    struct entries *curr_menu; /*Address of current main topic in file    */
    struct lists *next;        /*Address of next file in the table        */
@@ -158,6 +160,13 @@ struct lists
 
 #define TEXTPRO_DATA 8
 
+typedef enum
+  {
+   TP_NO_ERROR = 0,
+   TP_INVALID_DELIMITER_STRING,
+   TP_INVALID_ENTRY_TYPE
+  } TextProError;
+    
 struct textProcessingData
   {
    struct lists *headings;
@@ -184,7 +193,8 @@ struct textProcessingData
    static long                    LookupEntry(Environment *,const char *,char **,char *,int *);
    static void                    TossFunction(Environment *,struct entries *);
    static void                    DeallocateTextProcessingData(Environment *);
-
+   static TextProError            ParseLine(Environment *,const char *,int *,char *,char **);
+   
 /******************************************************************************/
 /*============================================================================*/
 /*                             INTERNAL ROUTINES                              */
@@ -375,6 +385,8 @@ static bool TextLookupToss(
      TextProcessingData(theEnv)->headings = clptr->next;
    else
      plptr->next = clptr->next;
+
+   genfree(theEnv,(void *) clptr->file,strlen(clptr->file) + 1);
    rm(theEnv,clptr,sizeof(struct lists));
    return true;
   }
@@ -592,7 +604,10 @@ static struct lists *NewFetchFile(
         return NULL;
      }
    lnode = (struct lists *) gm2(theEnv,sizeof(struct lists));
+      
+   lnode->file = (char *) genalloc(theEnv,strlen(file) + 1);
    genstrcpy(lnode->file,file);
+   
    lnode->topics = NULL;
    lnode->curr_menu = NULL;
    lnode->next = NULL;
@@ -603,6 +618,109 @@ static struct lists *NewFetchFile(
    return(lnode);
   }
 
+/*************/
+/* ParseLine */
+/*************/
+static TextProError ParseLine(
+   Environment *theEnv,
+   const char *str,
+   int *level,
+   char *entryType,
+   char **entryName)
+   {
+    size_t pos = 0;
+    bool digitFound = false, plusFound = false, minusFound = false;
+    int theLevel = 0;
+    char theChar;
+    const char *subName;
+    size_t length = 0;
+    char *theString;
+    
+    *entryName = NULL;
+    
+    /*==================*/
+    /* Parse the level. */
+    /*==================*/
+    
+    theChar = str[pos++];
+    
+    while ((theChar == '+') ||
+           (theChar == '-') ||
+           isdigit(theChar))
+      {
+       if (theChar == '+')
+         {
+          if (digitFound || plusFound || minusFound)
+            { return TP_INVALID_DELIMITER_STRING; }
+          plusFound = true;
+         }
+       else if (theChar == '-')
+         {
+          if (digitFound || plusFound || minusFound)
+            { return TP_INVALID_DELIMITER_STRING; }
+          minusFound = true;
+         }
+       else
+         {
+          theLevel = (theLevel * 10) + (theChar - '0');
+          digitFound = true;
+         }
+         
+       theChar = str[pos++];
+      }
+      
+    if (! digitFound)
+      { return TP_INVALID_DELIMITER_STRING; }
+      
+    if (minusFound)
+      { theLevel = -theLevel; }
+      
+    *level = theLevel;
+    
+    /*=====================*/
+    /* Get the entry type. */
+    /*=====================*/
+
+    *entryType = theChar;
+    if ((theChar != 'M') && (theChar != 'I'))
+      { return TP_INVALID_ENTRY_TYPE; }
+      
+    /*========================*/
+    /* Look for BEGIN_ENTRY_. */
+    /*========================*/
+    
+    while (isspace(str[pos]))
+      { pos++; }
+      
+    if (strncmp(&str[pos],BDELIM,BDLEN) != 0)
+      { return TP_INVALID_DELIMITER_STRING; }
+
+    /*====================*/
+    /* Look for the name. */
+    /*====================*/
+    
+    pos = pos + BDLEN;
+
+    while (isspace(str[pos]))
+      { pos++; }
+
+    subName = &str[pos];
+    
+    while (isprint(str[pos++]))
+      { length++; }
+
+    if (length == 0)
+      { return TP_INVALID_DELIMITER_STRING; }
+      
+    theString = genalloc(theEnv,length+1);
+    theString[0] = '\0';
+    strncat(theString,subName,length);
+
+    *entryName = theString;
+      
+    return TP_NO_ERROR;
+   }
+   
 /******************************************************************************/
 /*ENTRIES_NODE FUNCTION :                                                     */
 /* Input : 1) file pointer                                                    */
@@ -628,17 +746,20 @@ static struct entries *AllocateEntryNode(
   int line_ct)
   {
    struct entries *enode;
-   char bmarker[BDLEN+1],  /*Entry topic delimiting strings         */
-        t_code[2];         /*Type of entry flag : menu or info      */
-
+   char entryType;
+   int level;
+   char *entryName;
+   TextProError theError;
 
    /*================================================================*/
    /*Allocate a new node and scan the delimeter string for tree info */
    /*================================================================*/
 
    enode = (struct entries *) gm2(theEnv,sizeof(struct entries));
-   if (sscanf(str,BFORMAT,
-              &enode->level,t_code,bmarker,enode->name) != 4)
+   
+   theError = ParseLine(theEnv,str,&level,&entryType,&entryName);
+   
+   if (theError == TP_INVALID_DELIMITER_STRING)
      {
       rm(theEnv,enode,sizeof(struct entries));
       GenClose(theEnv,fp);
@@ -647,15 +768,12 @@ static struct entries *AllocateEntryNode(
       PrintErrorID(theEnv,"TEXTPRO",5,false);
       WriteString(theEnv,STDERR,"Line ");
       WriteInteger(theEnv,STDERR,line_ct);
-      WriteString(theEnv,STDERR," : Invalid delimeter string.\n");
+      WriteString(theEnv,STDERR," : Invalid delimiter string.\n");
 
       return NULL;
      }
-   if (t_code[0] == 'M')
-     enode->type = MENU;
-   else if (t_code[0] == 'I')
-     enode->type = INFO;
-   else
+
+   if (theError == TP_INVALID_ENTRY_TYPE)
      {
       rm(theEnv,enode,sizeof(struct entries));
       GenClose(theEnv,fp);
@@ -668,19 +786,11 @@ static struct entries *AllocateEntryNode(
 
       return NULL;
      }
-   if (strcmp(bmarker,BDELIM) != 0)
-     {
-      rm(theEnv,enode,sizeof(struct entries));
-      GenClose(theEnv,fp);
-      TextLookupToss(theEnv,file);
-
-      PrintErrorID(theEnv,"TEXTPRO",5,false);
-      WriteString(theEnv,STDERR,"Line ");
-      WriteInteger(theEnv,STDERR,line_ct);
-      WriteString(theEnv,STDERR," : Invalid delimeter string.\n");
-
-      return NULL;
-     }
+     
+   if (entryType == 'M')
+     enode->type = MENU;
+   else if (entryType == 'I')
+     enode->type = INFO;
 
    /*===============================================================*/
    /* For systems which have record file systems (such as VMS),     */
@@ -689,11 +799,12 @@ static struct entries *AllocateEntryNode(
    /*===============================================================*/
 
    ungetc(getc(fp),fp);
-
+   enode->level = level;
    enode->offset = ftell(fp);
    enode->parent = NULL;
    enode->child  = NULL;
    enode->next = NULL;
+   enode->name = entryName;
    upper(enode->name);
 
    return(enode);
@@ -743,6 +854,8 @@ static bool AttachLeaf(
        }
      else
        {
+        if (enode->name != NULL)
+          { genfree(theEnv,(void *) enode->name,strlen(enode->name) + 1); }
         rm(theEnv,enode,sizeof(struct entries));
         GenClose(theEnv,fp);
         TextLookupToss(theEnv,file);
@@ -979,6 +1092,9 @@ static void TossFunction(
         TossFunction(theEnv,eptr->child);
       prev = eptr;
       eptr = eptr->next;
+      
+      if (prev->name != NULL)
+        { genfree(theEnv,(void *) prev->name,strlen(prev->name) + 1); }
       rm(theEnv,prev,sizeof(struct entries));
      }
   }
@@ -1009,7 +1125,7 @@ static void TossFunction(
 /*==========================================*/
 struct topics
   {
-   char name[NAMESIZE];      /*Name of the node                 */
+   char *name;
    struct topics *end_list;  /*Pointer to end of query list     */
    struct topics *next;      /*Pointer to next topic in the list*/
   };
@@ -1095,16 +1211,20 @@ void PrintRegionCommand(
    char *menu[1];            /*Buffer for the current menu name        */
    int status;               /*Lookup status return code               */
    bool com_code;            /*Completion flag                         */
+   const char *logicalName;
 
    params = GetCommandLineTopics(context);
    fp = FindTopicInEntries(theEnv,params->next->name,params->next->next,menu,&status);
    if ((status != NO_FILE) && (status != NO_TOPIC) && (status != EXIT))
      {
       if (strcmp(params->name,"t") == 0)
-        genstrcpy(params->name,STDOUT);
-      WriteString(theEnv,params->name,"\n");
+        { logicalName = STDOUT; }
+      else
+        { logicalName = params->name; }
+        
+      WriteString(theEnv,logicalName,"\n");
       while (GrabString(theEnv,fp,buf,256) != NULL)
-        WriteString(theEnv,params->name,buf);
+        WriteString(theEnv,logicalName,buf);
       com_code = true;
      }
    else
@@ -1127,6 +1247,7 @@ void PrintRegionCommand(
      {
       tptr = params;
       params = params->next;
+      genfree(theEnv,(void *) tptr->name,strlen(tptr->name) + 1);
       rm(theEnv,tptr,sizeof(struct topics));
      }
 
@@ -1178,6 +1299,7 @@ void GetRegionCommand(
      {
       tptr = params;
       params = params->next;
+      genfree(theEnv,(void *) tptr->name,strlen(tptr->name) + 1);
       rm(theEnv,tptr,sizeof(struct topics));
      }
 
@@ -1245,6 +1367,7 @@ static struct topics *GetCommandLineTopics(
                  *tptr;   /* Used to attach new node to the list  */
    UDFValue val;        /* Unknown-type H/L data structure      */
    Environment *theEnv = context->environment;
+   const char *theString;
 
    head = NULL;
 
@@ -1255,13 +1378,16 @@ static struct topics *GetCommandLineTopics(
       UDFNextArgument(context,ANY_TYPE_BITS,&val);
 
       if ((val.header->type == SYMBOL_TYPE) || (val.header->type == STRING_TYPE))
-        genstrncpy(tnode->name,val.lexemeValue->contents,NAMESIZE-1);
+        { theString = val.lexemeValue->contents; }
       else if (val.header->type == FLOAT_TYPE)
-        genstrncpy(tnode->name,FloatToString(theEnv,val.floatValue->contents),NAMESIZE-1);
+        { theString = FloatToString(theEnv,val.floatValue->contents); }
       else if (val.header->type == INTEGER_TYPE)
-        genstrncpy(tnode->name,LongIntegerToString(theEnv,val.integerValue->contents),NAMESIZE-1);
+        { theString = LongIntegerToString(theEnv,val.integerValue->contents); }
       else
-        genstrncpy(tnode->name,"***ERROR***",NAMESIZE-1);
+        { theString = "***ERROR***"; }
+
+      tnode->name = (char *) genalloc(theEnv,strlen(theString) + 1);
+      genstrcpy(tnode->name,theString);
 
       tnode->next = NULL;
       tnode->end_list = NULL;
@@ -1377,6 +1503,8 @@ static void DeallocateTextProcessingData(
       nextptr = clptr->next;
 
       TossFunction(theEnv,clptr->topics);
+      
+      genfree(theEnv,(void *) clptr->file,strlen(clptr->file) + 1);
       rm(theEnv,clptr,sizeof(struct lists));
 
       clptr = nextptr;

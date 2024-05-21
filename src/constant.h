@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  04/08/23             */
+   /*            CLIPS Version 7.00  05/12/24             */
    /*                                                     */
    /*                CONSTANTS HEADER FILE                */
    /*******************************************************/
@@ -34,6 +34,8 @@
 /*            UDF redesign.                                  */
 /*                                                           */
 /*            Removed DATA_OBJECT_ARRAY primitive type.      */
+/*                                                           */
+/*      7.00: Data driven backward chaining.                 */
 /*                                                           */
 /*************************************************************/
 
@@ -113,15 +115,15 @@ typedef enum
 #endif
 
 #ifndef VERSION_STRING
-#define VERSION_STRING "6.4.1"
+#define VERSION_STRING "7.0.0"
 #endif
 
 #ifndef CREATION_DATE_STRING
-#define CREATION_DATE_STRING "4/8/23"
+#define CREATION_DATE_STRING "5/12/24"
 #endif
 
 #ifndef BANNER_STRING
-#define BANNER_STRING "         CLIPS (6.4.1 4/8/23)\n"
+#define BANNER_STRING "         CLIPS (Forge Alpha 5/12/24)\n"
 #endif
 
 /*************************/
@@ -199,6 +201,8 @@ typedef enum
 #define VOID_TYPE                       9
 
 #define BITMAP_TYPE                    11
+#define UQV_TYPE                       12
+#define QUANTITY_TYPE                  13
 
 #define FCALL                          30
 #define GCALL                          31
@@ -224,6 +228,7 @@ typedef enum
 #define FACT_PN_CONSTANT2              61
 #define FACT_STORE_MULTIFIELD          62
 #define DEFTEMPLATE_PTR                63
+#define DEFTABLE_PTR                   64
 
 #define OBJ_GET_SLOT_PNVAR1            70
 #define OBJ_GET_SLOT_PNVAR2            71

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  08/06/16            */
+   /*             CLIPS Version 7.00  01/17/24            */
    /*                                                     */
    /*                DEFFACTS HEADER FILE                 */
    /*******************************************************/
@@ -43,6 +43,8 @@
 /*                                                           */
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
 /*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_dffctdef
@@ -80,7 +82,7 @@ struct deffacts
 
 struct deffactsModule
   {
-   struct defmoduleItemHeader header;
+   struct defmoduleItemHeaderHM header;
   };
 
 #define DeffactsData(theEnv) ((struct deffactsData *) GetEnvironmentData(theEnv,DEFFACTS_DATA))

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  08/25/16            */
+   /*             CLIPS Version 6.50  11/03/23            */
    /*                                                     */
    /*                  WATCH HEADER FILE                  */
    /*******************************************************/
@@ -47,6 +47,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_watch
@@ -77,7 +79,8 @@ typedef enum
    COMPILATIONS,
    STATISTICS,
    GLOBALS,
-   FOCUS
+   FOCUS,
+   GOALS
   } WatchItem;
 
 struct watchItemRecord

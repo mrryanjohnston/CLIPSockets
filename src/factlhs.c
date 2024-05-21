@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 6.50  10/13/23             */
    /*                                                     */
    /*           FACT LHS PATTERN PARSING MODULE           */
    /*******************************************************/
@@ -38,6 +38,8 @@
 /*                                                           */
 /*            Removed initial-fact support.                  */
 /*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -45,6 +47,7 @@
 #if DEFTEMPLATE_CONSTRUCT && DEFRULE_CONSTRUCT && (! RUN_TIME) && (! BLOAD_ONLY)
 
 #include <stdio.h>
+#include <string.h>
 
 #include "cstrcpsr.h"
 #include "envrnmnt.h"
@@ -62,6 +65,12 @@
 
 #include "factlhs.h"
 
+/***************************************/
+/* LOCAL INTERNAL FUNCTION DEFINITIONS */
+/***************************************/
+
+   static void                    PropagateGoalFlags(struct lhsParseNode *,bool,bool);
+  
 /***********************************************/
 /* SequenceRestrictionParse: Parses an ordered */
 /*   fact pattern conditional element.         */
@@ -182,7 +191,46 @@ struct lhsParseNode *FactPatternParse(
   {
    Deftemplate *theDeftemplate;
    unsigned int count;
+   bool goalPattern = false;
+   bool explicitPattern = false;
+   struct lhsParseNode *rv;
 
+   if (strcmp(theToken->lexemeValue->contents,"goal") == 0)
+     { goalPattern = true; }
+   else if (strcmp(theToken->lexemeValue->contents,"explicit") == 0)
+     { explicitPattern = true; }
+
+   if (goalPattern || explicitPattern)
+     {
+      SavePPBuffer(theEnv," ");
+      GetToken(theEnv,readSource,theToken);
+      
+      if (theToken->tknType != LEFT_PARENTHESIS_TOKEN)
+        {
+         PrintErrorID(theEnv,"FACTLHS",1,false);
+         if (goalPattern)
+           { WriteString(theEnv,STDERR,"Expected a deftemplate pattern after the goal keyword.\n"); }
+         else
+           { WriteString(theEnv,STDERR,"Expected a deftemplate pattern after the explicit keyword.\n"); }
+         return NULL;
+        }
+
+      GetToken(theEnv,readSource,theToken);
+
+      if (theToken->tknType != SYMBOL_TOKEN)
+        {
+         PrintErrorID(theEnv,"FACTLHS",2,false);
+         WriteString(theEnv,STDERR,"Expected a deftemplate name.\n");
+         return NULL;
+        }
+
+      if (ReservedPatternSymbol(theEnv,theToken->lexemeValue->contents,NULL))
+        {
+         ReservedPatternSymbolErrorMsg(theEnv,theToken->lexemeValue->contents,"a deftemplate name");
+         return NULL;
+        }
+     }
+     
    /*=========================================*/
    /* A module separator can not be included  */
    /* as part of the pattern's relation name. */
@@ -229,22 +277,61 @@ struct lhsParseNode *FactPatternParse(
         { theDeftemplate = NULL; }
      }
 
-   /*===============================================*/
-   /* If an explicit deftemplate exists, then parse */
-   /* the pattern as a deftemplate pattern.         */
-   /*===============================================*/
+   /*=================================================*/
+   /* If an explicit deftemplate exists, then parse   */
+   /* the pattern as a deftemplate pattern, otherwise */
+   /* parse as an ordered fact pattern.               */
+   /*=================================================*/
 
    if ((theDeftemplate != NULL) && (theDeftemplate->implied == false))
-     { return(DeftemplateLHSParse(theEnv,readSource,theDeftemplate)); }
+     { rv = DeftemplateLHSParse(theEnv,readSource,theDeftemplate); }
+   else
+     { rv = SequenceRestrictionParse(theEnv,readSource,theToken); }
 
-   /*================================*/
-   /* Parse an ordered fact pattern. */
-   /*================================*/
+   /*===================================*/
+   /* Check for the closing parenthesis */
+   /* of the goal conditional element.  */
+   /*===================================*/
+   
+   if ((goalPattern || explicitPattern) && (rv != NULL))
+     {
+      GetToken(theEnv,readSource,theToken);
+      if (theToken->tknType != RIGHT_PARENTHESIS_TOKEN)
+        {
+         ReturnLHSParseNodes(theEnv,rv);
+         PrintErrorID(theEnv,"FACTLHS",4,false);
+         if (goalPattern)
+           { WriteString(theEnv,STDERR,"Expected a ')' to close the goal conditional element.\n"); }
+         else
+           { WriteString(theEnv,STDERR,"Expected a ')' to close the explicit conditional element.\n"); }
+         return NULL;
+        }
+        
+      PropagateGoalFlags(rv,goalPattern,explicitPattern);
+     }
+        
+   return rv;
+  }
 
-   return(SequenceRestrictionParse(theEnv,readSource,theToken));
+/***************************************************/
+/* PropagateGoalFlags: Recursively sets the goalCE */
+/*   flag for each component of a pattern.         */
+/***************************************************/
+static void PropagateGoalFlags(
+  struct lhsParseNode *theField,
+  bool goalPattern,
+  bool explicitPattern)
+  {
+   while (theField != NULL)
+     {
+      theField->goalCE = goalPattern;
+      theField->explicitCE = explicitPattern;
+
+      PropagateGoalFlags(theField->right,goalPattern,explicitPattern);
+      PropagateGoalFlags(theField->expression,goalPattern,explicitPattern);
+
+      theField = theField->bottom;
+     }
   }
 
 #endif /* DEFTEMPLATE_CONSTRUCT && DEFRULE_CONSTRUCT && (! RUN_TIME) && (! BLOAD_ONLY) */
-
-
-

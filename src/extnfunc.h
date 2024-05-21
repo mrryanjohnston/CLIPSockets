@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  10/24/17            */
+   /*             CLIPS Version 7.00  02/06/24            */
    /*                                                     */
    /*            EXTERNAL FUNCTIONS HEADER FILE           */
    /*******************************************************/
@@ -72,7 +72,7 @@ struct functionDefinition
    CLIPSLexeme *callFunctionName;
    const char *actualFunctionName;
    unsigned unknownReturnValueType;
-   void (*functionPointer)(Environment *,UDFContext *,UDFValue *);
+   UserDefinedFunction *functionPointer;
    struct expr *(*parser)(Environment *,struct expr *,const char *);
    CLIPSLexeme *restrictions;
    unsigned short minArgs;

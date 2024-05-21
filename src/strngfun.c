@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  04/12/24             */
    /*                                                     */
    /*            STRING_TYPE FUNCTIONS MODULE             */
    /*******************************************************/
@@ -81,6 +81,8 @@
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      6.42: Added str-byte-length function.                */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -134,6 +136,7 @@ void StringFunctionDefinitions(
    AddUDF(theEnv,"str-cat","sy",1,UNBOUNDED,"synld" ,StrCatFunction,"StrCatFunction",NULL);
    AddUDF(theEnv,"sym-cat","sy",1,UNBOUNDED,"synld" ,SymCatFunction,"SymCatFunction",NULL);
    AddUDF(theEnv,"str-length","l",1,1,"syn",StrLengthFunction,"StrLengthFunction",NULL);
+   AddUDF(theEnv,"str-byte-length","l",1,1,"syn",StrByteLengthFunction,"StrByteLengthFunction",NULL);
    AddUDF(theEnv,"str-compare","l",2,3,"*;syn;syn;l" ,StrCompareFunction,"StrCompareFunction",NULL);
    AddUDF(theEnv,"upcase","syn",1,1,"syn",UpcaseFunction,"UpcaseFunction",NULL);
    AddUDF(theEnv,"lowcase","syn",1,1,"syn",LowcaseFunction,"LowcaseFunction",NULL);
@@ -326,6 +329,32 @@ void StrLengthFunction(
    returnValue->integerValue = CreateInteger(theEnv,(long long) UTF8Length(theArg.lexemeValue->contents));
   }
 
+
+/*********************************************/
+/* StrByteLengthFunction: H/L access routine */
+/*   for the str-byte-length function.       */
+/*********************************************/
+void StrByteLengthFunction(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   UDFValue theArg;
+
+   /*==================================================================*/
+   /* The argument should be of type symbol, string, or instance name. */
+   /*==================================================================*/
+
+   if (! UDFFirstArgument(context,LEXEME_BITS | INSTANCE_NAME_BIT,&theArg))
+     { return; }
+
+   /*============================================*/
+   /* Return the length of the string or symbol. */
+   /*============================================*/
+
+   returnValue->integerValue = CreateInteger(theEnv,(long long) strlen(theArg.lexemeValue->contents));
+  }
+  
 /****************************************/
 /* UpcaseFunction: H/L access routine   */
 /*   for the upcase function.           */

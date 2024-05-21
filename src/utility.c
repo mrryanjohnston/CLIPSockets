@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  02/03/21             */
+   /*            CLIPS Version 7.00  03/02/24             */
    /*                                                     */
    /*                   UTILITY MODULE                    */
    /*******************************************************/
@@ -72,6 +72,11 @@
 /*            Moved BufferedRead and FreeReadBuffer from     */
 /*            insfile.c to utility.c                         */
 /*                                                           */
+/*      6.42: Fixed GC bug by including garbage fact and     */
+/*            instances in the GC frame.                     */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -86,6 +91,7 @@
 #include "evaluatn.h"
 #include "factmngr.h"
 #include "facthsh.h"
+#include "insfun.h"
 #include "memalloc.h"
 #include "multifld.h"
 #include "prntutil.h"
@@ -134,6 +140,12 @@ static void DeallocateUtilityData(
    struct garbageFrame *theGarbageFrame;
    struct ephemeron *edPtr, *nextEDPtr;
    Multifield *tmpMFPtr, *nextMFPtr;
+#if DEFTEMPLATE_CONSTRUCT
+   Fact *tmpFactPtr, *nextFactPtr;
+#endif
+#if OBJECT_SYSTEM
+   IGARBAGE *tmpGPtr, *nextGPtr;
+#endif
 
    /*======================*/
    /* Free tracked memory. */
@@ -221,7 +233,36 @@ static void DeallocateUtilityData(
          tmpMFPtr = nextMFPtr;
         }
 
-      UtilityData(theEnv)->CurrentGarbageFrame = UtilityData(theEnv)->CurrentGarbageFrame->priorFrame;
+      /*============================*/
+      /* Free up fact garbage data. */
+      /*============================*/
+   
+#if DEFTEMPLATE_CONSTRUCT
+      tmpFactPtr = theGarbageFrame->GarbageFacts;
+      while (tmpFactPtr != NULL)
+        {
+         nextFactPtr = tmpFactPtr->nextFact;
+         ReturnFact(theEnv,tmpFactPtr);
+         tmpFactPtr = nextFactPtr;
+        }
+#endif
+
+      /*================================*/
+      /* Free up instance garbage data. */
+      /*================================*/
+
+#if OBJECT_SYSTEM
+      tmpGPtr = theGarbageFrame->GarbageInstances;
+      while (tmpGPtr != NULL)
+        {
+         nextGPtr = tmpGPtr->nxt;
+         rtn_struct(theEnv,instance,tmpGPtr->ins);
+         rtn_struct(theEnv,igarbage,tmpGPtr);
+         tmpGPtr = nextGPtr;
+        }
+#endif
+
+      UtilityData(theEnv)->CurrentGarbageFrame = theGarbageFrame->priorFrame;
      }
   }
 
@@ -241,6 +282,12 @@ void CleanCurrentGarbageFrame(
    if (returnValue != NULL)
      { RetainUDFV(theEnv,returnValue); }
 
+#if DEFTEMPLATE_CONSTRUCT
+   RemoveGarbageFacts(theEnv);
+#endif
+#if OBJECT_SYSTEM
+   CleanupInstances(theEnv);
+#endif
    CallCleanupFunctions(theEnv);
    RemoveEphemeralAtoms(theEnv);
    FlushMultifields(theEnv);
@@ -253,6 +300,12 @@ void CleanCurrentGarbageFrame(
        (currentGarbageFrame->ephemeralSymbolList == NULL) &&
        (currentGarbageFrame->ephemeralBitMapList == NULL) &&
        (currentGarbageFrame->ephemeralExternalAddressList == NULL) &&
+#if DEFTEMPLATE_CONSTRUCT
+       (currentGarbageFrame->LastGarbageFact == NULL) &&
+#endif
+#if OBJECT_SYSTEM
+       (currentGarbageFrame->LastGarbageInstance == NULL) &&
+#endif
        (currentGarbageFrame->LastMultifield == NULL))
      { currentGarbageFrame->dirty = false; }
   }
@@ -269,6 +322,14 @@ void RestorePriorGarbageFrame(
    if (newGarbageFrame->dirty)
      {
       if (returnValue != NULL) RetainUDFV(theEnv,returnValue);
+      
+#if DEFTEMPLATE_CONSTRUCT
+      RemoveGarbageFacts(theEnv);
+#endif
+#if OBJECT_SYSTEM
+      CleanupInstances(theEnv);
+#endif
+
       CallCleanupFunctions(theEnv);
       RemoveEphemeralAtoms(theEnv);
       FlushMultifields(theEnv);
@@ -288,6 +349,32 @@ void RestorePriorGarbageFrame(
          oldGarbageFrame->LastMultifield = newGarbageFrame->LastMultifield;
          oldGarbageFrame->dirty = true;
         }
+
+#if DEFTEMPLATE_CONSTRUCT
+      if (newGarbageFrame->GarbageFacts != NULL)
+        {
+         if (oldGarbageFrame->GarbageFacts == NULL)
+           { oldGarbageFrame->GarbageFacts = newGarbageFrame->GarbageFacts; }
+         else
+           { oldGarbageFrame->LastGarbageFact->nextFact = newGarbageFrame->GarbageFacts; }
+
+         oldGarbageFrame->LastGarbageFact = newGarbageFrame->LastGarbageFact;
+         oldGarbageFrame->dirty = true;
+        }
+#endif
+
+#if OBJECT_SYSTEM
+      if (newGarbageFrame->GarbageInstances != NULL)
+        {
+         if (oldGarbageFrame->GarbageInstances == NULL)
+           { oldGarbageFrame->GarbageInstances = newGarbageFrame->GarbageInstances; }
+         else
+           { oldGarbageFrame->LastGarbageInstance->nxt = newGarbageFrame->GarbageInstances; }
+
+         oldGarbageFrame->LastGarbageInstance = newGarbageFrame->LastGarbageInstance;
+         oldGarbageFrame->dirty = true;
+        }
+#endif
 
       if (returnValue != NULL) ReleaseUDFV(theEnv,returnValue);
      }
@@ -1186,6 +1273,8 @@ size_t ItemHashValue(
         return HashFloat(((CLIPSFloat *) theValue)->contents,theRange);
 
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
         return HashInteger(((CLIPSInteger *) theValue)->contents,theRange);
 
       case SYMBOL_TYPE:
@@ -1589,6 +1678,6 @@ void FreeReadBuffer(
       genfree(theEnv,UtilityData(theEnv)->CurrentReadBuffer,UtilityData(theEnv)->CurrentReadBufferSize);
       UtilityData(theEnv)->CurrentReadBuffer = NULL;
       UtilityData(theEnv)->CurrentReadBufferSize = 0L;
-      UtilityData(theEnv)->CurrentReadBufferOffset = 0L; // TBD Added
+      UtilityData(theEnv)->CurrentReadBufferOffset = 0L;
      }
   }

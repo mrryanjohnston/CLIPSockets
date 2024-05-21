@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  02/03/21             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*             OBJECT MESSAGE DISPATCH CODE            */
    /*******************************************************/
@@ -169,7 +169,6 @@ void Send(
    bool error;
    Expression *iexp;
    CLIPSLexeme *msym;
-   // TBD GCBlock gcb;
    UDFValue result;
 
    /*=====================================*/
@@ -379,7 +378,7 @@ void CallNextHandler(
       SetEvaluationError(theEnv,true);
       return;
      }
-   if (EvaluationData(theEnv)->CurrentExpression->value == (void *) FindFunction(theEnv,"override-next-handler"))
+   if (EvaluationData(theEnv)->CurrentExpression->functionValue == FindFunction(theEnv,"override-next-handler"))
      {
       overridep = 1;
       args.type = ProceduralPrimitiveData(theEnv)->ProcParamArray[0].header->type;

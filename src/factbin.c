@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/01/16             */
+   /*            CLIPS Version 7.00  12/24/23             */
    /*                                                     */
    /*                FACT BSAVE/BLOAD MODULE              */
    /*******************************************************/
@@ -28,6 +28,10 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
 /*                                                           */
 /*************************************************************/
 
@@ -65,6 +69,7 @@ struct bsaveFactPatternNode
    unsigned long lastLevel;
    unsigned long leftNode;
    unsigned long rightNode;
+   unsigned long modifySlots;
   };
 
 #define BSAVE_FIND         0
@@ -178,7 +183,10 @@ static void BsaveFind(
       for (theDeftemplate = GetNextDeftemplate(theEnv,NULL);
            theDeftemplate != NULL;
            theDeftemplate = GetNextDeftemplate(theEnv,theDeftemplate))
-        { BsaveDriver(theEnv,BSAVE_FIND,NULL,theDeftemplate->patternNetwork); }
+        {
+         BsaveDriver(theEnv,BSAVE_FIND,NULL,theDeftemplate->patternNetwork);
+         BsaveDriver(theEnv,BSAVE_FIND,NULL,theDeftemplate->goalNetwork);
+        }
      }
   }
 
@@ -199,6 +207,8 @@ static void BsaveDriver(
         {
          case BSAVE_FIND:
            thePattern->bsaveID = FactBinaryData(theEnv)->NumberOfPatterns++;
+           if (thePattern->modifySlots != NULL)
+             { thePattern->modifySlots->neededBitMap = true; }
            break;
 
          case BSAVE_PATTERNS:
@@ -276,7 +286,10 @@ static void BsaveFactPatterns(
       for (theDeftemplate = GetNextDeftemplate(theEnv,NULL);
            theDeftemplate != NULL;
            theDeftemplate = GetNextDeftemplate(theEnv,theDeftemplate))
-        { BsaveDriver(theEnv,BSAVE_PATTERNS,fp,theDeftemplate->patternNetwork); }
+        {
+         BsaveDriver(theEnv,BSAVE_PATTERNS,fp,theDeftemplate->patternNetwork);
+         BsaveDriver(theEnv,BSAVE_PATTERNS,fp,theDeftemplate->goalNetwork);
+        }
     }
 
    /*=============================================================*/
@@ -310,6 +323,10 @@ static void BsavePatternNode(
    tempNode.lastLevel =  BsaveFactPatternIndex(thePattern->lastLevel);
    tempNode.leftNode =  BsaveFactPatternIndex(thePattern->leftNode);
    tempNode.rightNode =  BsaveFactPatternIndex(thePattern->rightNode);
+   if (thePattern->modifySlots == NULL)
+     { tempNode.modifySlots = ULONG_MAX; }
+   else
+     { tempNode.modifySlots = thePattern->modifySlots->bucket; }
 
    GenWrite(&tempNode,sizeof(struct bsaveFactPatternNode),fp);
   }
@@ -412,6 +429,13 @@ static void UpdateFactPatterns(
    FactBinaryData(theEnv)->FactPatternArray[obji].nextLevel = BloadFactPatternPointer(bp->nextLevel);
    FactBinaryData(theEnv)->FactPatternArray[obji].lastLevel = BloadFactPatternPointer(bp->lastLevel);
    FactBinaryData(theEnv)->FactPatternArray[obji].leftNode  = BloadFactPatternPointer(bp->leftNode);
+   if (bp->modifySlots != ULONG_MAX)
+     {
+      FactBinaryData(theEnv)->FactPatternArray[obji].modifySlots = BitMapPointer(bp->modifySlots);
+      IncrementBitMapCount(FactBinaryData(theEnv)->FactPatternArray[obji].modifySlots);
+     }
+   else
+     { FactBinaryData(theEnv)->FactPatternArray[obji].modifySlots = NULL; }
   }
 
 /***************************************************/
@@ -434,6 +458,9 @@ static void ClearBload(
                                         FactBinaryData(theEnv)->FactPatternArray[i].networkTest->type,
                                         FactBinaryData(theEnv)->FactPatternArray[i].networkTest->value);
         }
+        
+      if (FactBinaryData(theEnv)->FactPatternArray[i].modifySlots != NULL)
+        { DecrementBitMapReferenceCount(theEnv,FactBinaryData(theEnv)->FactPatternArray[i].modifySlots); }
      }
 
 

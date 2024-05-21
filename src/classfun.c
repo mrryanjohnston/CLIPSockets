@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  04/08/20             */
+   /*            CLIPS Version 7.00  03/02/24             */
    /*                                                     */
    /*                CLASS FUNCTIONS MODULE               */
    /*******************************************************/
@@ -59,6 +59,9 @@
 /*            data structures.                               */
 /*                                                           */
 /*            UDF redesign.                                  */
+/*                                                           */
+/*      6.42: Fixed GC bug by including garbage fact and     */
+/*            instances in the GC frame.                     */
 /*                                                           */
 /*************************************************************/
 
@@ -180,7 +183,7 @@ bool InstancesPurge(
   void *context)
   {
    DestroyAllInstances(theEnv,NULL);
-   CleanupInstances(theEnv,NULL);
+   CleanupInstances(theEnv);
    return((InstanceData(theEnv)->InstanceList != NULL) ? false : true);
   }
 

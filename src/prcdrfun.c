@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  10/18/16             */
+   /*            CLIPS Version 7.00  05/11/24             */
    /*                                                     */
    /*             PROCEDURAL FUNCTIONS MODULE             */
    /*******************************************************/
@@ -50,6 +50,8 @@
 /*            for garbage collection blocks.                 */
 /*                                                           */
 /*            Eval support for run time and bload only.      */
+/*                                                           */
+/*      7.00: Added inline if function.                      */
 /*                                                           */
 /*************************************************************/
 
@@ -101,6 +103,7 @@ void ProceduralFunctionDefinitions(
    AddUDF(theEnv,"return","*",0,UNBOUNDED,NULL,ReturnFunction,"ReturnFunction",NULL);
    AddUDF(theEnv,"break","v",0,0,NULL,BreakFunction,"BreakFunction",NULL);
    AddUDF(theEnv,"switch","*",0,UNBOUNDED,NULL,SwitchFunction,"SwitchFunction",NULL);
+   AddUDF(theEnv,"iif","*",3,3,NULL,IifFunction,"IifFunction",NULL);
 #endif
 
    ProceduralFunctionParsers(theEnv);
@@ -361,6 +364,44 @@ void IfFunction(
    /*=========================================*/
 
    returnValue->value = FalseSymbol(theEnv);
+  }
+  
+/***********************************/
+/* IifFunction: H/L access routine */
+/*   for the inline if function.   */
+/***********************************/
+void IifFunction(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   /*=========================*/
+   /* Evaluate the condition. */
+   /*=========================*/
+
+   if (! UDFNthArgument(context,1,ANY_TYPE_BITS,returnValue))
+     {
+      returnValue->value = FalseSymbol(theEnv);
+      return;
+     }
+
+   if ((ProcedureFunctionData(theEnv)->BreakFlag == true) ||
+       (ProcedureFunctionData(theEnv)->ReturnFlag == true))
+     {
+      returnValue->value = FalseSymbol(theEnv);
+      return;
+     }
+
+   /*=========================================*/
+   /* If the condition evaluated to FALSE and */
+   /* an "else" portion exists, evaluate it   */
+   /* and return the value.                   */
+   /*=========================================*/
+
+   if (returnValue->value == FalseSymbol(theEnv))
+     { UDFNthArgument(context,3,ANY_TYPE_BITS,returnValue); }
+   else
+     { UDFNthArgument(context,2,ANY_TYPE_BITS,returnValue); }
   }
 
 /**************************************/

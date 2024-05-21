@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/02/18             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                 DEFFUNCTION MODULE                  */
    /*******************************************************/
@@ -66,6 +66,8 @@
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
 /*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 /* =========================================
@@ -126,10 +128,12 @@
    static void                    DecrementDeffunctionBusyCount(Environment *,Deffunction *);
    static void                    IncrementDeffunctionBusyCount(Environment *,Deffunction *);
    static void                    DeallocateDeffunctionData(Environment *);
+   static Deffunction            *LookupDeffunction(Environment *,CLIPSLexeme *);
 
 #if ! RUN_TIME
    static void                    DestroyDeffunctionAction(Environment *,ConstructHeader *,void *);
    static void                   *AllocateModule(Environment *);
+   static void                    InitModule(Environment *,void *);
    static void                    ReturnModule(Environment *,void *);
    static bool                    ClearDeffunctionsReady(Environment *,void *);
 #else
@@ -187,9 +191,10 @@ void SetupDeffunctions(
                 RegisterModuleItem(theEnv,"deffunction",
 #if (! RUN_TIME)
                                     AllocateModule,
+                                    InitModule,
                                     ReturnModule,
 #else
-                                    NULL,NULL,
+                                    NULL,NULL,NULL,
 #endif
 #if BLOAD_AND_BSAVE || BLOAD || BLOAD_ONLY
                                     BloadDeffunctionModuleReference,
@@ -216,11 +221,11 @@ void SetupDeffunctions(
                                        (IsConstructDeletableFunction *) DeffunctionIsDeletable,
                                        (DeleteConstructFunction *) Undeffunction,
 #if (! BLOAD_ONLY) && (! RUN_TIME)
-                                       (FreeConstructFunction *) RemoveDeffunction
+                                       (FreeConstructFunction *) RemoveDeffunction,
 #else
-                                       NULL
+                                       NULL,
 #endif
-                                       );
+                                       (LookupConstructFunction *) LookupDeffunction);
 
 #if ! RUN_TIME
    AddClearReadyFunction(theEnv,"deffunction",ClearDeffunctionsReady,0,NULL);
@@ -504,6 +509,9 @@ void RemoveDeffunction(
   {
    if (theDeffunction == NULL)
      return;
+     
+   RemoveConstructFromHashMap(theEnv,&theDeffunction->header,theDeffunction->header.whichModule);
+
    ReleaseLexeme(theEnv,GetDeffunctionNamePointer(theEnv,theDeffunction));
    ExpressionDeinstall(theEnv,theDeffunction->code);
    ReturnPackedExpression(theEnv,theDeffunction->code);
@@ -514,6 +522,37 @@ void RemoveDeffunction(
 
 #endif
 
+/******************************************/
+/* LookupDeffunction: Finds a deffunction */
+/*   by searching for it in the hashmap.  */
+/******************************************/
+static Deffunction *LookupDeffunction(
+  Environment *theEnv,
+  CLIPSLexeme *deffunctionName)
+  {
+   struct defmoduleItemHeaderHM *theModuleItem;
+   size_t theHashValue;
+   struct itemHashTableEntry *theItem;
+   
+   theModuleItem = (struct defmoduleItemHeaderHM *)
+                   GetModuleItem(theEnv,NULL,DeffunctionData(theEnv)->DeffunctionModuleIndex);
+                   
+   if (theModuleItem->itemCount == 0)
+     { return NULL; }
+
+   theHashValue = HashSymbol(deffunctionName->contents,theModuleItem->hashTableSize);
+
+   for (theItem = theModuleItem->hashTable[theHashValue];
+        theItem != NULL;
+        theItem = theItem->next)
+     {
+      if (theItem->item->name == deffunctionName)
+        { return (Deffunction *) theItem->item; }
+     }
+
+   return NULL;
+  }
+  
 /********************************************************
   NAME         : UndeffunctionCommand
   DESCRIPTION  : Deletes the named deffunction(s)
@@ -810,6 +849,20 @@ static void *AllocateModule(
    return (void *) get_struct(theEnv,deffunctionModuleData);
   }
 
+/*************************************************/
+/* InitModule: Initializes a deffunction module. */
+/*************************************************/
+static void InitModule(
+  Environment *theEnv,
+  void *theItem)
+  {
+   struct deffunctionModuleData *theModule = (struct deffunctionModuleData *) theItem;
+   
+   theModule->header.itemCount = 0;
+   theModule->header.hashTableSize = 0;
+   theModule->header.hashTable = NULL;
+  }
+
 /***************************************************
   NAME         : ReturnModule
   DESCRIPTION  : Removes a deffunction module and
@@ -870,7 +923,36 @@ static void RuntimeDeffunctionAction(
    Deffunction *theDeffunction = (Deffunction *) theConstruct;
    
    theDeffunction->header.env = theEnv;
+   
+   AddConstructToHashMap(theEnv,&theDeffunction->header,theDeffunction->header.whichModule);
   }
+
+/***************************************************/
+/* RuntimeDeffunctionCleanup: Action to be applied */
+/*   to each deffunction construct when a runtime  */
+/*   destruction occurs.                           */
+/***************************************************/
+static void RuntimeDeffunctionCleanup(
+  Environment *theEnv,
+  ConstructHeader *theConstruct,
+  void *buffer)
+  {
+#if MAC_XCD
+#pragma unused(buffer)
+#endif
+   Deffunction *theDeffunction = (Deffunction *) theConstruct;
+      
+   RemoveConstructFromHashMap(theEnv,&theDeffunction->header,theDeffunction->header.whichModule);
+  }
+  
+/*****************************/
+/* DeallocateDeffunctionCTC: */
+/*****************************/
+static void DeallocateDeffunctionCTC(
+   Environment *theEnv)
+   {
+    DoForAllConstructs(theEnv,RuntimeDeffunctionCleanup,DeffunctionData(theEnv)->DeffunctionModuleIndex,true,NULL);
+   }
 
 /*********************************/
 /* DeffunctionRunTimeInitialize: */
@@ -879,6 +961,7 @@ void DeffunctionRunTimeInitialize(
   Environment *theEnv)
   {
    DoForAllConstructs(theEnv,RuntimeDeffunctionAction,DeffunctionData(theEnv)->DeffunctionModuleIndex,true,NULL);
+   AddEnvironmentCleanupFunction(theEnv,"deffunctionctc",DeallocateDeffunctionCTC,0);
   }
 
 #endif

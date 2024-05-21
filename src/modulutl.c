@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  10/28/20             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*              DEFMODULE UTILITY MODULE               */
    /*******************************************************/
@@ -40,6 +40,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -250,7 +252,7 @@ const char *ExtractModuleAndConstructName(
    /* Check to see if the module exists. */
    /*====================================*/
 
-   theModule = FindDefmodule(theEnv,moduleName->contents);
+   theModule = LookupDefmodule(theEnv,moduleName);
    if (theModule == NULL) return NULL;
 
    /*============================*/
@@ -505,7 +507,7 @@ static ConstructHeader *SearchImportedConstructModules(
 
       if (searchModule)
         {
-         theModule = FindDefmodule(theEnv,theImportList->moduleName->contents);
+         theModule = LookupDefmodule(theEnv,theImportList->moduleName);
          if (theModule == NULL) searchModule = false;
         }
 
@@ -577,7 +579,7 @@ bool ConstructExported(
    struct portItem *theExportList;
 
    constructType = FindSymbolHN(theEnv,constructTypeStr,SYMBOL_BIT);
-   theModule = FindDefmodule(theEnv,moduleName->contents);
+   theModule = LookupDefmodule(theEnv,moduleName);
 
    if ((constructType == NULL) || (theModule == NULL) || (findName == NULL))
      { return false; }
@@ -613,7 +615,7 @@ bool AllImportedModulesVisited(
    theImportList = theModule->importList;
    while (theImportList != NULL)
      {
-      theImportModule = FindDefmodule(theEnv,theImportList->moduleName->contents);
+      theImportModule = LookupDefmodule(theEnv,theImportList->moduleName);
 
       if (! theImportModule->visitedFlag) return false;
 
@@ -886,7 +888,7 @@ CLIPSLexeme *GetConstructNameAndComment(
          return NULL;
         }
 
-      theModule = FindDefmodule(theEnv,moduleName->contents);
+      theModule = LookupDefmodule(theEnv,moduleName);
       if (theModule == NULL)
         {
          CantFindItemErrorMessage(theEnv,"defmodule",moduleName->contents,true);

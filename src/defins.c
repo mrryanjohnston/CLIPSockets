@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/02/18             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                  DEFINSTANCES MODULE                */
    /*******************************************************/
@@ -62,6 +62,8 @@
 /*                                                           */
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -129,6 +131,7 @@
 
 #if ! RUN_TIME
    static void                   *AllocateModule(Environment *);
+   static void                    InitModule(Environment *,void *);
    static void                    ReturnModule(Environment *,void *);
    static bool                    ClearDefinstancesReady(Environment *,void *);
    static void                    CheckDefinstancesBusy(Environment *,ConstructHeader *,void *);
@@ -136,6 +139,7 @@
 #else
    static void                    RuntimeDefinstancesAction(Environment *,ConstructHeader *,void *);
 #endif
+   static Definstances           *LookupDefinstances(Environment *,CLIPSLexeme *);
 
    static void                    ResetDefinstances(Environment *,void *);
    static void                    ResetDefinstancesAction(Environment *,ConstructHeader *,void *);
@@ -165,9 +169,10 @@ void SetupDefinstances(
                 RegisterModuleItem(theEnv,"definstances",
 #if (! RUN_TIME)
                                     AllocateModule,
+                                    InitModule,
                                     ReturnModule,
 #else
-                                    NULL,NULL,
+                                    NULL,NULL,NULL,
 #endif
 #if BLOAD_AND_BSAVE || BLOAD || BLOAD_ONLY
                                     BloadDefinstancesModuleRef,
@@ -196,11 +201,11 @@ void SetupDefinstances(
                    (IsConstructDeletableFunction *) DefinstancesIsDeletable,
                    (DeleteConstructFunction *) Undefinstances,
 #if (! BLOAD_ONLY) && (! RUN_TIME)
-                   (FreeConstructFunction *) RemoveDefinstances
+                   (FreeConstructFunction *) RemoveDefinstances,
 #else
-                   NULL
+                   NULL,
 #endif
-                   );
+                   (LookupConstructFunction *) LookupDefinstances);
 
 #if ! RUN_TIME
    AddClearReadyFunction(theEnv,"definstances",ClearDefinstancesReady,0,NULL);
@@ -312,7 +317,36 @@ static void RuntimeDefinstancesAction(
    Definstances *theDefinstances = (Definstances *) theConstruct;
    
    theDefinstances->header.env = theEnv;
+   
+   AddConstructToHashMap(theEnv,&theDefinstances->header,theDefinstances->header.whichModule);
   }
+  
+/****************************************************/
+/* RuntimeDefinstancesCleanup: Action to be applied */
+/*   to each definstances construct when a runtime  */
+/*   destruction occurs.                            */
+/****************************************************/
+static void RuntimeDefinstancesCleanup(
+  Environment *theEnv,
+  ConstructHeader *theConstruct,
+  void *buffer)
+  {
+#if MAC_XCD
+#pragma unused(buffer)
+#endif
+   Definstances *theDefinstances = (Definstances *) theConstruct;
+      
+   RemoveConstructFromHashMap(theEnv,&theDefinstances->header,theDefinstances->header.whichModule);
+  }
+
+/*****************************/
+/* DeallocateDefinstanceCTC: */
+/*****************************/
+static void DeallocateDefinstancesCTC(
+   Environment *theEnv)
+   {
+    DoForAllConstructs(theEnv,RuntimeDefinstancesCleanup,DefinstancesData(theEnv)->DefinstancesModuleIndex,true,NULL);
+   }
 
 /**********************************/
 /* DefinstancesRunTimeInitialize: */
@@ -321,6 +355,7 @@ void DefinstancesRunTimeInitialize(
   Environment *theEnv)
   {
    DoForAllConstructs(theEnv,RuntimeDefinstancesAction,DefinstancesData(theEnv)->DefinstancesModuleIndex,true,NULL);
+   AddEnvironmentCleanupFunction(theEnv,"definstancesctc",DeallocateDefinstancesCTC,0);
   }
 
 #endif
@@ -396,7 +431,38 @@ bool DefinstancesIsDeletable(
 
    return (theDefinstances->busy == 0) ? true : false;
   }
+  
+/********************************************/
+/* LookupDefinstances: Finds a definstances */
+/*   by searching for it in the hashmap.    */
+/********************************************/
+static Definstances *LookupDefinstances(
+  Environment *theEnv,
+  CLIPSLexeme *definstancesName)
+  {
+   struct defmoduleItemHeaderHM *theModuleItem;
+   size_t theHashValue;
+   struct itemHashTableEntry *theItem;
+   
+   theModuleItem = (struct defmoduleItemHeaderHM *)
+                   GetModuleItem(theEnv,NULL,DefinstancesData(theEnv)->DefinstancesModuleIndex);
+                   
+   if (theModuleItem->itemCount == 0)
+     { return NULL; }
 
+   theHashValue = HashSymbol(definstancesName->contents,theModuleItem->hashTableSize);
+
+   for (theItem = theModuleItem->hashTable[theHashValue];
+        theItem != NULL;
+        theItem = theItem->next)
+     {
+      if (theItem->item->name == definstancesName)
+        { return (Definstances *) theItem->item; }
+     }
+
+   return NULL;
+  }
+  
 /***********************************************************
   NAME         : UndefinstancesCommand
   DESCRIPTION  : Removes a definstance
@@ -674,6 +740,8 @@ static bool ParseDefinstances(
      }
 
    AddConstructToModule(&dobj->header);
+   AddConstructToHashMap(theEnv,&dobj->header,dobj->header.whichModule);
+
    return false;
   }
 
@@ -743,6 +811,9 @@ static void RemoveDefinstances(
   Environment *theEnv,
   Definstances *theDefinstances)
   {
+   RemoveConstructFromHashMap(theEnv,&theDefinstances->header,
+                              theDefinstances->header.whichModule);
+
    ReleaseLexeme(theEnv,theDefinstances->header.name);
    ExpressionDeinstall(theEnv,theDefinstances->mkinstance);
    ReturnPackedExpression(theEnv,theDefinstances->mkinstance);
@@ -786,6 +857,20 @@ static void *AllocateModule(
   Environment *theEnv)
   {
    return (void *) get_struct(theEnv,definstancesModule);
+  }
+
+/**************************************************/
+/* InitModule: Initializes a definstances module. */
+/**************************************************/
+static void InitModule(
+  Environment *theEnv,
+  void *theItem)
+  {
+   struct definstancesModule *theModule = (struct definstancesModule *) theItem;
+   
+   theModule->header.itemCount = 0;
+   theModule->header.hashTableSize = 0;
+   theModule->header.hashTable = NULL;
   }
 
 /***************************************************

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  08/25/16            */
+   /*             CLIPS Version 7.00  01/19/24            */
    /*                                                     */
    /*               DEFINSTANCES HEADER FILE              */
    /*******************************************************/
@@ -49,6 +49,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_defins
@@ -69,7 +71,7 @@ struct definstances;
 
 typedef struct definstancesModule
   {
-   struct defmoduleItemHeader header;
+   struct defmoduleItemHeaderHM header;
   } DEFINSTANCES_MODULE;
 
 typedef struct definstances

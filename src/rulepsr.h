@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 6.50  10/13/23            */
    /*                                                     */
    /*               RULE PARSING HEADER FILE              */
    /*******************************************************/
@@ -50,8 +50,7 @@
 #define _H_rulepsr
 
    bool                           ParseDefrule(Environment *,const char *);
-   struct lhsParseNode           *FindVariable(CLIPSLexeme *,
-                                               struct lhsParseNode *);
+   struct lhsParseNode           *FindVariable(CLIPSLexeme *,struct lhsParseNode *);
 #if DEVELOPER && DEBUGGING_FUNCTIONS
    void                           DumpRuleAnalysis(Environment *,struct lhsParseNode *);
 #endif

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  09/22/17             */
+   /*            CLIPS Version 7.00  02/14/24             */
    /*                                                     */
    /*         INSTANCE-SET QUERIES PARSER MODULE          */
    /*******************************************************/
@@ -234,13 +234,6 @@ Expression *ParseQueryAction(
      }
 
    if (ReplaceInstanceVariables(theEnv,insQuerySetVars,top->argList,true,0))
-     {
-      ReturnExpression(theEnv,top);
-      ReturnExpression(theEnv,insQuerySetVars);
-      return NULL;
-     }
-
-   if (ReplaceInstanceVariables(theEnv,insQuerySetVars,top->argList->nextArg,false,0))
      {
       ReturnExpression(theEnv,top);
       ReturnExpression(theEnv,insQuerySetVars);
@@ -706,23 +699,21 @@ static bool ReplaceSlotReference(
 static bool IsQueryFunction(
   Expression *theExp)
   {
-   int (*fptr)(void);
-
+   UserDefinedFunction *theFunction;
+   
    if (theExp->type != FCALL)
-     return false;
-   fptr = (int (*)(void)) ExpressionFunctionPointer(theExp);
-   if (fptr == (int (*)(void)) AnyInstances)
-     return true;
-   if (fptr == (int (*)(void)) QueryFindInstance)
-     return true;
-   if (fptr == (int (*)(void)) QueryFindAllInstances)
-     return true;
-   if (fptr == (int (*)(void)) QueryDoForInstance)
-     return true;
-   if (fptr == (int (*)(void)) QueryDoForAllInstances)
-     return true;
-   if (fptr == (int (*)(void)) DelayedQueryDoForAllInstances)
-     return true;
+     { return false; }
+     
+   theFunction = theExp->functionValue->functionPointer;
+
+   if ((theFunction == AnyInstances) ||
+       (theFunction == QueryFindInstance) ||
+       (theFunction == QueryFindAllInstances) ||
+       (theFunction == QueryDoForInstance) ||
+       (theFunction == QueryDoForAllInstances) ||
+       (theFunction == DelayedQueryDoForAllInstances))
+     { return true; }
+
    return false;
   }
 

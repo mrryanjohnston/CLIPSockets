@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  12/07/17             */
+   /*            CLIPS Version 7.00  01/03/24             */
    /*                                                     */
    /*                   FACT BUILD MODULE                 */
    /*******************************************************/
@@ -35,6 +35,12 @@
 /*                                                           */
 /*            Removed initial-fact support.                  */
 /*                                                           */
+/*      6.50: Data driven backward chaining.                 */
+/*                                                           */
+/*            Deftemplate inheritance.                       */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -47,6 +53,7 @@
 #include "envrnmnt.h"
 #include "factcmp.h"
 #include "factgen.h"
+#include "factgoal.h"
 #include "factlhs.h"
 #include "factmch.h"
 #include "factmngr.h"
@@ -54,8 +61,11 @@
 #include "modulutl.h"
 #include "reorder.h"
 #include "reteutil.h"
+#include "retract.h"
 #include "router.h"
+#include "ruledlt.h"
 #include "tmpltdef.h"
+#include "tmpltutl.h"
 
 #include "factbld.h"
 
@@ -65,14 +75,26 @@
 
 #if (! RUN_TIME) && (! BLOAD_ONLY)
    static struct factPatternNode    *FindPatternNode(struct factPatternNode *,struct lhsParseNode *,
-                                                  struct factPatternNode **,bool,bool);
+                                                     struct factPatternNode **,bool,bool,CLIPSBitMap *);
    static struct factPatternNode    *CreateNewPatternNode(Environment *,struct lhsParseNode *,struct factPatternNode *,
-                                                       struct factPatternNode *,bool,bool);
-   static void                       ClearPatternMatches(Environment *,struct factPatternNode *);
+                                                          struct factPatternNode *,bool,bool,bool,Deftemplate *,CLIPSBitMap *);
+   static void                       ClearFactPatternMatches(Environment *,struct factPatternNode *);
+   static void                       ClearGoalPatternMatches(Environment *,struct factPatternNode *);
    static void                       DetachFactPattern(Environment *,struct patternNodeHeader *);
-   static struct patternNodeHeader  *PlaceFactPattern(Environment *,struct lhsParseNode *);
+   static struct patternNodeHeader  *PlaceFactPattern(Environment *,struct lhsParseNode *,bool *,struct expr **);
    static struct lhsParseNode       *RemoveUnneededSlots(Environment *,struct lhsParseNode *);
    static void                       FindAndSetDeftemplatePatternNetwork(Environment *,struct factPatternNode *,struct factPatternNode *);
+   static void                       UpdateGoalExpressions(Environment *,Deftemplate *,struct factPatternNode *,Expression *);
+   static void                       IncrementalResetGoalsPNTraverse(Environment *,struct factPatternNode *);
+   static void                       RemoveGoalExpressions(Environment *,struct factPatternNode *);
+   static void                       UpdateGoalExpressionsDriver(Environment *,Deftemplate *);
+   static void                       IncrementalResetGoalsDriver(Environment *,Deftemplate *);
+   static void                       RemoveChildGoalExpressions(Environment *,Deftemplate *);
+   static CLIPSBitMap               *CreatePatternSlotMap(Environment *,Deftemplate *,struct lhsParseNode *);
+   static struct factPatternNode    *FindStopPatternNode(struct factPatternNode *,struct factPatternNode **,CLIPSBitMap *,Expression *);
+   static struct factPatternNode    *CreateNewStopPatternNode(Environment *,struct lhsParseNode *,struct factPatternNode *,
+                                                              struct factPatternNode *,bool,Deftemplate *,CLIPSBitMap *,
+                                                              Expression *);
 #endif
 
 /*********************************************************/
@@ -152,7 +174,9 @@ void InitializeFactPatterns(
 /******************************************************************************/
 static struct patternNodeHeader *PlaceFactPattern(
   Environment *theEnv,
-  struct lhsParseNode *thePattern)
+  struct lhsParseNode *thePattern,
+  bool *generatesGoal,
+  struct expr **goalExpression)
   {
    struct lhsParseNode *tempPattern;
    struct factPatternNode *currentLevel, *lastLevel;
@@ -160,6 +184,12 @@ static struct patternNodeHeader *PlaceFactPattern(
    bool endSlot;
    unsigned int count;
    const char *deftemplateName;
+   bool addToGoalNetwork = false;
+   bool goalNetworkWasEmpty = false;
+   Deftemplate *theDeftemplate;
+   Deftemplate *currentDeftemplate;
+   CLIPSBitMap *theSlotMap;
+   Expression *theRightHash;
 
    /*======================================================================*/
    /* Get the name of the deftemplate associated with the pattern being    */
@@ -168,6 +198,31 @@ static struct patternNodeHeader *PlaceFactPattern(
 
    deftemplateName = thePattern->right->bottom->lexemeValue->contents;
 
+   /*============================================================*/
+   /* Get a pointer to the deftemplate data structure associated */
+   /* with the pattern (use the deftemplate name extracted from  */
+   /* the first field of the pattern).                           */
+   /*============================================================*/
+
+   currentDeftemplate = (Deftemplate *)
+                        FindImportedConstruct(theEnv,"deftemplate",NULL,
+                                              deftemplateName,&count,
+                                              true,NULL);
+
+   /*==================================================*/
+   /* Determine if the pattern is for the fact pattern */
+   /* network or the goal pattern network.             */
+   /*==================================================*/
+   
+   if (thePattern->goalCE == true)
+     { addToGoalNetwork = true; }
+ 
+   /*======================================================*/
+   /* Determine which slots are referenced by the pattern. */
+   /*======================================================*/
+
+   theSlotMap = CreatePatternSlotMap(theEnv,currentDeftemplate,thePattern);
+   
    /*=====================================================*/
    /* Remove any slot tests that test only for existance. */
    /*=====================================================*/
@@ -202,47 +257,43 @@ static struct patternNodeHeader *PlaceFactPattern(
 	  ReturnLHSParseNodes(theEnv,tempPattern);
      }
 
-   /*====================================================*/
-   /* Get the expression for hashing in the alpha memory */
-   /* and attach it to the last node of the pattern.     */
-   /*====================================================*/
+   /*=====================================================*/
+   /* Get the expression for hashing in the alpha memory. */
+   /*=====================================================*/
 
-   tempPattern = thePattern->right;
-   while (tempPattern->right != NULL)
-     { tempPattern = tempPattern->right; }
-
-   if ((tempPattern->multifieldSlot) && (tempPattern->bottom != NULL))
-     {
-      tempPattern = tempPattern->bottom;
-
-      while (tempPattern->right != NULL)
-        { tempPattern = tempPattern->right; }
-     }
-
-   tempPattern->rightHash = thePattern->rightHash;
-   thePattern->rightHash = NULL;
-
-   tempPattern = NULL;
-
-   /*============================================================*/
-   /* Get a pointer to the deftemplate data structure associated */
-   /* with the pattern (use the deftemplate name extracted from  */
-   /* the first field of the pattern).                           */
-   /*============================================================*/
-
-   FactData(theEnv)->CurrentDeftemplate = (Deftemplate *)
-                        FindImportedConstruct(theEnv,"deftemplate",NULL,
-                                              deftemplateName,&count,
-                                              true,NULL);
+   theRightHash = thePattern->rightHash;
 
    /*================================================*/
    /* Initialize some pointers to indicate where the */
    /* pattern is being added to the pattern network. */
    /*================================================*/
 
-   currentLevel = FactData(theEnv)->CurrentDeftemplate->patternNetwork;
+   if (addToGoalNetwork)
+     {
+      currentLevel = currentDeftemplate->goalNetwork;
+      if (currentLevel == NULL)
+        { goalNetworkWasEmpty = true; }
+     }
+   else
+     {
+      currentLevel = currentDeftemplate->patternNetwork;
+      
+      for (theDeftemplate = currentDeftemplate;
+           theDeftemplate != NULL;
+           theDeftemplate = theDeftemplate->parent)
+        {
+         if (theDeftemplate->goalNetwork != NULL)
+           {
+            *generatesGoal = true;
+            *goalExpression = GenConstant(theEnv,DEFTEMPLATE_PTR,currentDeftemplate);
+            break;
+           }
+        }
+     }
+     
    lastLevel = NULL;
    thePattern = thePattern->right;
+   tempPattern = NULL;
 
    /*===========================================*/
    /* Loop until all fields in the pattern have */
@@ -272,30 +323,60 @@ static struct patternNodeHeader *PlaceFactPattern(
       else
         { endSlot = false; }
 
-      /*========================================*/
-      /* Is there a node in the pattern network */
-      /* that can be reused (shared)?           */
-      /*========================================*/
-
-      newNode = FindPatternNode(currentLevel,thePattern,&nodeBeforeMatch,endSlot,false);
-
-      /*================================================*/
-      /* If the pattern node cannot be shared, then add */
-      /* a new pattern node to the pattern network.     */
-      /*================================================*/
-
-      if (newNode == NULL)
-        { newNode = CreateNewPatternNode(theEnv,thePattern,nodeBeforeMatch,lastLevel,endSlot,false); }
-
-      if (thePattern->constantSelector != NULL)
+      /*===================================*/
+      /* Construct the nodes if necessary. */
+      /*===================================*/
+      
+      if (thePattern->constantSelector == NULL)
         {
-         currentLevel = newNode->nextLevel;
-         lastLevel = newNode;
-         newNode = FindPatternNode(currentLevel,thePattern,&nodeBeforeMatch,endSlot,true);
+         /*========================================*/
+         /* Is there a node in the pattern network */
+         /* that can be reused (shared)?           */
+         /*========================================*/
+
+         newNode = FindPatternNode(currentLevel,thePattern,&nodeBeforeMatch,endSlot,false,NULL);
+         
+         /*================================================*/
+         /* If the pattern node cannot be shared, then add */
+         /* a new pattern node to the pattern network.     */
+         /*================================================*/
 
          if (newNode == NULL)
-           { newNode = CreateNewPatternNode(theEnv,thePattern,nodeBeforeMatch,lastLevel,endSlot,true); }
+           {
+            newNode = CreateNewPatternNode(theEnv,thePattern,nodeBeforeMatch,lastLevel,endSlot,false,addToGoalNetwork,currentDeftemplate,NULL);
+           }
         }
+      else
+        {
+         /*========================================*/
+         /* Is there a node in the pattern network */
+         /* that can be reused (shared)?           */
+         /*========================================*/
+
+         newNode = FindPatternNode(currentLevel,thePattern,&nodeBeforeMatch,endSlot,false,NULL);
+         
+         /*================================================*/
+         /* If the pattern node cannot be shared, then add */
+         /* a new pattern node to the pattern network.     */
+         /*================================================*/
+
+         if (newNode == NULL)
+           {
+            newNode = CreateNewPatternNode(theEnv,thePattern,nodeBeforeMatch,lastLevel,endSlot,false,addToGoalNetwork,currentDeftemplate,NULL);
+           }
+           
+         /*=========================================================*/
+         /* The constant in a constant selector needs another node. */
+         /*=========================================================*/
+         
+         currentLevel = newNode->nextLevel;
+         lastLevel = newNode;
+         
+         newNode = FindPatternNode(currentLevel,thePattern,&nodeBeforeMatch,endSlot,true,NULL);
+
+         if (newNode == NULL)
+           { newNode = CreateNewPatternNode(theEnv,thePattern,nodeBeforeMatch,lastLevel,endSlot,true,addToGoalNetwork,currentDeftemplate,NULL); }
+       }
 
       /*===========================================================*/
       /* Move on to the next field in the new pattern to be added. */
@@ -309,15 +390,6 @@ static struct patternNodeHeader *PlaceFactPattern(
 
       thePattern = thePattern->right;
 
-      /*==========================================================*/
-      /* If there are no more pattern nodes to be added to the    */
-      /* pattern network, then mark the last pattern node added   */
-      /* as a stop node (i.e. if you get to this node and the     */
-      /* network test succeeds, then a pattern has been matched). */
-      /*==========================================================*/
-
-      if (thePattern == NULL) newNode->header.stopNode = true;
-
       /*================================================*/
       /* Update the pointers which indicate where we're */
       /* trying to add the new pattern to the currently */
@@ -328,13 +400,311 @@ static struct patternNodeHeader *PlaceFactPattern(
       currentLevel = newNode->nextLevel;
      }
 
+   /*===================*/
+   /* Add the end node. */
+   /*===================*/
+   
+   newNode = FindStopPatternNode(currentLevel,&nodeBeforeMatch,theSlotMap,theRightHash);
+   
+   if (newNode != NULL)
+     {
+      if (theSlotMap != NULL)
+        { DecrementBitMapReferenceCount(theEnv,theSlotMap); }
+     }
+   else
+     { newNode = CreateNewStopPatternNode(theEnv,thePattern,nodeBeforeMatch,lastLevel,addToGoalNetwork,currentDeftemplate,theSlotMap,theRightHash); }
+   
+   /*=====================================================*/
+   /* If the goal network for this deftemplate was empty, */
+   /* mark all the joins that can be reached by this      */
+   /* network to indicate goals should be generated.      */
+   /*=====================================================*/
+   
+   if (addToGoalNetwork && goalNetworkWasEmpty)
+     {
+      struct goalNetworkUpdate *theUpdate;
+      
+      theUpdate = get_struct(theEnv,goalNetworkUpdate);
+      theUpdate->updateDeftemplate = currentDeftemplate;
+      theUpdate->next = FactData(theEnv)->goalUpdateList;
+      FactData(theEnv)->goalUpdateList = theUpdate;
+     }
+     
    /*==================================================*/
    /* Return the leaf node of the newly added pattern. */
    /*==================================================*/
 
    return((struct patternNodeHeader *) newNode);
   }
+   
+/***************************************/
+/* IncrementalResetAddGoalExpressions: */
+/***************************************/
+void IncrementalResetAddGoalExpressions(
+  Environment *theEnv)
+  {
+   struct goalNetworkUpdate *theUpdate;
 
+   for (theUpdate = FactData(theEnv)->goalUpdateList;
+        theUpdate != NULL;
+        theUpdate = theUpdate->next)
+     { UpdateGoalExpressionsDriver(theEnv,theUpdate->updateDeftemplate); }
+  }
+
+/********************************/
+/* UpdateGoalExpressionsDriver: */
+/********************************/
+static void UpdateGoalExpressionsDriver(
+  Environment *theEnv,
+  Deftemplate *theDeftemplate)
+  {
+   Expression *theGoalExpression;
+
+   theGoalExpression = GenConstant(theEnv,DEFTEMPLATE_PTR,theDeftemplate);
+   UpdateGoalExpressions(theEnv,theDeftemplate,theDeftemplate->patternNetwork,theGoalExpression);
+   ReturnExpression(theEnv,theGoalExpression);
+   
+   for (theDeftemplate = theDeftemplate->child;
+        theDeftemplate != NULL;
+        theDeftemplate = theDeftemplate->sibling)
+     { UpdateGoalExpressionsDriver(theEnv,theDeftemplate); }
+  }
+  
+/**************************/
+/* UpdateGoalExpressions: */
+/**************************/
+static void UpdateGoalExpressions(
+  Environment *theEnv,
+  Deftemplate *theDeftemplate,
+  struct factPatternNode *theNode,
+  Expression *theGoalExpression)
+  {
+   struct joinNode *theJoin;
+   struct joinLink *theLink;
+
+   while (theNode != NULL)
+     {
+      for (theJoin = theNode->header.entryJoin; theJoin != NULL; theJoin = theJoin->rightMatchNode)
+        {
+         if (theJoin->joinFromTheRight ||
+             theJoin->patternIsNegated ||
+             theJoin->patternIsExists)
+           { continue; }
+           
+         if ((theJoin->goalExpression != NULL) || theJoin->explicitJoin)
+           { continue; }
+         
+         theJoin->goalJoin = true;
+         theJoin->goalExpression = AddHashedExpression(theEnv,theGoalExpression);
+         
+         if (theJoin->firstJoin)
+           {
+            theJoin->leftMemory = get_struct(theEnv,betaMemory);
+            theJoin->leftMemory->beta = (struct partialMatch **) genalloc(theEnv,sizeof(struct partialMatch *));
+            theJoin->leftMemory->beta[0] = CreateEmptyPartialMatch(theEnv);
+            theJoin->leftMemory->beta[0]->owner = theJoin;
+            theJoin->leftMemory->size = 1;
+            theJoin->leftMemory->count = 1;
+
+            theLink = get_struct(theEnv,joinLink);
+            theLink->join = theJoin;
+            theLink->enterDirection = RHS;
+            theLink->next = DefruleData(theEnv)->GoalPrimeJoins;
+            DefruleData(theEnv)->GoalPrimeJoins = theLink;
+           }
+        }
+        
+      UpdateGoalExpressions(theEnv,theDeftemplate,theNode->nextLevel,theGoalExpression);
+      theNode = theNode->rightNode;
+     }
+  }
+  
+/**************************/
+/* RemoveGoalExpressions: */
+/**************************/
+static void RemoveGoalExpressions(
+  Environment *theEnv,
+  struct factPatternNode *theNode)
+  {
+   struct joinNode *theJoin;
+   struct betaMemory *theMemory;
+   struct partialMatch *listOfMatches;
+   unsigned long b;
+
+   while (theNode != NULL)
+     {
+      for (theJoin = theNode->header.entryJoin; theJoin != NULL; theJoin = theJoin->rightMatchNode)
+        {
+         if (theJoin->goalExpression == NULL)
+           { continue; }
+           
+         RemoveHashedExpression(theEnv,theJoin->goalExpression);
+         theJoin->goalExpression = NULL;
+         theJoin->goalJoin = false;
+         
+         if (theJoin->firstJoin)
+           {
+            if (theJoin->leftMemory != NULL)
+              {
+               if (theJoin->leftMemory->beta[0]->goalMarker)
+                 { UpdateGoalSupport(theEnv,theJoin->leftMemory->beta[0],false); }
+                 
+               ReturnPartialMatch(theEnv,theJoin->leftMemory->beta[0]);
+               
+               genfree(theEnv,theJoin->leftMemory->beta,sizeof(struct partialMatch *) * theJoin->leftMemory->size);
+               rtn_struct(theEnv,betaMemory,theJoin->leftMemory);
+               theJoin->leftMemory = NULL;
+              }
+              
+            DefruleData(theEnv)->GoalPrimeJoins = DetachLink(theEnv,DefruleData(theEnv)->GoalPrimeJoins,theJoin);
+           }
+         else
+           {
+            theMemory = theJoin->leftMemory;
+            
+            for (b = 0; b < theMemory->size; b++)
+              {
+               listOfMatches = theMemory->beta[b];
+               while (listOfMatches != NULL)
+                 {
+                  if (listOfMatches->goalMarker)
+                    { UpdateGoalSupport(theEnv,listOfMatches,false); }
+     
+                  listOfMatches = listOfMatches->nextInMemory;
+                 }
+              }
+           }
+        }
+        
+      RemoveGoalExpressions(theEnv,theNode->nextLevel);
+      theNode = theNode->rightNode;
+     }
+  }
+
+/*******************************/
+/* RemoveChildGoalExpressions: */
+/*******************************/
+static void RemoveChildGoalExpressions(
+  Environment *theEnv,
+  Deftemplate *theDeftemplate)
+  {
+   Deftemplate *tmpDeftemplate;
+   
+   for (tmpDeftemplate = theDeftemplate->child;
+        tmpDeftemplate != NULL;
+        tmpDeftemplate = tmpDeftemplate->sibling)
+     {
+      if (tmpDeftemplate->goalNetwork == NULL)
+        {
+         RemoveGoalExpressions(theEnv,tmpDeftemplate->patternNetwork);
+         RemoveChildGoalExpressions(theEnv,tmpDeftemplate);
+        }
+     }
+  }
+
+/**************************/
+/* IncrementalResetGoals: */
+/**************************/
+void IncrementalResetGoals(
+  Environment *theEnv)
+  {
+   struct goalNetworkUpdate *theUpdate;
+
+   for (theUpdate = FactData(theEnv)->goalUpdateList;
+        theUpdate != NULL;
+        theUpdate = theUpdate->next)
+     { IncrementalResetGoalsDriver(theEnv,theUpdate->updateDeftemplate); }
+  }
+
+/********************************/
+/* IncrementalResetGoalsDriver: */
+/********************************/
+static void IncrementalResetGoalsDriver(
+  Environment *theEnv,
+  Deftemplate *theDeftemplate)
+  {
+   IncrementalResetGoalsPNTraverse(theEnv,theDeftemplate->patternNetwork);
+   
+   for (theDeftemplate = theDeftemplate->child;
+        theDeftemplate != NULL;
+        theDeftemplate = theDeftemplate->sibling)
+     { IncrementalResetGoalsDriver(theEnv,theDeftemplate); }
+  }
+
+/************************************/
+/* IncrementalResetGoalsPNTraverse: */
+/************************************/
+static void IncrementalResetGoalsPNTraverse(
+  Environment *theEnv,
+  struct factPatternNode *theNode)
+  {
+   struct joinNode *theJoin;
+   struct betaMemory *theMemory;
+   struct partialMatch *listOfMatches;
+   unsigned long b;
+
+   while (theNode != NULL)
+     {
+      for (theJoin = theNode->header.entryJoin; theJoin != NULL; theJoin = theJoin->rightMatchNode)
+        {
+         if (theJoin->joinFromTheRight ||
+             theJoin->patternIsNegated ||
+             theJoin->patternIsExists)
+           { continue; }
+           
+         if (theJoin->explicitJoin)
+           { continue; }
+           
+         if (theJoin->goalExpression == NULL)
+           { continue; }
+
+         if (theJoin->firstJoin &&
+             GetAlphaMemory(theEnv,(struct patternNodeHeader *) theJoin->rightSideEntryStructure,0) != NULL)
+           { continue; }
+           
+         theMemory = theJoin->leftMemory;
+
+         if (theJoin->firstJoin)
+           {
+            if (! theMemory->beta[0]->goalMarker)
+              { AttachGoal(theEnv,theJoin,theMemory->beta[0],theMemory->beta[0],true); }
+            continue;
+           }
+           
+         for (b = 0; b < theMemory->size; b++)
+           {
+            listOfMatches = theMemory->beta[b];
+            while (listOfMatches != NULL)
+              {
+               if (listOfMatches->children == NULL)
+                 { AttachGoal(theEnv,theJoin,listOfMatches,listOfMatches,true); }
+     
+               listOfMatches = listOfMatches->nextInMemory;
+              }
+           }
+        }
+
+      IncrementalResetGoalsPNTraverse(theEnv,theNode->nextLevel);
+      theNode = theNode->rightNode;
+     }
+  }
+
+/***********************/
+/* ReleaseGoalUpdates: */
+/***********************/
+void ReleaseGoalUpdates(
+  Environment *theEnv)
+  {
+   struct goalNetworkUpdate *theUpdate;
+
+   while (FactData(theEnv)->goalUpdateList != NULL)
+     {
+      theUpdate = FactData(theEnv)->goalUpdateList;
+      FactData(theEnv)->goalUpdateList = theUpdate->next;
+      rtn_struct(theEnv,goalNetworkUpdate,theUpdate);
+     }
+  }
+  
 /*************************************************************/
 /* FindPatternNode: Looks for a pattern node at a specified  */
 /*  level in the pattern network that can be reused (shared) */
@@ -345,7 +715,8 @@ static struct factPatternNode *FindPatternNode(
   struct lhsParseNode *thePattern,
   struct factPatternNode **nodeBeforeMatch,
   bool endSlot,
-  bool constantSelector)
+  bool constantSelector,
+  CLIPSBitMap *modifySlots)
   {
    struct expr *compareTest;
    *nodeBeforeMatch = NULL;
@@ -379,8 +750,9 @@ static struct factPatternNode *FindPatternNode(
              (listOfNodes->whichField == thePattern->index) &&
              (listOfNodes->whichSlot == (thePattern->slotNumber - 1)) &&
              IdenticalExpression(listOfNodes->networkTest,compareTest) &&
-             IdenticalExpression(listOfNodes->header.rightHash,thePattern->rightHash))
-           { return(listOfNodes); }
+             IdenticalExpression(listOfNodes->header.rightHash,thePattern->rightHash) &&
+             (listOfNodes->modifySlots == modifySlots))
+           { return listOfNodes; }
         }
       else if ((thePattern->pnType == MF_WILDCARD_NODE) || (thePattern->pnType == MF_VARIABLE_NODE))
         {
@@ -390,8 +762,9 @@ static struct factPatternNode *FindPatternNode(
              (listOfNodes->whichField == thePattern->index) &&
              (listOfNodes->whichSlot == (thePattern->slotNumber - 1)) &&
              IdenticalExpression(listOfNodes->networkTest,compareTest) &&
-             IdenticalExpression(listOfNodes->header.rightHash,thePattern->rightHash))
-           { return(listOfNodes); }
+             IdenticalExpression(listOfNodes->header.rightHash,thePattern->rightHash) &&
+             (listOfNodes->modifySlots == modifySlots))
+           { return listOfNodes; }
         }
 
       /*==================================*/
@@ -408,6 +781,90 @@ static struct factPatternNode *FindPatternNode(
    /*==============================================*/
 
    return NULL;
+  }
+  
+/****************************************************************/
+/* FindStopPatternNode: Looks for a pattern node at a specified */
+/*  level in the pattern network that can be reused (shared)    */
+/*  with a pattern field being added to the pattern network.    */
+/****************************************************************/
+static struct factPatternNode *FindStopPatternNode(
+  struct factPatternNode *listOfNodes,
+  struct factPatternNode **nodeBeforeMatch,
+  CLIPSBitMap *modifySlots,
+  Expression *theRightHash)
+  {
+   *nodeBeforeMatch = NULL;
+
+   /*==========================================================*/
+   /* Loop through the nodes at the given level in the pattern */
+   /* network looking for a node that can be reused (shared)?  */
+   /*==========================================================*/
+
+   while (listOfNodes != NULL)
+     {
+      /*==================================================*/
+      /* Just the stopNode flag and filter need to match. */
+      /*==================================================*/
+      
+      if (listOfNodes->header.stopNode &&
+          IdenticalExpression(listOfNodes->header.rightHash,theRightHash) &&
+          (listOfNodes->modifySlots == modifySlots))
+        { return listOfNodes; }
+
+      /*==================================*/
+      /* Move on to the next node at this */
+      /* level in the pattern network.    */
+      /*==================================*/
+
+      *nodeBeforeMatch = listOfNodes;
+      listOfNodes = listOfNodes->rightNode;
+     }
+
+   /*==============================================*/
+   /* A shareable pattern node could not be found. */
+   /*==============================================*/
+
+   return NULL;
+  }
+  
+/************************/
+/* CreatePatternSlotMap */
+/************************/
+static CLIPSBitMap *CreatePatternSlotMap(
+  Environment *theEnv,
+  Deftemplate *theDeftemplate,
+  struct lhsParseNode *thePattern)
+  {
+   unsigned short slotMapSize;
+   char *slotMap;
+   CLIPSBitMap *theBitMap;
+
+   if (theDeftemplate->numberOfSlots == 0)
+     { return NULL; }
+     
+   slotMapSize = CountToBitMapSize(theDeftemplate->numberOfSlots);
+   slotMap = (char *) gm2(theEnv,slotMapSize);
+   ClearBitString((void *) slotMap,slotMapSize);
+
+   while (thePattern != NULL)
+     {
+      if (thePattern->slot != NULL)
+        {
+         struct templateSlot *theSlot = FindSlot(theDeftemplate,thePattern->slot,NULL);
+         
+          if (theSlot->reactive)
+           { SetBitMap(slotMap,thePattern->slotNumber-1); }
+        }
+        
+      thePattern = thePattern->right;
+     }
+
+   theBitMap = AddBitMap(theEnv,slotMap,slotMapSize);
+   rm(theEnv,slotMap,slotMapSize);
+   IncrementBitMapReferenceCount(theEnv,theBitMap);
+   
+   return theBitMap;
   }
 
 /*************************************************************/
@@ -598,7 +1055,10 @@ static struct factPatternNode *CreateNewPatternNode(
   struct factPatternNode *nodeBeforeMatch,
   struct factPatternNode *upperLevel,
   bool endSlot,
-  bool constantSelector)
+  bool constantSelector,
+  bool goal,
+  Deftemplate *currentDeftemplate,
+  CLIPSBitMap *modifySlots)
   {
    struct factPatternNode *newNode;
 
@@ -612,6 +1072,7 @@ static struct factPatternNode *CreateNewPatternNode(
    newNode->rightNode = NULL;
    newNode->leftNode = NULL;
    newNode->leaveFields = thePattern->singleFieldsAfter;
+   newNode->modifySlots = modifySlots;
    InitializePatternHeader(theEnv,(struct patternNodeHeader *) &newNode->header);
 
    if (thePattern->index > 0)
@@ -648,13 +1109,6 @@ static struct factPatternNode *CreateNewPatternNode(
    else
      { newNode->networkTest = AddHashedExpression(theEnv,thePattern->networkTest); }
 
-   /*==========================================*/
-   /* Add the expression used for adding alpha */
-   /* matches to the alpha memory.             */
-   /*==========================================*/
-
-   newNode->header.rightHash = AddHashedExpression(theEnv,thePattern->rightHash);
-
    /*===============================================*/
    /* Set the upper level pointer for the new node. */
    /*===============================================*/
@@ -671,8 +1125,16 @@ static struct factPatternNode *CreateNewPatternNode(
 
    if (nodeBeforeMatch == NULL)
      {
-      if (upperLevel == NULL) FactData(theEnv)->CurrentDeftemplate->patternNetwork = newNode;
-      else upperLevel->nextLevel = newNode;
+      if (upperLevel == NULL)
+        {
+         if (goal)
+           { currentDeftemplate->goalNetwork = newNode; }
+         else
+           { currentDeftemplate->patternNetwork = newNode; }
+        }
+      else
+        { upperLevel->nextLevel = newNode; }
+      
       return(newNode);
      }
 
@@ -698,14 +1160,132 @@ static struct factPatternNode *CreateNewPatternNode(
    /* the first node visited in the pattern network.      */
    /*=====================================================*/
 
-   newNode->rightNode = FactData(theEnv)->CurrentDeftemplate->patternNetwork;
-   if (FactData(theEnv)->CurrentDeftemplate->patternNetwork != NULL)
-     { FactData(theEnv)->CurrentDeftemplate->patternNetwork->leftNode = newNode; }
+   if (goal)
+     {
+      newNode->rightNode = currentDeftemplate->goalNetwork;
+      if (currentDeftemplate->goalNetwork != NULL)
+        { currentDeftemplate->goalNetwork->leftNode = newNode; }
 
-   FactData(theEnv)->CurrentDeftemplate->patternNetwork = newNode;
+      currentDeftemplate->goalNetwork = newNode;
+     }
+   else
+     {
+      newNode->rightNode = currentDeftemplate->patternNetwork;
+      if (currentDeftemplate->patternNetwork != NULL)
+        { currentDeftemplate->patternNetwork->leftNode = newNode; }
+
+      currentDeftemplate->patternNetwork = newNode;
+     }
+     
    return(newNode);
   }
 
+
+/********************************************************/
+/* CreateNewStopPatternNode: Creates a new stop pattern */
+/*   node and initializes all of its values.            */
+/********************************************************/
+static struct factPatternNode *CreateNewStopPatternNode(
+  Environment *theEnv,
+  struct lhsParseNode *thePattern,
+  struct factPatternNode *nodeBeforeMatch,
+  struct factPatternNode *upperLevel,
+  bool goal,
+  Deftemplate *currentDeftemplate,
+  CLIPSBitMap *modifySlots,
+  Expression *theRightHash)
+  {
+   struct factPatternNode *newNode;
+
+   /*========================================*/
+   /* Create the pattern node and initialize */
+   /* its slots to the default values.       */
+   /*========================================*/
+
+   newNode = get_struct(theEnv,factPatternNode);
+   newNode->networkTest = NULL;
+   newNode->nextLevel = NULL;
+   newNode->rightNode = NULL;
+   newNode->leftNode = NULL;
+   newNode->leaveFields = 0;
+   newNode->modifySlots = modifySlots;
+   newNode->whichField = 0;
+   newNode->whichSlot = 0;
+   
+   InitializePatternHeader(theEnv,(struct patternNodeHeader *) &newNode->header);
+   
+   newNode->header.stopNode = true;
+
+   newNode->header.rightHash = AddHashedExpression(theEnv,theRightHash);
+
+   /*===============================================*/
+   /* Set the upper level pointer for the new node. */
+   /*===============================================*/
+
+   newNode->lastLevel = upperLevel;
+
+   /*======================================================*/
+   /* If there are no nodes on this level, then attach the */
+   /* new node to the child pointer of the upper level.    */
+   /*======================================================*/
+
+   if (nodeBeforeMatch == NULL)
+     {
+      if (upperLevel == NULL)
+        {
+         if (goal)
+           { currentDeftemplate->goalNetwork = newNode; }
+         else
+           { currentDeftemplate->patternNetwork = newNode; }
+        }
+      else
+        { upperLevel->nextLevel = newNode; }
+      
+      return newNode;
+     }
+
+   /*=====================================================*/
+   /* If there is an upper level above the new node, then */
+   /* place the new node as the first child in the upper  */
+   /* level's nextLevel (child) link.                     */
+   /*=====================================================*/
+
+   if (upperLevel != NULL)
+     {
+      newNode->rightNode = upperLevel->nextLevel;
+      if (upperLevel->nextLevel != NULL)
+        { upperLevel->nextLevel->leftNode = newNode; }
+      upperLevel->nextLevel = newNode;
+      return newNode;
+     }
+
+   /*=====================================================*/
+   /* Since there is no upper level above the new node,   */
+   /* (i.e. the new node is being added to the highest    */
+   /* level in the pattern network), the new node becomes */
+   /* the first node visited in the pattern network.      */
+   /*=====================================================*/
+
+   if (goal)
+     {
+      newNode->rightNode = currentDeftemplate->goalNetwork;
+      if (currentDeftemplate->goalNetwork != NULL)
+        { currentDeftemplate->goalNetwork->leftNode = newNode; }
+
+      currentDeftemplate->goalNetwork = newNode;
+     }
+   else
+     {
+      newNode->rightNode = currentDeftemplate->patternNetwork;
+      if (currentDeftemplate->patternNetwork != NULL)
+        { currentDeftemplate->patternNetwork->leftNode = newNode; }
+
+      currentDeftemplate->patternNetwork = newNode;
+     }
+     
+   return newNode;
+  }
+  
 /*************************************************************/
 /* DetachFactPattern: Removes a pattern node and all of its  */
 /*   parent nodes from the pattern network. Nodes are only   */
@@ -743,7 +1323,8 @@ static void DetachFactPattern(
    /*=====================================================*/
 
    patternPtr = (struct factPatternNode *) thePattern;
-   ClearPatternMatches(theEnv,patternPtr);
+   ClearFactPatternMatches(theEnv,patternPtr);
+   ClearGoalPatternMatches(theEnv,patternPtr);
 
    /*=======================================================*/
    /* If there are no joins entered from this pattern, then */
@@ -788,6 +1369,8 @@ static void DetachFactPattern(
 
          RemoveHashedExpression(theEnv,patternPtr->networkTest);
          RemoveHashedExpression(theEnv,patternPtr->header.rightHash);
+         if (patternPtr->modifySlots != NULL)
+           { DecrementBitMapReferenceCount(theEnv,patternPtr->modifySlots); }
          rtn_struct(theEnv,factPatternNode,patternPtr);
         }
       else if (upperLevel->leftNode != NULL)
@@ -810,6 +1393,8 @@ static void DetachFactPattern(
 
          RemoveHashedExpression(theEnv,patternPtr->networkTest);
          RemoveHashedExpression(theEnv,patternPtr->header.rightHash);
+         if (patternPtr->modifySlots != NULL)
+           { DecrementBitMapReferenceCount(theEnv,patternPtr->modifySlots); }
          rtn_struct(theEnv,factPatternNode,patternPtr);
          upperLevel = NULL;
         }
@@ -836,6 +1421,8 @@ static void DetachFactPattern(
 
          RemoveHashedExpression(theEnv,patternPtr->networkTest);
          RemoveHashedExpression(theEnv,patternPtr->header.rightHash);
+         if (patternPtr->modifySlots != NULL)
+           { DecrementBitMapReferenceCount(theEnv,patternPtr->modifySlots); }
          rtn_struct(theEnv,factPatternNode,patternPtr);
          upperLevel = NULL;
         }
@@ -869,6 +1456,8 @@ void DestroyFactPatternNetwork(
         { RemoveHashedPatternNode(theEnv,thePattern->lastLevel,thePattern,thePattern->networkTest->type,thePattern->networkTest->value); }
 
 #if (! BLOAD_ONLY) && (! RUN_TIME)
+      if (thePattern->modifySlots != NULL)
+        { DecrementBitMapReferenceCount(theEnv,thePattern->modifySlots); }
       rtn_struct(theEnv,factPatternNode,thePattern);
 #endif
 
@@ -893,7 +1482,7 @@ static void FindAndSetDeftemplatePatternNetwork(
   struct factPatternNode *rootNode,
   struct factPatternNode *newRootNode)
   {
-   Deftemplate *theDeftemplate;
+   Deftemplate *theDeftemplate, *tmpDeftemplate;
    Defmodule *theModule;
 
    /*=======================================================*/
@@ -939,6 +1528,39 @@ static void FindAndSetDeftemplatePatternNetwork(
             theDeftemplate->patternNetwork = newRootNode;
             return;
            }
+         else if (theDeftemplate->goalNetwork == rootNode)
+           {
+            RestoreCurrentModule(theEnv);
+            theDeftemplate->goalNetwork = newRootNode;
+            if ((rootNode != NULL) && (newRootNode == NULL))
+              {
+               bool parentGeneratesGoal = false;
+               for (tmpDeftemplate = theDeftemplate->parent;
+                    tmpDeftemplate != NULL;
+                    tmpDeftemplate = tmpDeftemplate->parent)
+                 {
+                  if (tmpDeftemplate->goalNetwork != NULL)
+                    {
+                     parentGeneratesGoal = true;
+                     break;
+                    }
+                 }
+
+               if (! parentGeneratesGoal)
+                 {
+                  RemoveGoalExpressions(theEnv,theDeftemplate->patternNetwork);
+                  RemoveChildGoalExpressions(theEnv,theDeftemplate);
+                 }
+               /* TBD remove from children potentially */
+               /*
+               for (tmpDeftemplate = theDeftemplate;
+                    tmpDeftemplate != NULL;
+                    tmpDeftemplate = tmpDeftemplate->parent)
+                 { RemoveGoalExpressions(theEnv,tmpDeftemplate->patternNetwork); }
+              */
+              }
+            return;
+           }
         }
      }
 
@@ -952,14 +1574,14 @@ static void FindAndSetDeftemplatePatternNetwork(
    RestoreCurrentModule(theEnv);
   }
 
-/***************************************************************/
-/* ClearPatternMatches: Clears the fact list of all pointers   */
-/*   which point to a specific pattern.  The pointers are used */
-/*   to remember which patterns were matched by a fact to      */
-/*   make retraction easier.  When a rule is excised, the      */
-/*   pointers need to be removed.                              */
-/***************************************************************/
-static void ClearPatternMatches(
+/******************************************************************/
+/* ClearFactPatternMatches: Clears the fact list of all pointers  */
+/*   which point to a specific pattern.  The pointers are used to */
+/*   remember which patterns were matched by a fact to make       */
+/*   retraction easier.  When a rule is excised, the pointers     */
+/*   need to be removed.                                          */
+/******************************************************************/
+static void ClearFactPatternMatches(
   Environment *theEnv,
   struct factPatternNode *patternPtr)
   {
@@ -979,7 +1601,7 @@ static void ClearPatternMatches(
       /*========================================*/
 
       lastMatch = NULL;
-      theMatch = (struct patternMatch *) theFact->list;
+      theMatch = theFact->list;
 
       while (theMatch != NULL)
         {
@@ -998,7 +1620,82 @@ static void ClearPatternMatches(
 
                theFact->list = theMatch->next;
                rtn_struct(theEnv,patternMatch,theMatch);
-               theMatch = (struct patternMatch *) theFact->list;
+               theMatch = theFact->list;
+              }
+            else
+             {
+               /*===================================*/
+               /* Remove a match for the fact which */
+               /* follows the first match.          */
+               /*===================================*/
+
+              lastMatch->next = theMatch->next;
+              rtn_struct(theEnv,patternMatch,theMatch);
+              theMatch = lastMatch->next;
+             }
+           }
+
+         /*====================================================*/
+         /* If the match is not for the pattern being deleted, */
+         /* then move on to the next match for the fact.       */
+         /*====================================================*/
+
+         else
+          {
+           lastMatch = theMatch;
+           theMatch = theMatch->next;
+          }
+       }
+    }
+  }
+  
+/******************************************************************/
+/* ClearGoalPatternMatches: Clears the fact list of all pointers  */
+/*   which point to a specific pattern.  The pointers are used to */
+/*   remember which patterns were matched by a goal to make       */
+/*   retraction easier.  When a rule is excised, the pointers     */
+/*   need to be removed.                                          */
+/******************************************************************/
+static void ClearGoalPatternMatches(
+  Environment *theEnv,
+  struct factPatternNode *patternPtr)
+  {
+   Fact *theGoal;
+   struct patternMatch *lastMatch, *theMatch;
+
+   /*===========================================*/
+   /* Loop through every goal in the goal list. */
+   /*===========================================*/
+
+   for (theGoal = GetNextGoal(theEnv,NULL);
+        theGoal != NULL;
+        theGoal = GetNextGoal(theEnv,theGoal))
+     {
+      /*========================================*/
+      /* Loop through every match for the fact. */
+      /*========================================*/
+
+      lastMatch = NULL;
+      theMatch = theGoal->list;
+
+      while (theMatch != NULL)
+        {
+         /*================================================*/
+         /* If the match is for the pattern being deleted, */
+         /* then remove the match.                         */
+         /*================================================*/
+
+         if (theMatch->matchingPattern == (struct patternNodeHeader *) patternPtr)
+           {
+            if (lastMatch == NULL)
+              {
+               /*=====================================*/
+               /* Remove the first match of the fact. */
+               /*=====================================*/
+
+               theGoal->list = theMatch->next;
+               rtn_struct(theEnv,patternMatch,theMatch);
+               theMatch = theGoal->list;
               }
             else
              {
@@ -1030,6 +1727,3 @@ static void ClearPatternMatches(
 #endif /* (! RUN_TIME) && (! BLOAD_ONLY) */
 
 #endif /* DEFTEMPLATE_CONSTRUCT && DEFRULE_CONSTRUCT */
-
-
-

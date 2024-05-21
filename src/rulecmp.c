@@ -2,7 +2,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/01/16             */
+   /*            CLIPS Version 6.50  11/09/23             */
    /*                                                     */
    /*            DEFRULE CONSTRUCTS-TO-C MODULE           */
    /*******************************************************/
@@ -42,6 +42,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -145,6 +147,13 @@ static bool ConstructToCode(
      }
 
    if (! TraverseJoinLinks(theEnv,DefruleData(theEnv)->RightPrimeJoins,fileName,pathName,fileNameBuffer,fileID,headerFP,imageID,
+                           maxIndices,&linkFile,&fileCount,&linkArrayVersion,&linkArrayCount))
+     {
+      CloseDefruleFiles(theEnv,moduleFile,defruleFile,joinFile,linkFile,maxIndices);
+      return false;
+     }
+
+   if (! TraverseJoinLinks(theEnv,DefruleData(theEnv)->GoalPrimeJoins,fileName,pathName,fileNameBuffer,fileID,headerFP,imageID,
                            maxIndices,&linkFile,&fileCount,&linkArrayVersion,&linkArrayCount))
      {
       CloseDefruleFiles(theEnv,moduleFile,defruleFile,joinFile,linkFile,maxIndices);
@@ -512,14 +521,19 @@ static void JoinToCode(
    /* Flags and Integer Values. */
    /*===========================*/
 
-   fprintf(joinFile,"{%d,%d,%d,%d,%d,0,0,%d,%d,0,0,0,0,0,0,",
+   fprintf(joinFile,"{%d,%d,%d,%d,%d,%d,%d,0,0,0,%d,%d,0,",
                    theJoin->firstJoin,theJoin->logicalJoin,
+                   theJoin->goalJoin,
+                   theJoin->explicitJoin,
                    theJoin->joinFromTheRight,theJoin->patternIsNegated,
                    theJoin->patternIsExists,
                    // initialize,
                    // marked
+                   // goalMarked
                    theJoin->rhsType,theJoin->depth);
                    // bsaveID
+
+   fprintf(joinFile,"0,0,0,0,0,");
                    // memoryLeftAdds
                    // memoryRightAdds
                    // memoryLeftDeletes
@@ -540,6 +554,9 @@ static void JoinToCode(
    fprintf(joinFile,",");
 
    PrintHashedExpressionReference(theEnv,joinFile,theJoin->secondaryNetworkTest,imageID,maxIndices);
+   fprintf(joinFile,",");
+
+   PrintHashedExpressionReference(theEnv,joinFile,theJoin->goalExpression,imageID,maxIndices);
    fprintf(joinFile,",");
 
    PrintHashedExpressionReference(theEnv,joinFile,theJoin->leftHash,imageID,maxIndices);
@@ -721,12 +738,21 @@ static void InitDefruleCode(
      }
 
    if (DefruleData(theEnv)->LeftPrimeJoins == NULL)
+     { fprintf(initFP,"NULL,"); }
+   else
+     {
+      fprintf(initFP,"&%s%u_%lu[%lu],",LinkPrefix(),
+                    imageID,(DefruleData(theEnv)->LeftPrimeJoins->bsaveID / maxIndices) + 1,
+                             DefruleData(theEnv)->LeftPrimeJoins->bsaveID % maxIndices);
+     }
+
+   if (DefruleData(theEnv)->GoalPrimeJoins == NULL)
      { fprintf(initFP,"NULL);\n"); }
    else
      {
       fprintf(initFP,"&%s%u_%lu[%lu]);\n",LinkPrefix(),
-                    imageID,(DefruleData(theEnv)->LeftPrimeJoins->bsaveID / maxIndices) + 1,
-                             DefruleData(theEnv)->LeftPrimeJoins->bsaveID % maxIndices);
+                    imageID,(DefruleData(theEnv)->GoalPrimeJoins->bsaveID / maxIndices) + 1,
+                             DefruleData(theEnv)->GoalPrimeJoins->bsaveID % maxIndices);
      }
   }
 

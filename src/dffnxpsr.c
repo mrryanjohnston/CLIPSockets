@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/23/20             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -52,6 +52,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -474,9 +476,11 @@ static Deffunction *AddDeffunction(
       /*======================================*/
 
       RemoveConstructFromModule(theEnv,&dfuncPtr->header);
+      RemoveConstructFromHashMap(theEnv,&dfuncPtr->header,dfuncPtr->header.whichModule);
      }
 
    AddConstructToModule(&dfuncPtr->header);
+   AddConstructToHashMap(theEnv,&dfuncPtr->header,dfuncPtr->header.whichModule);
 
    /*====================================*/
    /* Install the new interpretive code. */

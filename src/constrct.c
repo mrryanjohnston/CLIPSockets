@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/23/20             */
+   /*            CLIPS Version 7.00  01/16/24             */
    /*                                                     */
    /*                  CONSTRUCT MODULE                   */
    /*******************************************************/
@@ -80,6 +80,8 @@
 /*                                                           */
 /*            File name/line count displayed for errors      */
 /*            and warnings during load command.              */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -721,7 +723,8 @@ bool Clear(
 
 #if DEFRULE_CONSTRUCT
    if ((DefruleData(theEnv)->RightPrimeJoins != NULL) ||
-       (DefruleData(theEnv)->LeftPrimeJoins != NULL))
+       (DefruleData(theEnv)->LeftPrimeJoins != NULL) ||
+       (DefruleData(theEnv)->GoalPrimeJoins != NULL))
      { SystemError(theEnv,"CONSTRCT",1); }
 #endif
 
@@ -916,7 +919,8 @@ Construct *AddConstruct(
   void (*setNextItemFunction)(ConstructHeader *,ConstructHeader *),
   IsConstructDeletableFunction *isConstructDeletableFunction,
   DeleteConstructFunction *deleteFunction,
-  FreeConstructFunction *freeFunction)
+  FreeConstructFunction *freeFunction,
+  LookupConstructFunction *lookupFunction)
   {
    Construct *newPtr;
 
@@ -939,6 +943,7 @@ Construct *AddConstruct(
    newPtr->isConstructDeletableFunction = isConstructDeletableFunction;
    newPtr->deleteFunction = deleteFunction;
    newPtr->freeFunction = freeFunction;
+   newPtr->lookupFunction = lookupFunction;
 
    /*===============================*/
    /* Add the construct to the list */

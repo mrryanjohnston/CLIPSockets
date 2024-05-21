@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/01/16             */
+   /*            CLIPS Version 6.50  10/13/23             */
    /*                                                     */
    /*                 NETWORK HEADER FILE                 */
    /*******************************************************/
@@ -22,6 +22,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -109,23 +111,29 @@ struct joinNode
   {
    unsigned int firstJoin : 1;
    unsigned int logicalJoin : 1;
+   unsigned int goalJoin : 1;
+   unsigned int explicitJoin : 1;
    unsigned int joinFromTheRight : 1;
    unsigned int patternIsNegated : 1;
    unsigned int patternIsExists : 1;
    unsigned int initialize : 1;
    unsigned int marked : 1;
+   unsigned int goalMarked : 1;
    unsigned int rhsType : 3;
-   unsigned int depth : 16;
+   unsigned int depth : 16; // TBD Decrease
    unsigned long bsaveID;
+#if DEBUGGING_FUNCTIONS
    long long memoryLeftAdds;
    long long memoryRightAdds;
    long long memoryLeftDeletes;
    long long memoryRightDeletes;
    long long memoryCompares;
+#endif
    struct betaMemory *leftMemory;
    struct betaMemory *rightMemory;
    Expression *networkTest;
    Expression *secondaryNetworkTest;
+   Expression *goalExpression;
    Expression *leftHash;
    Expression *rightHash;
    void *rightSideEntryStructure;

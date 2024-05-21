@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  06/28/17             */
+   /*            CLIPS Version 6.50  10/13/23             */
    /*                                                     */
    /*                  RULE BUILD MODULE                  */
    /*******************************************************/
@@ -44,6 +44,8 @@
 /*                                                           */
 /*            Incremental reset is always enabled.           */
 /*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -73,12 +75,12 @@
 
    static struct joinNode        *FindShareableJoin(struct joinLink *,struct joinNode *,bool,void *,bool,bool,
                                                     bool,bool,struct expr *,struct expr *,
-                                                    struct expr *,struct expr *);
+                                                    struct expr *,struct expr *,bool);
    static bool                    TestJoinForReuse(struct joinNode *,bool,bool,
                                                    bool,bool,struct expr *,struct expr *,
-                                                   struct expr *,struct expr *);
+                                                   struct expr *,struct expr *,bool);
    static struct joinNode        *CreateNewJoin(Environment *,struct expr *,struct expr *,struct joinNode *,void *,
-                                                bool,bool,bool,struct expr *,struct expr *);
+                                                bool,bool,bool,struct expr *,struct expr *,struct expr *,bool);
 
 /****************************************************************/
 /* ConstructJoins: Integrates a set of pattern and join tests   */
@@ -108,14 +110,16 @@ struct joinNode *ConstructJoins(
    bool joinFromTheRight;
    struct joinLink *theLinks;
    bool useLinks;
+   bool generatesGoal;
+   struct expr *goalExpression = NULL;
 
    if (theLHS == NULL)
      {
       lastJoin = FindShareableJoin(DefruleData(theEnv)->RightPrimeJoins,NULL,true,NULL,true,
-                                   false,false,false,NULL,NULL,NULL,NULL);
+                                   false,false,false,NULL,NULL,NULL,NULL,false);
 
       if (lastJoin == NULL)
-        { lastJoin = CreateNewJoin(theEnv,NULL,NULL,NULL,NULL,false,false,false,NULL,NULL); }
+        { lastJoin = CreateNewJoin(theEnv,NULL,NULL,NULL,NULL,false,false,false,NULL,NULL,NULL,false); }
      }
 
    /*=====================================================*/
@@ -186,6 +190,9 @@ struct joinNode *ConstructJoins(
          lastIteration = true;
         }
 
+      generatesGoal = false;
+      goalExpression = NULL;
+
       /*===============================================*/
       /* If the pattern is a join from the right, then */
       /* construct the subgroup of patterns and use    */
@@ -231,7 +238,7 @@ struct joinNode *ConstructJoins(
         {
          joinFromTheRight = false;
          rhsType = theLHS->patternType->positionInArray;
-         lastPattern = (*theLHS->patternType->addPatternFunction)(theEnv,theLHS);
+         lastPattern = (*theLHS->patternType->addPatternFunction)(theEnv,theLHS,&generatesGoal,&goalExpression);
          rhsStruct = lastPattern;
          lastRightJoin = NULL;
          isExists = theLHS->exists;
@@ -275,7 +282,7 @@ struct joinNode *ConstructJoins(
           ((oldJoin = FindShareableJoin(theLinks,listOfJoins,useLinks,rhsStruct,firstJoin,
                                         theLHS->negated,isExists,isLogical,
                                         networkTest,secondaryNetworkTest,
-                                        leftHash,rightHash)) != NULL) )
+                                        leftHash,rightHash,theLHS->explicitCE)) != NULL) )
         {
 #if DEBUGGING_FUNCTIONS
          if ((GetWatchItem(theEnv,"compilations") == 1) && GetPrintWhileLoading(theEnv))
@@ -290,17 +297,23 @@ struct joinNode *ConstructJoins(
            {
             lastJoin = CreateNewJoin(theEnv,networkTest,secondaryNetworkTest,lastJoin,
                                      lastPattern,false,theLHS->negated, isExists,
-                                     leftHash,rightHash);
+                                     leftHash,rightHash,goalExpression,theLHS->explicitCE);
             lastJoin->rhsType = rhsType;
+            
+            if ((! theLHS->negated) &&
+                (! theLHS->explicitCE) && generatesGoal)
+              { lastJoin->goalJoin = true; }
            }
          else
            {
             lastJoin = CreateNewJoin(theEnv,networkTest,secondaryNetworkTest,lastJoin,
                                      lastRightJoin,true,theLHS->negated, isExists,
-                                     leftHash,rightHash);
+                                     leftHash,rightHash,goalExpression,theLHS->explicitCE);
             lastJoin->rhsType = rhsType;
            }
         }
+        
+      ReturnExpression(theEnv,goalExpression);
 
       /*============================================*/
       /* If we've reached the end of the subgroup,  */
@@ -327,7 +340,7 @@ struct joinNode *ConstructJoins(
    if (startDepth == 1)
      {
       lastJoin = CreateNewJoin(theEnv,NULL,NULL,lastJoin,NULL,
-                               false,false,false,NULL,NULL);
+                               false,false,false,NULL,NULL,NULL,false);
      }
 
    /*===================================================*/
@@ -919,7 +932,8 @@ static struct joinNode *FindShareableJoin(
   struct expr *joinTest,
   struct expr *secondaryJoinTest,
   struct expr *leftHash,
-  struct expr *rightHash)
+  struct expr *rightHash,
+  bool isExplicit)
   {
    /*========================================*/
    /* Loop through all of the joins in the   */
@@ -947,7 +961,7 @@ static struct joinNode *FindShareableJoin(
         {
          if (TestJoinForReuse(listOfJoins,firstJoin,negatedRHS,existsRHS,
                               isLogical,joinTest,secondaryJoinTest,
-                              leftHash,rightHash))
+                              leftHash,rightHash,isExplicit))
            { return(listOfJoins); }
         }
 
@@ -994,7 +1008,8 @@ static bool TestJoinForReuse(
   struct expr *joinTest,
   struct expr *secondaryJoinTest,
   struct expr *leftHash,
-  struct expr *rightHash)
+  struct expr *rightHash,
+  bool isExplicit)
   {
    /*==================================================*/
    /* The first join of a rule may only be shared with */
@@ -1050,6 +1065,13 @@ static bool TestJoinForReuse(
 
    if (IdenticalExpression(testJoin->rightHash,rightHash) != true)
      { return false; }
+     
+   /*=======================================*/
+   /* An explicit join can't be shared with */
+   /* a join that can generate a goal.      */
+   /*=======================================*/
+   
+   if (testJoin->explicitJoin != isExplicit) return false;
 
    /*=============================================*/
    /* The join can be shared since all conditions */
@@ -1072,7 +1094,9 @@ static struct joinNode *CreateNewJoin(
   bool negatedRHSPattern,
   bool existsRHSPattern,
   struct expr *leftHash,
-  struct expr *rightHash)
+  struct expr *rightHash,
+  struct expr *goalExpression,
+  bool isExplicit)
   {
    struct joinNode *newJoin;
    struct joinLink *theLink;
@@ -1100,7 +1124,7 @@ static struct joinNode *CreateNewJoin(
    /* unless the RHS pattern is an exists or not CE.       */
    /*======================================================*/
 
-   if ((lhsEntryStruct != NULL) || existsRHSPattern || negatedRHSPattern || joinFromTheRight)
+   if ((lhsEntryStruct != NULL) || existsRHSPattern || negatedRHSPattern || joinFromTheRight || (goalExpression != NULL))
      {
       if (leftHash == NULL)
         {
@@ -1128,7 +1152,7 @@ static struct joinNode *CreateNewJoin(
       /* current right memory partial match satisfying the CE.     */
       /*===========================================================*/
 
-      if ((lhsEntryStruct == NULL) && (existsRHSPattern || negatedRHSPattern || joinFromTheRight))
+      if ((lhsEntryStruct == NULL) && (existsRHSPattern || negatedRHSPattern || joinFromTheRight || (goalExpression != NULL)))
         {
          newJoin->leftMemory->beta[0] = CreateEmptyPartialMatch(theEnv);
          newJoin->leftMemory->beta[0]->owner = newJoin;
@@ -1186,14 +1210,18 @@ static struct joinNode *CreateNewJoin(
    newJoin->patternIsExists = existsRHSPattern;
 
    newJoin->marked = false;
+   newJoin->goalMarked = false;
    newJoin->initialize = true;
    newJoin->logicalJoin = false;
    newJoin->ruleToActivate = NULL;
+   newJoin->explicitJoin = isExplicit;
+#if DEBUGGING_FUNCTIONS
    newJoin->memoryLeftAdds = 0;
    newJoin->memoryRightAdds = 0;
    newJoin->memoryLeftDeletes = 0;
    newJoin->memoryRightDeletes = 0;
    newJoin->memoryCompares = 0;
+#endif
 
    /*==============================================*/
    /* Install the expressions used to determine    */
@@ -1203,6 +1231,34 @@ static struct joinNode *CreateNewJoin(
 
    newJoin->networkTest = AddHashedExpression(theEnv,joinTest);
    newJoin->secondaryNetworkTest = AddHashedExpression(theEnv,secondaryJoinTest);
+   
+   /*==================================*/
+   /* Set goal generation information. */
+   /*==================================*/
+   
+   if ((goalExpression != NULL) &&
+       (! isExplicit) &&
+       (! joinFromTheRight) &&
+       (! negatedRHSPattern) &&
+       (! existsRHSPattern)) // TBD Should we generate a goal for exists?
+     {
+      newJoin->goalJoin = true;
+      newJoin->goalExpression = AddHashedExpression(theEnv,goalExpression);
+      
+      if (lhsEntryStruct == NULL)
+        {
+         theLink = get_struct(theEnv,joinLink);
+         theLink->join = newJoin;
+         theLink->enterDirection = RHS;
+         theLink->next = DefruleData(theEnv)->GoalPrimeJoins;
+         DefruleData(theEnv)->GoalPrimeJoins = theLink;
+        }
+     }
+   else
+     {
+      newJoin->goalJoin = false;
+      newJoin->goalExpression = NULL;
+     }
 
    /*=====================================================*/
    /* Install the expression used to hash the beta memory */

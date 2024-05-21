@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  02/03/21             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -619,7 +619,7 @@ int ReplaceProcVars(
             Replace the call to "bind" with a call to PROC_BIND - the
             special internal function for procedure local variables.
             ==================================================================== */
-         if ((actions->value == (void *) FindFunction(theEnv,"bind")) &&
+         if ((actions->functionValue == FindFunction(theEnv,"bind")) &&
              (actions->argList->type == SYMBOL_TYPE))
            {
             actions->type = PROC_BIND;
@@ -850,7 +850,7 @@ Expression *GetProcParamExpressions(
                gm2(theEnv,(sizeof(Expression) * ProceduralPrimitiveData(theEnv)->ProcParamArraySize));
    for (i = 0 ; i < ProceduralPrimitiveData(theEnv)->ProcParamArraySize ; i++)
      {
-      ProceduralPrimitiveData(theEnv)->ProcParamExpressions[i].type = ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type; // TBD Remove
+      ProceduralPrimitiveData(theEnv)->ProcParamExpressions[i].type = ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type;
       if (ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type != MULTIFIELD_TYPE)
         ProceduralPrimitiveData(theEnv)->ProcParamExpressions[i].value = ProceduralPrimitiveData(theEnv)->ProcParamArray[i].value;
       else
@@ -1387,7 +1387,7 @@ static bool ReplaceProcBinds(
         {
          if (ReplaceProcBinds(theEnv,actions->argList,altbindfunc,userBuffer))
            return true;
-         if ((actions->value == (void *) FindFunction(theEnv,"bind")) &&
+         if ((actions->functionValue == FindFunction(theEnv,"bind")) &&
              (actions->argList->type == SYMBOL_TYPE))
            {
             bname = actions->argList->lexemeValue;

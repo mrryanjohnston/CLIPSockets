@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  11/18/17            */
+   /*             CLIPS Version 7.00  03/02/24            */
    /*                                                     */
    /*               INSTANCE FUNCTIONS MODULE             */
    /*******************************************************/
@@ -70,6 +70,9 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      6.42: Fixed GC bug by including garbage fact and     */
+/*            instances in the GC frame.                     */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_insfun
@@ -78,14 +81,16 @@
 
 #define _H_insfun
 
+typedef struct igarbage IGARBAGE;
+
 #include "entities.h"
 #include "object.h"
 
-typedef struct igarbage
+struct igarbage
   {
    Instance *ins;
-   struct igarbage *nxt;
-  } IGARBAGE;
+   IGARBAGE *nxt;
+  };
 
 #define INSTANCE_TABLE_HASH_SIZE 8191
 #define InstanceSizeHeuristic(ins)      sizeof(Instance)
@@ -95,7 +100,7 @@ typedef struct igarbage
    void                           IncrementInstanceCallback(Environment *,Instance *);
    void                           DecrementInstanceCallback(Environment *,Instance *);
    void                           InitializeInstanceTable(Environment *);
-   void                           CleanupInstances(Environment *,void *);
+   void                           CleanupInstances(Environment *);
    unsigned                       HashInstance(CLIPSLexeme *);
    void                           DestroyAllInstances(Environment *,void *);
    void                           RemoveInstanceData(Environment *,Instance *);

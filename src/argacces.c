@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*               ARGUMENT ACCESS MODULE                */
    /*******************************************************/
@@ -60,6 +60,8 @@
 /*                                                           */
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -187,7 +189,7 @@ Defmodule *GetModuleName(
    /* corresponds to a defined module.      */
    /*=======================================*/
 
-   if ((theModule = FindDefmodule(theEnv,returnValue.lexemeValue->contents)) == NULL)
+   if ((theModule = LookupDefmodule(theEnv,returnValue.lexemeValue)) == NULL)
      {
       if (strcmp("*",returnValue.lexemeValue->contents) != 0)
         {

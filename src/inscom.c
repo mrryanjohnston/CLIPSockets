@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  07/12/21             */
+   /*            CLIPS Version 7.00  03/02/24             */
    /*                                                     */
    /*               INSTANCE COMMAND MODULE               */
    /*******************************************************/
@@ -75,6 +75,11 @@
 /*            UDF redesign.                                  */
 /*                                                           */
 /*            Eval support for run time and bload only.      */
+/*                                                           */
+/*      6.42: Fixed GC bug by including garbage fact and     */
+/*            instances in the GC frame.                     */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -238,7 +243,6 @@ void SetupInstances(
 
    SetupInstanceFileCommands(theEnv); /* DR0866 */
 
-   AddCleanupFunction(theEnv,"instances",CleanupInstances,0,NULL);
    AddResetFunction(theEnv,"instances",DestroyAllInstances,60,NULL);
   }
 
@@ -252,7 +256,6 @@ static void DeallocateInstanceData(
    Instance *tmpIPtr, *nextIPtr;
    long i;
    InstanceSlot *sp;
-   IGARBAGE *tmpGPtr, *nextGPtr;
    struct patternMatch *theMatch, *tmpMatch;
 
    /*=================================*/
@@ -308,19 +311,6 @@ static void DeallocateInstanceData(
       rtn_struct(theEnv,instance,tmpIPtr);
 
       tmpIPtr = nextIPtr;
-     }
-
-   /*===============================*/
-   /* Get rid of garbage instances. */
-   /*===============================*/
-
-   tmpGPtr = InstanceData(theEnv)->InstanceGarbageList;
-   while (tmpGPtr != NULL)
-     {
-      nextGPtr = tmpGPtr->nxt;
-      rtn_struct(theEnv,instance,tmpGPtr->ins);
-      rtn_struct(theEnv,igarbage,tmpGPtr);
-      tmpGPtr = nextGPtr;
      }
   }
 
@@ -453,7 +443,7 @@ UnmakeInstanceError UnmakeAllInstances(
      }
 
    InstanceData(theEnv)->MaintainGarbageInstances = svmaintain;
-   CleanupInstances(theEnv,NULL);
+   CleanupInstances(theEnv);
 
    GCBlockEnd(theEnv,&gcb);
 
@@ -505,7 +495,7 @@ UnmakeInstanceError UnmakeInstance(
      }
 
    InstanceData(theEnv)->MaintainGarbageInstances = svmaintain;
-   CleanupInstances(theEnv,NULL);
+   CleanupInstances(theEnv);
 
    GCBlockEnd(theEnv,&gcb);
 
@@ -543,7 +533,7 @@ void InstancesCommand(
      {
       if (! UDFFirstArgument(context,SYMBOL_BIT,&theArg)) return;
 
-      theDefmodule = FindDefmodule(theEnv,theArg.lexemeValue->contents);
+      theDefmodule = LookupDefmodule(theEnv,theArg.lexemeValue);
       if ((theDefmodule != NULL) ? false :
           (strcmp(theArg.lexemeValue->contents,"*") != 0))
         {
@@ -1651,7 +1641,7 @@ void InstanceAddressCommand(
          returnValue->lexemeValue = FalseSymbol(theEnv);
          return;
         }
-      theModule = FindDefmodule(theEnv,temp.lexemeValue->contents);
+      theModule = LookupDefmodule(theEnv,temp.lexemeValue);
       if ((theModule == NULL) ? (strcmp(temp.lexemeValue->contents,"*") != 0) : false)
         {
          ExpectedTypeError1(theEnv,"instance-address",1,"'module name'");

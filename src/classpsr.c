@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  05/28/21             */
+   /*            CLIPS Version 7.00  12/24/23             */
    /*                                                     */
    /*                  CLASS PARSER MODULE                */
    /*******************************************************/
@@ -634,7 +634,7 @@ static void AddClass(
       Create a bitmap indicating whether this
       class is in scope or not for every module
       ========================================= */
-   cls->scopeMap = (CLIPSBitMap *) CreateClassScopeMap(theEnv,cls);
+   cls->scopeMap = CreateClassScopeMap(theEnv,cls);
 
 #endif
 
@@ -916,7 +916,7 @@ static void CreatePublicSlotMessageHandlers(
   SIDE EFFECTS : Scope bitmap created and attached
   NOTES        : Uses FindImportedConstruct()
  ********************************************************/
-void *CreateClassScopeMap(
+CLIPSBitMap *CreateClassScopeMap(
   Environment *theEnv,
   Defclass *theDefclass)
   {
@@ -926,7 +926,7 @@ void *CreateClassScopeMap(
    Defmodule *matchModule, *theModule;
    unsigned long moduleID;
    unsigned int count;
-   void *theBitMap;
+   CLIPSBitMap *theBitMap;
 
    className = theDefclass->header.name->contents;
    matchModule = theDefclass->header.whichModule->theModule;
@@ -947,7 +947,7 @@ void *CreateClassScopeMap(
         SetBitMap(scopeMap,moduleID);
      }
    RestoreCurrentModule(theEnv);
-   theBitMap = (CLIPSBitMap *) AddBitMap(theEnv,scopeMap,scopeMapSize);
+   theBitMap = AddBitMap(theEnv,scopeMap,scopeMapSize);
    IncrementBitMapCount(theBitMap);
    rm(theEnv,scopeMap,scopeMapSize);
    return(theBitMap);

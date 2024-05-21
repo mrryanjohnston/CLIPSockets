@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  02/20/20            */
+   /*             CLIPS Version 7.00  01/23/24            */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -53,6 +53,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_genrcfun
@@ -81,7 +83,7 @@ typedef struct defgeneric Defgeneric;
 
 struct defgenericModule
   {
-   struct defmoduleItemHeader header;
+   struct defmoduleItemHeaderHM header;
   };
 
 struct restriction
@@ -109,7 +111,7 @@ struct defmethod
 struct defgeneric
   {
    ConstructHeader header;
-   unsigned busy; // TBD bool?
+   unsigned busy;
    bool trace;
    Defmethod *methods;
    unsigned short mcnt;
@@ -145,6 +147,7 @@ struct defgenericData
 #if ! RUN_TIME
    bool                           ClearDefgenericsReady(Environment *,void *);
    void                          *AllocateDefgenericModule(Environment *);
+   void                           InitDefgenericModule(Environment *,void *);
    void                           FreeDefgenericModule(Environment *,void *);
 #else
    void                           DefgenericRunTimeInitialize(Environment *);

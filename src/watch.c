@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  08/25/16             */
+   /*            CLIPS Version 7.00  04/09/24             */
    /*                                                     */
    /*                    WATCH MODULE                     */
    /*******************************************************/
@@ -51,6 +51,11 @@
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
 /*                                                           */
 /*            UDF redesign.                                  */
+/*                                                           */
+/*      6.42: Getting the "all" watch item didn't return     */
+/*            TRUE when all watch items were watched.        */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -237,6 +242,10 @@ void Watch(
       case FOCUS:
         SetWatchItem(theEnv,"focus",true,NULL);
         break;
+        
+      case GOALS:
+        SetWatchItem(theEnv,"goals",true,NULL);
+        break;
      }
   }
 
@@ -308,6 +317,10 @@ void Unwatch(
       case FOCUS:
         SetWatchItem(theEnv,"focus",false,NULL);
         break;
+        
+      case GOALS:
+        SetWatchItem(theEnv,"goals",false,NULL);
+        break;
      }
   }
 
@@ -365,6 +378,9 @@ bool GetWatchState(
         
       case FOCUS:
         return (GetWatchItem(theEnv,"focus") == 1);
+        
+      case GOALS:
+        return (GetWatchItem(theEnv,"goals") == 1);
      }
      
    return false;
@@ -439,6 +455,10 @@ void SetWatchState(
         
       case FOCUS:
         SetWatchItem(theEnv,"focus",newState,NULL);
+        return;
+        
+      case GOALS:
+        SetWatchItem(theEnv,"goals",newState,NULL);
         return;
      }
   }
@@ -557,9 +577,21 @@ int GetWatchItem(
   const char *itemName)
   {
    WatchItemRecord *wPtr;
+   bool all = false;
+
+   if (strcmp(itemName,"all") == 0)
+     { all = true; }
 
    for (wPtr = WatchData(theEnv)->ListOfWatchItems; wPtr != NULL; wPtr = wPtr->next)
      {
+      if (all)
+        {
+         if (! (*(wPtr->flag)))
+           { return 0; }
+           
+         continue;
+        }
+        
       if (strcmp(itemName,wPtr->name) == 0)
         {
          if (*(wPtr->flag))
@@ -568,6 +600,8 @@ int GetWatchItem(
            { return 0; }
         }
      }
+     
+   if (all) return 1;
 
    return -1;
   }

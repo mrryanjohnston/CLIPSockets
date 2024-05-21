@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  11/01/16            */
+   /*             CLIPS Version 6.50  09/07/23            */
    /*                                                     */
    /*                PATTERN HEADER FILE                  */
    /*******************************************************/
@@ -40,6 +40,8 @@
 /*                                                           */
 /*            Removed initial-fact and initial-object        */
 /*            support.                                       */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -84,7 +86,7 @@ struct patternParser
    bool (*recognizeFunction)(CLIPSLexeme *);
    struct lhsParseNode *(*parseFunction)(Environment *,const char *,struct token *);
    bool (*postAnalysisFunction)(Environment *,struct lhsParseNode *);
-   struct patternNodeHeader *(*addPatternFunction)(Environment *,struct lhsParseNode *);
+   struct patternNodeHeader *(*addPatternFunction)(Environment *,struct lhsParseNode *,bool *,struct expr **);
    void (*removePatternFunction)(Environment *,struct patternNodeHeader *);
    struct expr *(*genJNConstantFunction)(void *,struct lhsParseNode *,int);
    void (*replaceGetJNValueFunction)(Environment *,struct expr *,struct lhsParseNode *,int);

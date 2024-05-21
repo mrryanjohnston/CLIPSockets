@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  02/06/24             */
    /*                                                     */
    /*                  EVALUATION MODULE                  */
    /*******************************************************/
@@ -70,6 +70,10 @@
 /*                                                           */
 /*            Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -182,6 +186,8 @@ bool EvaluateExpression(
       case SYMBOL_TYPE:
       case FLOAT_TYPE:
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
 #if OBJECT_SYSTEM
       case INSTANCE_NAME_TYPE:
       case INSTANCE_ADDRESS_TYPE:
@@ -417,6 +423,8 @@ void WriteCLIPSValue(
       case SYMBOL_TYPE:
       case STRING_TYPE:
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
       case FLOAT_TYPE:
       case EXTERNAL_ADDRESS_TYPE:
       case FACT_ADDRESS_TYPE:
@@ -457,6 +465,8 @@ void WriteUDFValue(
       case SYMBOL_TYPE:
       case STRING_TYPE:
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
       case FLOAT_TYPE:
       case EXTERNAL_ADDRESS_TYPE:
       case FACT_ADDRESS_TYPE:
@@ -574,6 +584,8 @@ void Retain(
         break;
 
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
         IncrementIntegerCount(th);
         break;
 
@@ -630,6 +642,8 @@ void Release(
         break;
 
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
         ReleaseInteger(theEnv,(CLIPSInteger *) th);
         break;
 
@@ -690,6 +704,8 @@ void AtomInstall(
         break;
 
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
         IncrementIntegerCount(vPtr);
         break;
 
@@ -740,6 +756,8 @@ void AtomDeinstall(
         break;
 
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
         ReleaseInteger(theEnv,(CLIPSInteger *) vPtr);
         break;
 
@@ -857,6 +875,8 @@ unsigned long GetAtomicHashValue(
         break;
 
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
         tvalue = (unsigned long) ((CLIPSInteger *) value)->contents;
         break;
 
@@ -988,7 +1008,7 @@ bool GetFunctionReference(
    if (moduleSpecified)
      {
       if (ConstructExported(theEnv,"defgeneric",moduleName,constructName) ||
-          GetCurrentModule(theEnv) == FindDefmodule(theEnv,moduleName->contents))
+          GetCurrentModule(theEnv) == LookupDefmodule(theEnv,moduleName))
         {
          if ((gfunc = FindDefgenericInModule(theEnv,name)) != NULL)
            {
@@ -1017,7 +1037,7 @@ bool GetFunctionReference(
    if (moduleSpecified)
      {
       if (ConstructExported(theEnv,"deffunction",moduleName,constructName) ||
-          GetCurrentModule(theEnv) == FindDefmodule(theEnv,moduleName->contents))
+          GetCurrentModule(theEnv) == LookupDefmodule(theEnv,moduleName))
         {
          if ((dptr = FindDeffunctionInModule(theEnv,name)) != NULL)
            {
@@ -1593,7 +1613,6 @@ FunctionCallBuilderError FCBCall(
    /* Verify the correct number of arguments. */
    /*=========================================*/
 
-// TBD Support run time check of arguments
 #if ! RUN_TIME
    if (theReference.type == FCALL)
      {
@@ -1719,18 +1738,3 @@ void FCBDispose(
      
    rtn_struct(theEnv,multifieldBuilder,theFCB);
   }
-
-/*******************************/
-/* DiscardCAddress: TBD Remove */
-/*******************************/
-/*
-static bool DiscardCAddress(
-  Environment *theEnv,
-  void *theValue)
-  {
-   WriteString(theEnv,STDOUT,"Discarding C Address\n");
-
-   return true;
-  }
-*/
-

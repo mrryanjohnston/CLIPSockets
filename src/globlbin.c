@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*            DEFGLOBAL BSAVE/BLOAD MODULE             */
    /*******************************************************/
@@ -26,6 +26,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -234,7 +236,7 @@ static void BsaveBinaryItem(
 
       theModuleItem = (struct defglobalModule *)
                       GetModuleItem(theEnv,NULL,FindModuleItem(theEnv,"defglobal")->moduleIndex);
-      AssignBsaveDefmdlItemHdrVals(&tempDefglobalModule.header,
+      AssignBsaveDefmdlItemHdrHMVals(&tempDefglobalModule.header,
                                            &theModuleItem->header);
       GenWrite(&tempDefglobalModule,sizeof(struct bsaveDefglobalModule),fp);
      }
@@ -371,9 +373,11 @@ static void UpdateDefglobalModule(
 
    bdmPtr = (struct bsaveDefglobalModule *) buf;
 
-   UpdateDefmoduleItemHeader(theEnv,&bdmPtr->header,&DefglobalBinaryData(theEnv)->ModuleArray[obji].header,
-                             sizeof(Defglobal),
-                             DefglobalBinaryData(theEnv)->DefglobalArray);
+   UpdateDefmoduleItemHeaderHM(theEnv,&bdmPtr->header,&DefglobalBinaryData(theEnv)->ModuleArray[obji].header,
+                               sizeof(Defglobal),
+                               DefglobalBinaryData(theEnv)->DefglobalArray);
+
+   AssignHashMapSize(theEnv,&DefglobalBinaryData(theEnv)->ModuleArray[obji].header,bdmPtr->header.itemCount);
   }
 
 /******************************************/
@@ -397,6 +401,9 @@ static void UpdateDefglobal(
 #endif
    DefglobalBinaryData(theEnv)->DefglobalArray[obji].initial = HashedExpressionPointer(bdp->initial);
    DefglobalBinaryData(theEnv)->DefglobalArray[obji].current.voidValue = VoidConstant(theEnv);
+
+   AddConstructToHashMap(theEnv,&DefglobalBinaryData(theEnv)->DefglobalArray[obji].header,
+                         DefglobalBinaryData(theEnv)->DefglobalArray[obji].header.whichModule);
   }
 
 /***************************************/
@@ -408,6 +415,13 @@ static void ClearBload(
   {
    unsigned long i;
    size_t space;
+
+   /*===========================================*/
+   /* Deallocate the DefglobalModule hash maps. */
+   /*===========================================*/
+
+   for (i = 0; i < DefglobalBinaryData(theEnv)->NumberOfDefglobalModules; i++)
+     { ClearDefmoduleHashMap(theEnv,&DefglobalBinaryData(theEnv)->ModuleArray[i].header); }
 
    /*=======================================================*/
    /* Decrement in use counters for atomic values contained */

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.41  12/04/22            */
+   /*             CLIPS Version 7.00  02/06/24            */
    /*                                                     */
    /*              CONSTRUCT COMPILER MODULE              */
    /*******************************************************/
@@ -77,6 +77,8 @@
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      7.00: Deftable construct added.                      */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -126,6 +128,10 @@
 #include "objcmp.h"
 #endif
 
+#if DEFTABLE_CONSTRUCT
+#include "tablecmp.h"
+#endif
+
 #include "conscomp.h"
 
 /***************/
@@ -163,7 +169,7 @@ const char *SecondaryCodes[] = { "A" , "B", "C", "D", "E" , "F" , "G" , "H", "I"
 /***************************************/
 
    void                               ConstructsToCCommand(Environment *,UDFContext *,UDFValue *);
-   static bool                        ConstructsToC(Environment *,const char *,const char *,char *,long long,long long);
+   static bool                        ConstructsToC(Environment *,const char *,const char *,char *,unsigned,unsigned);
    static void                        WriteFunctionExternDeclarations(Environment *,FILE *);
    static bool                        FunctionsToCode(Environment *theEnv,const char *,const char *,char *);
    static bool                        WriteInitializationFunction(Environment *,const char *,const char *,char *);
@@ -289,6 +295,14 @@ void ConstructsToCCommand(
       ExpectedTypeError1(theEnv,"constructs-to-c",2,"'positive integer'");
       return;
      }
+   else if (id > UINT_MAX)
+     {
+      PrintErrorID(theEnv,"CONSCOMP",3,false);
+      WriteString(theEnv,STDERR,"Function 'constructs-to-c' expected argument #2 to be a positive integer <= ");
+      WriteInteger(theEnv,STDERR,UINT_MAX);
+      WriteString(theEnv,STDERR,".\n");
+      return;
+     }
 
    /*==================================================*/
    /* Get the path name argument if one was specified. */
@@ -325,6 +339,14 @@ void ConstructsToCCommand(
          ExpectedTypeError1(theEnv,"constructs-to-c",4,"'positive integer'");
          return;
         }
+      else if (max > UINT_MAX)
+        {
+         PrintErrorID(theEnv,"CONSCOMP",3,false);
+         WriteString(theEnv,STDERR,"Function 'constructs-to-c' expected argument #4 to be a positive integer <= ");
+         WriteInteger(theEnv,STDERR,UINT_MAX);
+         WriteString(theEnv,STDERR,".\n");
+         return;
+        }
      }
    else
      { max = 10000; }
@@ -336,7 +358,7 @@ void ConstructsToCCommand(
 
    fileNameBuffer = (char *) genalloc(theEnv,nameLength + pathLength + EXTRA_FILE_NAME);
 
-   ConstructsToC(theEnv,fileName,pathName,fileNameBuffer,id,max);
+   ConstructsToC(theEnv,fileName,pathName,fileNameBuffer,(unsigned) id, (unsigned) max);
 
    genfree(theEnv,fileNameBuffer,nameLength + pathLength + EXTRA_FILE_NAME);
   }
@@ -350,8 +372,8 @@ static bool ConstructsToC(
   const char *fileName,
   const char *pathName,
   char *fileNameBuffer,
-  long long theImageID,
-  long long max)
+  unsigned theImageID,
+  unsigned max)
   {
    unsigned fileVersion;
    struct CodeGeneratorItem *cgPtr;
@@ -362,7 +384,7 @@ static bool ConstructsToC(
    /* in each file.                                 */
    /*===============================================*/
 
-   ConstructCompilerData(theEnv)->MaxIndices = (unsigned) max; /* TBD */
+   ConstructCompilerData(theEnv)->MaxIndices = max;
 
    /*=====================================================*/
    /* Open a header file for dumping general information. */
@@ -403,7 +425,7 @@ static bool ConstructsToC(
    ConstructCompilerData(theEnv)->FilePrefix = fileName;
    ConstructCompilerData(theEnv)->PathName = pathName;
    ConstructCompilerData(theEnv)->FileNameBuffer = fileNameBuffer;
-   ConstructCompilerData(theEnv)->ImageID = (unsigned) theImageID; /* TBD */
+   ConstructCompilerData(theEnv)->ImageID = theImageID;
    ConstructCompilerData(theEnv)->ExpressionFP = NULL;
    ConstructCompilerData(theEnv)->ExpressionVersion = 1;
    ConstructCompilerData(theEnv)->ExpressionHeader = true;
@@ -940,6 +962,7 @@ static void DumpExpression(
            break;
 
          case INTEGER_TYPE:
+         case QUANTITY_TYPE:
            PrintIntegerReference(theEnv,ConstructCompilerData(theEnv)->ExpressionFP,exprPtr->integerValue);
            break;
 
@@ -969,6 +992,15 @@ static void DumpExpression(
 #if DEFTEMPLATE_CONSTRUCT
            DeftemplateCConstructReference(theEnv,ConstructCompilerData(theEnv)->ExpressionFP,
                                           (Deftemplate *) exprPtr->value,ConstructCompilerData(theEnv)->ImageID,ConstructCompilerData(theEnv)->MaxIndices);
+#else
+           fprintf(ConstructCompilerData(theEnv)->ExpressionFP,"NULL");
+#endif
+           break;
+
+         case DEFTABLE_PTR:
+#if DEFTABLE_CONSTRUCT
+           DeftableCConstructReference(theEnv,ConstructCompilerData(theEnv)->ExpressionFP,
+                                       (Deftable *) exprPtr->value,ConstructCompilerData(theEnv)->ImageID,ConstructCompilerData(theEnv)->MaxIndices);
 #else
            fprintf(ConstructCompilerData(theEnv)->ExpressionFP,"NULL");
 #endif
@@ -1034,7 +1066,7 @@ static void DumpExpression(
            if (EvaluationData(theEnv)->PrimitivesArray[exprPtr->type] == NULL)
              { fprintf(ConstructCompilerData(theEnv)->ExpressionFP,"NULL"); }
            else if (EvaluationData(theEnv)->PrimitivesArray[exprPtr->type]->bitMap)
-             { PrintBitMapReference(theEnv,ConstructCompilerData(theEnv)->ExpressionFP,(CLIPSBitMap *) exprPtr->value); }
+             { PrintBitMapReference(theEnv,ConstructCompilerData(theEnv)->ExpressionFP,exprPtr->bitMapValue); }
            else
              { fprintf(ConstructCompilerData(theEnv)->ExpressionFP,"NULL"); }
            break;
@@ -1471,6 +1503,9 @@ void ConstructHeaderToCode(
         break;
       case DEFINSTANCES:
         fprintf(theFile,"DEFINSTANCES,");
+        break;
+      case DEFTABLE:
+        fprintf(theFile,"DEFTABLE,");
         break;
      }
 

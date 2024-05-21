@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -28,6 +28,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -311,7 +313,7 @@ static void BsaveDefinstancesDriver(
      {
       theModuleItem = (DEFINSTANCES_MODULE *)
                       GetModuleItem(theEnv,theModule,FindModuleItem(theEnv,"definstances")->moduleIndex);
-      AssignBsaveDefmdlItemHdrVals(&dummy_mitem.header,&theModuleItem->header);
+      AssignBsaveDefmdlItemHdrHMVals(&dummy_mitem.header,&theModuleItem->header);
       GenWrite(&dummy_mitem,sizeof(BSAVE_DEFINSTANCES_MODULE),fp);
       theModule = GetNextDefmodule(theEnv,theModule);
      }
@@ -438,8 +440,10 @@ static void UpdateDefinstancesModule(
    BSAVE_DEFINSTANCES_MODULE *bdptr;
 
    bdptr = (BSAVE_DEFINSTANCES_MODULE *) buf;
-   UpdateDefmoduleItemHeader(theEnv,&bdptr->header,&DefinstancesBinaryData(theEnv)->ModuleArray[obji].header,
-                             sizeof(Definstances),DefinstancesBinaryData(theEnv)->DefinstancesArray);
+   UpdateDefmoduleItemHeaderHM(theEnv,&bdptr->header,&DefinstancesBinaryData(theEnv)->ModuleArray[obji].header,
+                               sizeof(Definstances),DefinstancesBinaryData(theEnv)->DefinstancesArray);
+                               
+   AssignHashMapSize(theEnv,&DefinstancesBinaryData(theEnv)->ModuleArray[obji].header,bdptr->header.itemCount);
   }
 
 /***************************************************
@@ -470,6 +474,9 @@ static void UpdateDefinstances(
                          sizeof(Definstances),DefinstancesBinaryData(theEnv)->DefinstancesArray);
    dfiptr->mkinstance = ExpressionPointer(bdptr->mkinstance);
    dfiptr->busy = 0;
+
+   AddConstructToHashMap(theEnv,&DefinstancesBinaryData(theEnv)->DefinstancesArray[obji].header,
+                         DefinstancesBinaryData(theEnv)->DefinstancesArray[obji].header.whichModule);
   }
 
 /***************************************************************
@@ -491,6 +498,14 @@ static void ClearDefinstancesBload(
    space = (sizeof(DEFINSTANCES_MODULE) * DefinstancesBinaryData(theEnv)->ModuleCount);
    if (space == 0L)
      return;
+     
+   /*==============================================*/
+   /* Deallocate the DefinstancesModule hash maps. */
+   /*==============================================*/
+
+   for (i = 0; i < DefinstancesBinaryData(theEnv)->DefinstancesCount; i++)
+     { ClearDefmoduleHashMap(theEnv,&DefinstancesBinaryData(theEnv)->ModuleArray[i].header); }
+
    genfree(theEnv,DefinstancesBinaryData(theEnv)->ModuleArray,space);
    DefinstancesBinaryData(theEnv)->ModuleArray = NULL;
    DefinstancesBinaryData(theEnv)->ModuleCount = 0L;

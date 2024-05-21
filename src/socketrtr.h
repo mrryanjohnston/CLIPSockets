@@ -13,6 +13,8 @@ struct socketRouter
    const char *logicalName;
    FILE *stream;
    struct socketRouter *next;
+   int domain;
+   int type;
   };
 
 struct socketRouterData

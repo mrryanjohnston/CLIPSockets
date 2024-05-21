@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/01/16             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -46,12 +46,17 @@
 /*            imported modules are search when locating a    */
 /*            named construct.                               */
 /*                                                           */
+/*      6.32: Local variable count not updated when method   */
+/*            body updated.                                  */
+/*                                                           */
 /*      6.40: Pragma once and other inclusion changes.       */
 /*                                                           */
 /*            Added support for booleans with <stdbool.h>.   */
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -499,13 +504,13 @@ Defmethod *AddMethod(
    meth->actions = actions;
    ExpressionInstall(theEnv,meth->actions);
    meth->header.ppForm = ppForm;
+   meth->localVarCount = lvars;
    if (mposn == -1)
      {
       RestoreBusyCount(gfunc);
       return(meth);
      }
 
-   meth->localVarCount = lvars;
    meth->restrictionCount = rcnt;
       
    if (wildcard != NULL)
@@ -1365,6 +1370,7 @@ static Defgeneric *AddGeneric(
       gfunc = NewGeneric(theEnv,name);
       IncrementLexemeCount(name);
       AddImplicitMethods(theEnv,gfunc);
+      AddConstructToHashMap(theEnv,&gfunc->header,gfunc->header.whichModule);
      }
    AddConstructToModule(&gfunc->header);
    return(gfunc);

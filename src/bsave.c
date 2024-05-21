@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  10/04/17             */
+   /*            CLIPS Version 7.00  02/06/24             */
    /*                                                     */
    /*                     BSAVE MODULE                    */
    /*******************************************************/
@@ -491,6 +491,7 @@ void MarkNeededItems(
             break;
 
          case INTEGER_TYPE:
+         case QUANTITY_TYPE:
             testPtr->integerValue->neededInteger = true;
             break;
 
@@ -504,7 +505,7 @@ void MarkNeededItems(
          default:
            if (EvaluationData(theEnv)->PrimitivesArray[testPtr->type] == NULL) break;
            if (EvaluationData(theEnv)->PrimitivesArray[testPtr->type]->bitMap)
-             { ((CLIPSBitMap *) testPtr->value)->neededBitMap = true; }
+             { testPtr->bitMapValue->neededBitMap = true; }
            break;
 
         }

@@ -43,6 +43,9 @@
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      6.42 If allowed-classes was declared before          */
+/*           allowed-values, no error message was generated. */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -84,7 +87,6 @@
    static bool                    GetAttributeParseValue(const char *,CONSTRAINT_PARSE_RECORD *);
    static void                    SetRestrictionFlag(int,CONSTRAINT_RECORD *,bool);
    static void                    SetParseFlag(CONSTRAINT_PARSE_RECORD *,const char *);
-   static void                    NoConjunctiveUseError(Environment *,const char *,const char *);
 #endif
 
 /********************************************************************/
@@ -540,7 +542,8 @@ static bool ParseAllowedValuesAttribute(
         (parsedConstraints->allowedIntegers) ||
         (parsedConstraints->allowedFloats) ||
         (parsedConstraints->allowedNumbers) ||
-        (parsedConstraints->allowedInstanceNames)))
+        (parsedConstraints->allowedInstanceNames) ||
+        (parsedConstraints->allowedClasses)))
      {
       if (parsedConstraints->allowedSymbols) tempPtr = "allowed-symbols";
       else if (parsedConstraints->allowedStrings) tempPtr = "allowed-strings";
@@ -549,6 +552,7 @@ static bool ParseAllowedValuesAttribute(
       else if (parsedConstraints->allowedFloats) tempPtr = "allowed-floats";
       else if (parsedConstraints->allowedNumbers) tempPtr = "allowed-numbers";
       else if (parsedConstraints->allowedInstanceNames) tempPtr = "allowed-instance-names";
+      else if (parsedConstraints->allowedClasses) tempPtr = "allowed-classes";
       NoConjunctiveUseError(theEnv,"allowed-values",tempPtr);
       return false;
      }
@@ -604,7 +608,7 @@ static bool ParseAllowedValuesAttribute(
         (strcmp(constraintName,"allowed-floats") == 0)) &&
        (parsedConstraints->allowedNumbers))
      {
-      NoConjunctiveUseError(theEnv,constraintName,"allowed-number");
+      NoConjunctiveUseError(theEnv,constraintName,"allowed-numbers");
       return false;
      }
 
@@ -878,7 +882,7 @@ static bool ParseAllowedValuesAttribute(
 /* NoConjunctiveUseError: Generic error message indicating */
 /*   that two attributes can't be used in conjunction.     */
 /***********************************************************/
-static void NoConjunctiveUseError(
+void NoConjunctiveUseError(
   Environment *theEnv,
   const char *attribute1,
   const char *attribute2)

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/07/17             */
+   /*            CLIPS Version 7.00  03/02/24             */
    /*                                                     */
    /*               INSTANCE FUNCTIONS MODULE             */
    /*******************************************************/
@@ -72,6 +72,11 @@
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
 /*                                                           */
 /*            UDF redesign.                                  */
+/*                                                           */
+/*      6.42: Fixed GC bug by including garbage fact and     */
+/*            instances in the GC frame.                     */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -231,15 +236,19 @@ void InitializeInstanceTable(
   NOTES        : None
  *******************************************************/
 void CleanupInstances(
-  Environment *theEnv,
-  void *context)
+  Environment *theEnv)
   {
+   struct garbageFrame *theGF;
    IGARBAGE *gprv,*gtmp,*dump;
 
    if (InstanceData(theEnv)->MaintainGarbageInstances)
      return;
-   gprv = NULL;
-   gtmp = InstanceData(theEnv)->InstanceGarbageList;
+    
+   theGF = UtilityData(theEnv)->CurrentGarbageFrame;
+
+   gprv = NULL;   
+   gtmp = theGF->GarbageInstances;
+   
    while (gtmp != NULL)
      {
 #if DEFRULE_CONSTRUCT
@@ -252,7 +261,7 @@ void CleanupInstances(
          ReleaseLexeme(theEnv,gtmp->ins->name);
          rtn_struct(theEnv,instance,gtmp->ins);
          if (gprv == NULL)
-           InstanceData(theEnv)->InstanceGarbageList = gtmp->nxt;
+           theGF->GarbageInstances = gtmp->nxt;
          else
            gprv->nxt = gtmp->nxt;
          dump = gtmp;
@@ -265,6 +274,8 @@ void CleanupInstances(
          gtmp = gtmp->nxt;
         }
      }
+     
+   theGF->LastGarbageInstance = gprv;
   }
 
 /*******************************************************
@@ -434,7 +445,7 @@ Instance *FindInstanceBySymbol(
    else
      {
       moduleName = ExtractModuleName(theEnv,modulePosition,moduleAndInstanceName->contents);
-      theModule = FindDefmodule(theEnv,moduleName->contents);
+      theModule = LookupDefmodule(theEnv,moduleName);
       instanceName = ExtractConstructName(theEnv,modulePosition,moduleAndInstanceName->contents,INSTANCE_NAME_TYPE);
       if (theModule == NULL)
         return NULL;
@@ -1363,7 +1374,7 @@ static Instance *FindImportedInstance(
    importList = theModule->importList;
    while (importList != NULL)
      {
-      theModule = FindDefmodule(theEnv,importList->moduleName->contents);
+      theModule = LookupDefmodule(theEnv,importList->moduleName);
       for (ins = startInstance ;
            (ins != NULL) ? (ins->name == startInstance->name) : false ;
            ins = ins->nxtHash)

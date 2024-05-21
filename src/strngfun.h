@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  08/27/19            */
+   /*             CLIPS Version 7.00  04/12/24            */
    /*                                                     */
    /*          STRING_TYPE FUNCTIONS HEADER FILE          */
    /*******************************************************/
@@ -51,6 +51,8 @@
 /*                                                           */
 /*            Added str-replace function.                    */
 /*                                                           */
+/*      6.42: Added str-byte-length function.                */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_strngfun
@@ -82,6 +84,7 @@ typedef enum
    void                           StrCatFunction(Environment *,UDFContext *,UDFValue *);
    void                           SymCatFunction(Environment *,UDFContext *,UDFValue *);
    void                           StrLengthFunction(Environment *,UDFContext *,UDFValue *);
+   void                           StrByteLengthFunction(Environment *,UDFContext *,UDFValue *);
    void                           UpcaseFunction(Environment *,UDFContext *,UDFValue *);
    void                           LowcaseFunction(Environment *,UDFContext *,UDFValue *);
    void                           StrCompareFunction(Environment *,UDFContext *,UDFValue *);

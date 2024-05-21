@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*              CONSTRUCT COMMANDS MODULE              */
    /*******************************************************/
@@ -66,6 +66,8 @@
 /*                                                           */
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -287,7 +289,18 @@ ConstructHeader *FindNamedConstructInModule(
       RestoreCurrentModule(theEnv);
       return NULL;
      }
-
+   
+   /*=======================================================*/
+   /* Use the hash table lookup function if it's available. */
+   /*=======================================================*/
+   
+   if (constructClass->lookupFunction != NULL)
+     {
+      theConstruct = (*constructClass->lookupFunction)(theEnv,findValue);
+      RestoreCurrentModule(theEnv);
+      return theConstruct;
+     }
+     
    /*===============================================*/
    /* Loop through every construct of the specified */
    /* class in the current module checking to see   */
@@ -586,7 +599,7 @@ Defmodule *GetConstructModule(
      {
       theName = ExtractModuleName(theEnv,position,constructName);
       if (theName != NULL)
-        { return FindDefmodule(theEnv,theName->contents); }
+        { return LookupDefmodule(theEnv,theName); }
      }
 
    /*============================================*/
@@ -853,7 +866,7 @@ void GetConstructListFunction(
       /* list for all modules).                    */
       /*===========================================*/
 
-      if ((theModule = FindDefmodule(theEnv,result.lexemeValue->contents)) == NULL)
+      if ((theModule = LookupDefmodule(theEnv,result.lexemeValue)) == NULL)
         {
          if (strcmp("*",result.lexemeValue->contents) != 0)
            {
@@ -1091,7 +1104,7 @@ void ListConstructCommand(
       /* list for all modules).                    */
       /*===========================================*/
 
-      if ((theModule = FindDefmodule(theEnv,result.lexemeValue->contents)) == NULL)
+      if ((theModule = LookupDefmodule(theEnv,result.lexemeValue)) == NULL)
         {
          if (strcmp("*",result.lexemeValue->contents) != 0)
            {

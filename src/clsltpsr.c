@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  05/26/21             */
+   /*            CLIPS Version 6.42  08/04/23             */
    /*                                                     */
    /*                 CLASS PARSER MODULE                 */
    /*******************************************************/
@@ -30,6 +30,10 @@
 /*                                                            */
 /*      6.31: Changed allocation of multifield slot default   */
 /*            from ephemeral to explicit deallocation.        */
+/*                                                            */
+/*      6.32: The DEFAULT_DYNAMIC_BIT was not being set for   */
+/*            a composite slot inheriting a dynamic default   */
+/*            facet.                                          */
 /*                                                            */
 /*      6.40: Pragma once and other inclusion changes.        */
 /*                                                            */
@@ -136,7 +140,7 @@
    static int                      ParseSimpleFacet(Environment *,const char *,SlotDescriptor *,char*,const char *,int,const char *,
                                                     const char *,const char *,const char *,CLIPSLexeme **);
    static bool                    ParseDefaultFacet(Environment *,const char *,char *,SlotDescriptor *);
-   static void                    BuildCompositeFacets(Environment *,SlotDescriptor *,PACKED_CLASS_LINKS *,const char *,
+   static void                    BuildCompositeFacets(Environment *,SlotDescriptor *,PACKED_CLASS_LINKS *,char *,
                                                        CONSTRAINT_PARSE_RECORD *);
    static bool                    CheckForFacetConflicts(Environment *,SlotDescriptor *,CONSTRAINT_PARSE_RECORD *);
    static bool                    EvaluateSlotDefaultValue(Environment *,SlotDescriptor *,const char *);
@@ -711,7 +715,7 @@ static void BuildCompositeFacets(
   Environment *theEnv,
   SlotDescriptor *sd,
   PACKED_CLASS_LINKS *preclist,
-  const char *specbits,
+  char *specbits,
   CONSTRAINT_PARSE_RECORD *parsedConstraint)
   {
    SlotDescriptor *compslot = NULL;
@@ -728,6 +732,8 @@ static void BuildCompositeFacets(
       if ((sd->defaultSpecified == 0) && (compslot->defaultSpecified == 1))
         {
          sd->dynamicDefault = compslot->dynamicDefault;
+         if (sd->dynamicDefault)
+           { SetBitMap(specbits,DEFAULT_DYNAMIC_BIT); }
          sd->noDefault = compslot->noDefault;
          sd->defaultSpecified = 1;
          if (compslot->defaultValue != NULL)

@@ -19,14 +19,18 @@
 /*                                                                     */
 /**********************************************************************/
 
+#define _POSIX_C_SOURCE 1
+
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
+#include <stddef.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -580,7 +584,8 @@ void CreateSocketFunction(
 		UDFValue *returnValue)
 {
 	int sock, domain, type, protocol;
-
+	FILE *stream;
+	struct socketRouter *newRouter;
 	UDFValue theArg;
 
 	/*====================*/
@@ -658,6 +663,36 @@ void CreateSocketFunction(
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
+
+	/*=========================================*/
+	/* Wrap the opened socket in a FILE        */
+	/* with fdopen.                            */
+	/*=========================================*/
+	if (NULL == (stream = fdopen(sock, "r+")))
+	{
+		WriteString(theEnv,STDERR,"Could not fdopen ");
+		WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
+		WriteString(theEnv,STDERR,"\n");
+		perror("perror");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
+
+	/*=============================*/
+	/* Create a new socket router. */
+	/*=============================*/
+	newRouter = get_struct(theEnv,socketRouter);
+	newRouter->stream = stream;
+	newRouter->domain = domain;
+	newRouter->type = type;
+
+	/*==========================================*/
+	/* Add the newly opened file to the list of */
+	/* socket file descriptors with FILE *.     */
+	/*==========================================*/
+
+	newRouter->next = SocketRouterData(theEnv)->ListOfSocketRouters;
+	SocketRouterData(theEnv)->ListOfSocketRouters = newRouter;
 
 	returnValue->integerValue = CreateInteger(theEnv, sock);
 }
@@ -900,7 +935,7 @@ void PollFunction(
 	if (!UDFHasNextArgument(context))
 	{
 		returnValue->lexemeValue =
-			CreateBoolean(theEnv,GenPoll(theEnv,sockfd,timeout,POLLIN | POLLOUT | POLLERR | POLLHUP | POLLNVAL));
+			CreateBoolean(theEnv,GenPoll(theEnv,sockfd,timeout,POLLIN | POLLOUT | POLLERR | POLLHUP | POLLNVAL | POLLPRI));
 		return;
 	}
 
@@ -932,22 +967,6 @@ void PollFunction(
 		{
 			flags |= POLLPRI;
 		}
-		else if (0 == strcmp(theArg.lexemeValue->contents, "POLLRDNORM"))
-		{
-			flags |= POLLRDNORM;
-		}
-		else if (0 == strcmp(theArg.lexemeValue->contents, "POLLRDBAND"))
-		{
-			flags |= POLLRDBAND;
-		}
-		else if (0 == strcmp(theArg.lexemeValue->contents, "POLLWRNORM"))
-		{
-			flags |= POLLWRNORM;
-		}
-		else if (0 == strcmp(theArg.lexemeValue->contents, "POLLWRBAND"))
-		{
-			flags |= POLLWRBAND;
-		}
 		else
 		{
 			WriteString(theEnv,STDERR,"Unsupported flag for poll ");
@@ -975,18 +994,15 @@ void BindSocketFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
-	struct socketRouter *newRouter;
-	FILE *newstream = NULL;
+	struct socketRouter *sptr;
 	struct sockaddr_storage serv_addr;
 	UDFValue theArg, optionalArg;
-	int domain;
 	StringBuilder *logicalNameStringBuilder = CreateStringBuilder(theEnv, 0);
 	size_t addr_len;
 	char *theName;
 
-	// sockfd
 	UDFNextArgument(context,INTEGER_BIT,&theArg);
-	int sockfd = theArg.integerValue->contents;
+	sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents);
 
 	// address
 	UDFNextArgument(context,LEXEME_BITS,&theArg);
@@ -996,15 +1012,12 @@ void BindSocketFunction(
 		UDFNextArgument(context,INTEGER_BIT,&optionalArg);
 	}
 
-	socklen_t domain_len = sizeof(domain);
-	GenGetsockopt(theEnv, sockfd, SOL_SOCKET, SO_DOMAIN, &domain, &domain_len);
-
 	memset(&serv_addr, 0, sizeof(serv_addr));
-	switch (domain)
+	switch (sptr->domain)
 	{
 		case AF_INET:
 			struct sockaddr_in *addr = (struct sockaddr_in *)&serv_addr;
-			addr->sin_family = domain;
+			addr->sin_family = sptr->domain;
 			addr->sin_addr.s_addr = inet_addr(theArg.lexemeValue->contents);
 			addr->sin_port = htons(optionalArg.integerValue->contents);
 			SBAppend(logicalNameStringBuilder, theArg.lexemeValue->contents);
@@ -1014,7 +1027,7 @@ void BindSocketFunction(
 			break;
 		case AF_INET6:
 			struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&serv_addr;
-			addr6->sin6_family = domain;
+			addr6->sin6_family = sptr->domain;
 			inet_pton(AF_INET6, theArg.lexemeValue->contents, &(addr6->sin6_addr));
 			addr6->sin6_port = htons(optionalArg.integerValue->contents);
 			SBAddChar(logicalNameStringBuilder, '[');
@@ -1026,7 +1039,7 @@ void BindSocketFunction(
 			break;
 		case AF_UNIX:
 			struct sockaddr_un *addrun = (struct sockaddr_un *)&serv_addr;
-			addrun->sun_family = domain;
+			addrun->sun_family = sptr->domain;
 			strncpy(addrun->sun_path, theArg.lexemeValue->contents, sizeof(addrun->sun_path) - 1);
 			addrun->sun_path[sizeof(addrun->sun_path) - 1] = '\0';
 			SBAppend(logicalNameStringBuilder, theArg.lexemeValue->contents);
@@ -1047,7 +1060,7 @@ void BindSocketFunction(
 	/* Bind the socket with the address.  */
 	/*====================================*/
 
-	if (bind(sockfd, (struct sockaddr *)&serv_addr, addr_len) < 0)
+	if (bind(fileno(sptr->stream), (struct sockaddr *)&serv_addr, addr_len) < 0)
 	{
 		WriteString(theEnv,STDERR,"Could not bind ");
 		WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
@@ -1058,41 +1071,12 @@ void BindSocketFunction(
 		return;
 	}
 
-	/*=========================================*/
-	/* Wrap the opened socket in a FILE        */
-	/* with fdopen.                            */
-	/*=========================================*/
-	if (NULL == (newstream = fdopen(sockfd, "r+")))
-	{
-		WriteString(theEnv,STDERR,"Could not fdopen ");
-		WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
-		WriteString(theEnv,STDERR,"\n");
-		perror("perror");
-		returnValue->lexemeValue = FalseSymbol(theEnv);
-		SBDispose(logicalNameStringBuilder);
-		return;
-	}
-
-	/*=============================*/
-	/* Create a new socket router. */
-	/*=============================*/
-
-	newRouter = get_struct(theEnv,socketRouter);
 	theName = (char *) gm2(theEnv,strlen(logicalNameStringBuilder->contents) + 1);
 	genstrcpy(theName,logicalNameStringBuilder->contents);
-	newRouter->logicalName = theName;
+	sptr->logicalName = theName;
 	SBDispose(logicalNameStringBuilder);
-	newRouter->stream = newstream;
 
-	/*==========================================*/
-	/* Add the newly opened file to the list of */
-	/* files associated with logical names.     */
-	/*==========================================*/
-
-	newRouter->next = SocketRouterData(theEnv)->ListOfSocketRouters;
-	SocketRouterData(theEnv)->ListOfSocketRouters = newRouter;
-
-	returnValue->lexemeValue = CreateSymbol(theEnv, newRouter->logicalName);
+	returnValue->lexemeValue = CreateSymbol(theEnv, sptr->logicalName);
 }
 
 /*********************************************/
@@ -1173,38 +1157,31 @@ void AcceptFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
-	FILE *socketStream, *newstream;
+	struct socketRouter *sptr = NULL;
+	FILE *newstream;
 	StringBuilder *logicalNameStringBuilder;
 	UDFValue theArg;
-	int domain;
 	struct sockaddr_storage client_addr;
-	int sockfd, connection_fd;
+	int connection_fd;
 	struct socketRouter *newRouter;
 	socklen_t client_addr_len;
 	char *theName;
 
-	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
+	if (NULL == (sptr = GetSocketRouterFromArgument(theEnv, context, &theArg)))
 	{
-		WriteString(theEnv,STDERR,"accept: Could not find bound socket; are you sure it's bound?\n");
+		WriteString(theEnv,STDERR,"accept: argument was not recognized as a socket file descriptor\n");
 		return;
 	}
 
-	sockfd = fileno(socketStream);
-
 	logicalNameStringBuilder = CreateStringBuilder(theEnv, 0);
-
-	client_addr_len = sizeof(client_addr);
-	socklen_t domain_len = sizeof(domain);
-
-	GenGetsockopt(theEnv, sockfd, SOL_SOCKET, SO_DOMAIN, &domain, &domain_len);
 
 	/*====================================*/
 	/* Accept a connection on the socket.  */
 	/*====================================*/
-	if ((connection_fd = accept(sockfd, (struct sockaddr *)&client_addr, &client_addr_len)) < 0)
+	if ((connection_fd = accept(fileno(sptr->stream), (struct sockaddr *)&client_addr, &client_addr_len)) < 0)
 	{
 		WriteString(theEnv,STDERR,"Could not accept connection on socket '");
-		WriteInteger(theEnv,STDERR,sockfd);
+		WriteString(theEnv,STDERR,sptr->logicalName);
 		WriteString(theEnv,STDERR,"'\n");
 		perror("perror");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
@@ -1215,7 +1192,7 @@ void AcceptFunction(
 	/* Build logical name for accepted client */
 	/*========================================*/
 
-	switch (domain)
+	switch (sptr->domain)
 	{
 		case AF_INET:
 			struct sockaddr_in *addr = (struct sockaddr_in *)&client_addr;
@@ -1247,7 +1224,7 @@ void AcceptFunction(
 		case AF_UNSPEC:
 		default:
 			WriteString(theEnv,STDERR,"Could not accept; socket domain '");
-			WriteInteger(theEnv,STDERR,domain);
+			WriteInteger(theEnv,STDERR,sptr->domain);
 			WriteString(theEnv,STDERR,"' not supported.\n");
 			SBDispose(logicalNameStringBuilder);
 			returnValue->lexemeValue = FalseSymbol(theEnv);
@@ -1383,9 +1360,7 @@ void ConnectFunction(
 		UDFValue *returnValue)
 {
 	StringBuilder *logicalNameStringBuilder;
-	FILE *newstream;
-	int domain;
-	struct socketRouter *newRouter;
+	struct socketRouter *sptr;
 	struct sockaddr_storage serv_addr;
 	socklen_t addr_len;
 	UDFValue theArg, optionalArg;
@@ -1397,12 +1372,9 @@ void ConnectFunction(
 	/* get socket fd     */
 	/*********************/
 	UDFNextArgument(context,INTEGER_BIT,&theArg);
-	int sockfd = theArg.integerValue->contents;
+	sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents);
 
 	addr_len = sizeof(serv_addr);
-
-	socklen_t domain_len = sizeof(domain);
-	GenGetsockopt(theEnv, sockfd, SOL_SOCKET, SO_DOMAIN, &domain, &domain_len);
 
 	// address
 	UDFNextArgument(context,LEXEME_BITS,&theArg);
@@ -1412,11 +1384,11 @@ void ConnectFunction(
 		UDFNextArgument(context,INTEGER_BIT,&optionalArg);
 	}
 	memset(&serv_addr, 0, sizeof(serv_addr));
-	switch (domain)
+	switch (sptr->domain)
 	{
 		case AF_INET:
 			struct sockaddr_in *addr = (struct sockaddr_in *)&serv_addr;
-			addr->sin_family = domain;
+			addr->sin_family = sptr->domain;
 			addr->sin_addr.s_addr = inet_addr(theArg.lexemeValue->contents);
 			addr->sin_port = htons(optionalArg.integerValue->contents);
 			SBAppend(logicalNameStringBuilder, theArg.lexemeValue->contents);
@@ -1426,7 +1398,7 @@ void ConnectFunction(
 			break;
 		case AF_INET6:
 			struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&serv_addr;
-			addr6->sin6_family = domain;
+			addr6->sin6_family = sptr->domain;
 			inet_pton(AF_INET6, theArg.lexemeValue->contents, &(addr6->sin6_addr));
 			addr6->sin6_port = htons(optionalArg.integerValue->contents);
 			SBAddChar(logicalNameStringBuilder, '[');
@@ -1438,7 +1410,7 @@ void ConnectFunction(
 			break;
 		case AF_UNIX:
 			struct sockaddr_un *addrun = (struct sockaddr_un *)&serv_addr;
-			addrun->sun_family = domain;
+			addrun->sun_family = sptr->domain;
 			strncpy(addrun->sun_path, theArg.lexemeValue->contents, sizeof(addrun->sun_path) - 1);
 			addrun->sun_path[sizeof(addrun->sun_path) - 1] = '\0';
 			SBAppend(logicalNameStringBuilder, theArg.lexemeValue->contents);
@@ -1452,7 +1424,7 @@ void ConnectFunction(
 			return;
 	}
 
-	if (0 > connect(sockfd, (struct sockaddr*)&serv_addr, addr_len))
+	if (0 > connect(fileno(sptr->stream), (struct sockaddr*)&serv_addr, addr_len))
 	{
 		WriteString(theEnv,STDERR,"Could not connect to '");
 		WriteString(theEnv,STDERR,logicalNameStringBuilder->contents);
@@ -1463,41 +1435,12 @@ void ConnectFunction(
 		return;
 	}
 
-	/*=========================================*/
-	/* Wrap the opened socket in a FILE        */
-	/* with fdopen.                            */
-	/*=========================================*/
-	if (NULL == (newstream = fdopen(sockfd, "r+")))
-	{
-		WriteString(theEnv,STDERR,"Could not wrap socket file descriptor in a FILE for socket '");
-		WriteString(theEnv,STDERR,logicalNameStringBuilder->contents);
-		WriteString(theEnv,STDERR,"'\n");
-		perror("perror");
-		SBDispose(logicalNameStringBuilder);
-		returnValue->lexemeValue = FalseSymbol(theEnv);
-		return;
-	}
-
-	/*=============================*/
-	/* Create a new socket router. */
-	/*=============================*/
-
-	newRouter = get_struct(theEnv,socketRouter);
 	theName = (char *) gm2(theEnv,strlen(logicalNameStringBuilder->contents) + 1);
 	genstrcpy(theName,logicalNameStringBuilder->contents);
-	newRouter->logicalName = theName;
+	sptr->logicalName = theName;
 	SBDispose(logicalNameStringBuilder);
-	newRouter->stream = newstream;
 
-	/*==========================================*/
-	/* Add the newly opened file to the list of */
-	/* files associated with logical names.     */
-	/*==========================================*/
-
-	newRouter->next = SocketRouterData(theEnv)->ListOfSocketRouters;
-	SocketRouterData(theEnv)->ListOfSocketRouters = newRouter;
-
-	returnValue->integerValue = CreateInteger(theEnv, sockfd);
+	returnValue->lexemeValue = CreateSymbol(theEnv, sptr->logicalName);
 }
 
 bool GenSetBuffered(

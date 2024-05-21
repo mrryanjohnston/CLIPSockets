@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/02/18            */
+   /*             CLIPS Version 7.00  03/02/24            */
    /*                                                     */
    /*              FACTS MANAGER HEADER FILE              */
    /*******************************************************/
@@ -73,6 +73,13 @@
 /*                                                           */
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
+/*                                                           */
+/*      6.42: Fixed GC bug by including garbage fact and     */
+/*            instances in the GC frame.                     */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
 /*                                                           */
 /*************************************************************/
 
@@ -155,10 +162,13 @@ struct fact
       TypeHeader header;
      };
    Deftemplate *whichDeftemplate;
-   void *list;
+   struct patternMatch *list;
    long long factIndex;
    unsigned long hashValue;
    unsigned int garbage : 1;
+   unsigned int goal : 1;
+   unsigned int pendingAssert : 1;
+   unsigned int supportCount : 13;
    Fact *previousFact;
    Fact *nextFact;
    Fact *previousTemplateFact;
@@ -182,6 +192,12 @@ struct factModifier
    char *changeMap;
   };
 
+struct goalNetworkUpdate
+   {
+    Deftemplate *updateDeftemplate;
+    struct goalNetworkUpdate *next;
+   };
+   
 #include "facthsh.h"
 
 #define FACTS_DATA 3
@@ -189,22 +205,24 @@ struct factModifier
 struct factsData
   {
    bool ChangeToFactList;
+   bool ChangeToGoalList;
 #if DEBUGGING_FUNCTIONS
    bool WatchFacts;
+   bool WatchGoals;
 #endif
    Fact DummyFact;
-   Fact *GarbageFacts;
    Fact *LastFact;
    Fact *FactList;
+   Fact *LastGoal;
+   Fact *GoalList;
    long long NextFactIndex;
+   long long NextGoalIndex;
    unsigned long NumberOfFacts;
+   unsigned long NumberOfGoals;
    struct callFunctionItemWithArg *ListOfAssertFunctions;
    struct callFunctionItemWithArg *ListOfRetractFunctions;
    ModifyCallFunctionItem *ListOfModifyFunctions;
    struct patternEntityRecord  FactInfo;
-#if (! RUN_TIME) && (! BLOAD_ONLY)
-   Deftemplate *CurrentDeftemplate;
-#endif
 #if DEFRULE_CONSTRUCT && (! RUN_TIME) && DEFTEMPLATE_CONSTRUCT && CONSTRUCT_COMPILER
    struct CodeGeneratorItem *FactCodeItem;
 #endif
@@ -214,6 +232,7 @@ struct factsData
 #if DEFRULE_CONSTRUCT
    Fact                    *CurrentPatternFact;
    struct multifieldMarker *CurrentPatternMarks;
+   CLIPSBitMap             *CurrentChangeMap;
 #endif
    long LastModuleIndex;
    RetractError retractError;
@@ -221,42 +240,52 @@ struct factsData
    AssertStringError assertStringError;
    FactModifierError factModifierError;
    FactBuilderError factBuilderError;
+   struct queueItem *goalQueue;
+   struct queueItem *lastInGoalQueue;
+   struct goalNetworkUpdate *goalUpdateList;
+   struct extractedInfo **goalInfoArray;
+   bool goalGenerationDisabled;
   };
 
 #define FactData(theEnv) ((struct factsData *) GetEnvironmentData(theEnv,FACTS_DATA))
 
    Fact                          *Assert(Fact *);
    AssertStringError              GetAssertStringError(Environment *);
-   Fact                          *AssertDriver(Fact *,long long,Fact *,Fact *,char *);
+   Fact                          *AssertDriver(Fact *,long long,Fact *,Fact *,CLIPSBitMap *,bool);
    Fact                          *AssertString(Environment *,const char *);
    Fact                          *CreateFact(Deftemplate *);
    void                           ReleaseFact(Fact *);
    void                           DecrementFactCallback(Environment *,Fact *);
    long long                      FactIndex(Fact *);
    GetSlotError                   GetFactSlot(Fact *,const char *,CLIPSValue *);
-   void                           PrintFactWithIdentifier(Environment *,const char *,Fact *,const char *);
-   void                           PrintFact(Environment *,const char *,Fact *,bool,bool,const char *);
+   void                           PrintFactWithIdentifier(Environment *,const char *,Fact *,CLIPSBitMap *);
+   void                           PrintFact(Environment *,const char *,Fact *,bool,bool,CLIPSBitMap *);
    void                           PrintFactIdentifierInLongForm(Environment *,const char *,Fact *);
    RetractError                   Retract(Fact *);
-   RetractError                   RetractDriver(Environment *,Fact *,bool,char *);
+   RetractError                   RetractDriver(Environment *,Fact *,bool,CLIPSBitMap *,bool);
    RetractError                   RetractAllFacts(Environment *);
+   RetractError                   RetractAllGoals(Environment *);
    Fact                          *CreateFactBySize(Environment *,size_t);
    void                           FactInstall(Environment *,Fact *);
    void                           FactDeinstall(Environment *,Fact *);
    Fact                          *GetNextFact(Environment *,Fact *);
    Fact                          *GetNextFactInScope(Environment *,Fact *);
+   Fact                          *GetNextGoal(Environment *,Fact *);
+   Fact                          *GetNextGoalInScope(Environment *,Fact *);
    void                           FactPPForm(Fact *,StringBuilder *,bool);
    bool                           GetFactListChanged(Environment *);
    void                           SetFactListChanged(Environment *,bool);
    unsigned long                  GetNumberOfFacts(Environment *);
    void                           InitializeFacts(Environment *);
    Fact                          *FindIndexedFact(Environment *,long long);
+   Fact                          *FindIndexedGoal(Environment *,long long);
    void                           RetainFact(Fact *);
    void                           IncrementFactCallback(Environment *,Fact *);
    void                           PrintFactIdentifier(Environment *,const char *,Fact *);
    void                           DecrementFactBasisCount(Environment *,Fact *);
    void                           IncrementFactBasisCount(Environment *,Fact *);
    bool                           FactIsDeleted(Environment *,Fact *);
+   bool                           FactPNCheckDeletions(Environment *,struct factPatternNode *);
    void                           ReturnFact(Environment *,Fact *);
    void                           MatchFactFunction(Environment *,Fact *);
    bool                           PutFactSlot(Fact *,const char *,CLIPSValue *);
@@ -292,6 +321,7 @@ struct factsData
    FactModifier                  *CreateFactModifier(Environment *,Fact *);
    PutSlotError                   FMPutSlot(FactModifier *,const char *,CLIPSValue *);
    Fact                          *FMModify(FactModifier *);
+   Fact                          *FMUpdate(FactModifier *);
    void                           FMDispose(FactModifier *);
    void                           FMAbort(FactModifier *);
    FactModifierError              FMSetFact(FactModifier *,Fact *);
@@ -316,6 +346,10 @@ struct factsData
    ModifyCallFunctionItem        *RemoveModifyFunctionFromCallList(Environment *,const char *,
                                                                    ModifyCallFunctionItem *,bool *);
    void                           DeallocateModifyCallList(Environment *,ModifyCallFunctionItem *);
+   void                           AddToGarbageFactList(Environment *,Fact *);
+   void                           RemoveGarbageFacts(Environment *);
+   Fact                          *AssertGoal(Fact *,struct partialMatch *);
+   RetractError                   RetractGoal(Fact *);
 
 #endif /* _H_factmngr */
 

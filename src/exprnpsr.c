@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  12/17/18             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*              EXPRESSION PARSER MODULE               */
    /*******************************************************/
@@ -65,6 +65,8 @@
 /*            UDF redesign.                                  */
 /*                                                           */
 /*            Eval support for run time and bload only.      */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -221,7 +223,7 @@ struct expr *Function2Parse(
    if (moduleSpecified)
      {
       if (ConstructExported(theEnv,"defgeneric",moduleName,constructName) ||
-          GetCurrentModule(theEnv) == FindDefmodule(theEnv,moduleName->contents))
+          GetCurrentModule(theEnv) == LookupDefmodule(theEnv,moduleName))
         { gfunc = FindDefgenericInModule(theEnv,name); }
       else
         { gfunc = NULL; }
@@ -240,7 +242,7 @@ struct expr *Function2Parse(
      if (moduleSpecified)
        {
         if (ConstructExported(theEnv,"deffunction",moduleName,constructName) ||
-            GetCurrentModule(theEnv) == FindDefmodule(theEnv,moduleName->contents))
+            GetCurrentModule(theEnv) == LookupDefmodule(theEnv,moduleName))
           { dptr = FindDeffunctionInModule(theEnv,name); }
         else
           { dptr = NULL; }

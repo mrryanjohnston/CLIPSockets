@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  01/29/23             */
+   /*            CLIPS Version 7.00  01/16/24             */
    /*                                                     */
    /*                OBJECT MESSAGE COMMANDS              */
    /*******************************************************/
@@ -60,6 +60,8 @@
 /*      6.41: Changed function ListDefmessageHandlers to     */
 /*            dynamically allocate storage to remove         */
 /*            compiler warning for -Warray-bounds.           */                
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -194,7 +196,7 @@ void SetupMessageHandlers(
    IncrementLexemeCount(MessageHandlerData(theEnv)->SELF_SYMBOL);
 
    AddConstruct(theEnv,"defmessage-handler","defmessage-handlers",
-                ParseDefmessageHandler,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+                ParseDefmessageHandler,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
    AddUDF(theEnv,"undefmessage-handler","v",2,3,"y",UndefmessageHandlerCommand,"UndefmessageHandlerCommand",NULL);
 
 #endif

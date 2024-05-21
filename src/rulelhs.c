@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  08/25/16             */
+   /*            CLIPS Version 6.50  10/13/23             */
    /*                                                     */
    /*             DEFRULE LHS PARSING MODULE              */
    /*******************************************************/
@@ -31,6 +31,8 @@
 /*            data structures.                               */
 /*                                                           */
 /*            UDF redesign.                                  */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -1085,6 +1087,19 @@ static struct lhsParseNode *AssignmentParse(
       return NULL;
      }
 
+   /*============================================*/
+   /* Goals can't be assigned to a fact address. */
+   /*============================================*/
+   
+   if (theNode->goalCE)
+     {
+      PrintErrorID(theEnv,"RULELHS",3,true);
+      WriteString(theEnv,STDERR,"A goal CE cannot be bound to a pattern-address.\n");
+      *error = true;
+      ReturnLHSParseNodes(theEnv,theNode);
+      return NULL;
+     }
+     
    /*=============================================*/
    /* Store the name of the variable to which the */
    /* pattern is bound and return the pattern.    */
@@ -1177,6 +1192,12 @@ static struct lhsParseNode *SimplePatternParse(
             ReturnLHSParseNodes(theEnv,theNode);
             return NULL;
            }
+           
+         if (theNode->right->goalCE)
+           { theNode->goalCE = true; }
+
+         if (theNode->right->explicitCE)
+           { theNode->explicitCE = true; }
 
          PropagatePatternType(theNode,tempParser);
          return(theNode);

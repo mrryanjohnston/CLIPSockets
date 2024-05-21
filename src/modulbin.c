@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*             DEFMODULE BSAVE/BLOAD MODULE            */
    /*******************************************************/
@@ -26,6 +26,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -115,6 +117,36 @@ void UpdateDefmoduleItemHeader(
      }
   }
 
+/****************************************************************/
+/* UpdateDefmoduleItemHeaderHM: Updates the values in defmodule */
+/*   item headers for the loaded binary image.                  */
+/****************************************************************/
+void UpdateDefmoduleItemHeaderHM(
+  Environment *theEnv,
+  struct bsaveDefmoduleItemHeader *theBsaveHeader,
+  struct defmoduleItemHeaderHM *theHeader,
+  size_t itemSize,
+  void *itemArray)
+  {
+   size_t firstOffset, lastOffset;
+
+   theHeader->theModule = ModulePointer(theBsaveHeader->theModule);
+   if (theBsaveHeader->firstItem == ULONG_MAX)
+     {
+      theHeader->firstItem = NULL;
+      theHeader->lastItem = NULL;
+     }
+   else
+     {
+      firstOffset = itemSize * theBsaveHeader->firstItem;
+      lastOffset = itemSize * theBsaveHeader->lastItem;
+      theHeader->firstItem =
+        (ConstructHeader *) &((char *) itemArray)[firstOffset];
+      theHeader->lastItem =
+        (ConstructHeader *) &((char *) itemArray)[lastOffset];
+     }
+  }
+
 #if BLOAD_AND_BSAVE
 
 /*********************************************************/
@@ -126,6 +158,36 @@ void AssignBsaveDefmdlItemHdrVals(
   struct defmoduleItemHeader *theHeader)
   {
    theBsaveHeader->theModule = theHeader->theModule->header.bsaveID;
+   if (theHeader->firstItem == NULL)
+     {
+      theBsaveHeader->firstItem = ULONG_MAX;
+      theBsaveHeader->lastItem = ULONG_MAX;
+     }
+   else
+     {
+      theBsaveHeader->firstItem = theHeader->firstItem->bsaveID;
+      theBsaveHeader->lastItem = theHeader->lastItem->bsaveID;
+     }
+  }
+
+/***********************************************************/
+/* AssignBsaveDefmdlItemHdrHMVals: Assigns the appropriate */
+/*   values to a bsave defmodule item header record.       */
+/***********************************************************/
+void AssignBsaveDefmdlItemHdrHMVals(
+  struct bsaveDefmoduleItemHeader *theBsaveHeader,
+  struct defmoduleItemHeaderHM *theHeader)
+  {
+   theBsaveHeader->theModule = theHeader->theModule->header.bsaveID;
+   
+   theBsaveHeader->itemCount = theHeader->itemCount;
+   if (theBsaveHeader->itemCount > 3)
+     {
+      theBsaveHeader->itemCount = theBsaveHeader->itemCount * 5 / 4;
+      while (! IsPrime(theBsaveHeader->itemCount))
+        { theBsaveHeader->itemCount++; }
+     }
+
    if (theHeader->firstItem == NULL)
      {
       theBsaveHeader->firstItem = ULONG_MAX;
@@ -574,6 +636,13 @@ static void ClearBload(
 
       rm(theEnv,DefmoduleData(theEnv)->DefmoduleArray[i].itemsArray,sizeof(void *) * GetNumberOfModuleItems(theEnv));
      }
+
+   /*===========================*/
+   /* Deallocate the hash maps. */
+   /*===========================*/
+
+   for (i = 0; i < DefmoduleData(theEnv)->BNumberOfDefmodules; i++)
+     { ClearDefmoduleHashMap(theEnv,&DefmoduleData(theEnv)->hashMap); }
 
    /*================================*/
    /* Deallocate the space used for  */

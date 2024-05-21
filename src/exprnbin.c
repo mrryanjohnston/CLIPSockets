@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  02/02/21             */
+   /*            CLIPS Version 7.00  03/02/24             */
    /*                                                     */
    /*             EXPRESSION BSAVE/BLOAD MODULE           */
    /*******************************************************/
@@ -63,6 +63,10 @@
 
 #if DEFGLOBAL_CONSTRUCT
 #include "globlbin.h"
+#endif
+
+#if DEFTABLE_CONSTRUCT
+#include "tablebin.h"
 #endif
 
 #if OBJECT_SYSTEM
@@ -163,6 +167,14 @@ static void UpdateExpression(
 #endif
         break;
 
+      case DEFTABLE_PTR:
+#if DEFTABLE_CONSTRUCT
+        ExpressionData(theEnv)->ExpressionArray[obji].value = DeftablePointer(bexp->value);
+#else
+        ExpressionData(theEnv)->ExpressionArray[obji].value = NULL;
+#endif
+        break;
+
      case DEFCLASS_PTR:
 #if OBJECT_SYSTEM
         ExpressionData(theEnv)->ExpressionArray[obji].value = DefclassPointer(bexp->value);
@@ -182,6 +194,7 @@ static void UpdateExpression(
 
 
       case INTEGER_TYPE:
+      case QUANTITY_TYPE:
         ExpressionData(theEnv)->ExpressionArray[obji].value = SymbolData(theEnv)->IntegerArray[bexp->value];
         IncrementIntegerCount(ExpressionData(theEnv)->ExpressionArray[obji].integerValue);
         break;
@@ -195,6 +208,10 @@ static void UpdateExpression(
 #if ! OBJECT_SYSTEM
         ExpressionData(theEnv)->ExpressionArray[obji].type = SYMBOL_TYPE;
 #endif
+        ExpressionData(theEnv)->ExpressionArray[obji].value = SymbolData(theEnv)->SymbolArray[bexp->value];
+        IncrementLexemeCount(ExpressionData(theEnv)->ExpressionArray[obji].lexemeValue);
+        break;
+
       case GBL_VARIABLE:
       case SYMBOL_TYPE:
       case STRING_TYPE:
@@ -229,7 +246,7 @@ static void UpdateExpression(
         if (EvaluationData(theEnv)->PrimitivesArray[bexp->type]->bitMap)
           {
            ExpressionData(theEnv)->ExpressionArray[obji].value = SymbolData(theEnv)->BitMapArray[bexp->value];
-           IncrementBitMapCount((CLIPSBitMap *) ExpressionData(theEnv)->ExpressionArray[obji].value);
+           IncrementBitMapCount(ExpressionData(theEnv)->ExpressionArray[obji].bitMapValue);
           }
         break;
      }
@@ -275,6 +292,7 @@ void ClearBloadedExpressions(
            ReleaseFloat(theEnv,ExpressionData(theEnv)->ExpressionArray[i].floatValue);
            break;
          case INTEGER_TYPE         :
+         case QUANTITY_TYPE        :
            ReleaseInteger(theEnv,ExpressionData(theEnv)->ExpressionArray[i].integerValue);
            break;
 
@@ -436,6 +454,7 @@ void BsaveExpression(
            break;
 
          case INTEGER_TYPE:
+         case QUANTITY_TYPE:
            newTest.value = testPtr->integerValue->bucket;
            break;
 
@@ -463,6 +482,15 @@ void BsaveExpression(
 
          case DEFTEMPLATE_PTR:
 #if DEFTEMPLATE_CONSTRUCT
+           if (testPtr->value != NULL)
+             newTest.value = testPtr->constructValue->bsaveID;
+           else
+#endif
+             newTest.value = ULONG_MAX;
+           break;
+
+         case DEFTABLE_PTR:
+#if DEFTABLE_CONSTRUCT
            if (testPtr->value != NULL)
              newTest.value = testPtr->constructValue->bsaveID;
            else
@@ -509,7 +537,7 @@ void BsaveExpression(
          default:
            if (EvaluationData(theEnv)->PrimitivesArray[testPtr->type] == NULL) break;
            if (EvaluationData(theEnv)->PrimitivesArray[testPtr->type]->bitMap)
-             { newTest.value = ((CLIPSBitMap *) testPtr->value)->bucket; }
+             { newTest.value = testPtr->bitMapValue->bucket; }
            break;
         }
 

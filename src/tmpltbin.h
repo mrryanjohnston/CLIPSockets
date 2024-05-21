@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  01/07/24            */
    /*                                                     */
    /*         DEFTEMPLATE BSAVE/BLOAD HEADER FILE         */
    /*******************************************************/
@@ -31,6 +31,12 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      7.00: Data driven backward chaining.                 */
+/*                                                           */
+/*            Deftemplate inheritance.                       */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_tmpltbin
@@ -48,6 +54,7 @@ struct bsaveTemplateSlot
    unsigned int noDefault : 1;
    unsigned int defaultPresent : 1;
    unsigned int defaultDynamic : 1;
+   unsigned int reactive : 1;
    unsigned long constraints;
    unsigned long defaultList;
    unsigned long facetList;
@@ -62,10 +69,14 @@ struct bsaveDeftemplateModule;
 struct bsaveDeftemplate
   {
    struct bsaveConstructHeader header;
+   unsigned long parent;
+   unsigned long child;
+   unsigned long sibling;
    unsigned long slotList;
    unsigned int implied : 1;
    unsigned int numberOfSlots : 15;
    unsigned long patternNetwork;
+   unsigned long goalNetwork;
   };
 
 #include "modulbin.h"
@@ -90,8 +101,11 @@ struct deftemplateBinaryData
   };
 
 #define DeftemplateBinaryData(theEnv) ((struct deftemplateBinaryData *) GetEnvironmentData(theEnv,TMPLTBIN_DATA))
-
 #define DeftemplatePointer(i) ((Deftemplate *) (&DeftemplateBinaryData(theEnv)->DeftemplateArray[i]))
+
+#define BsaveDeftemplateIndex(ptr) ((ptr == NULL) ? ULONG_MAX : ((Deftemplate *) ptr)->header.bsaveID)
+#define BloadDeftemplatePointer(i) ((Deftemplate *) ((i == ULONG_MAX) ? NULL : &DeftemplateBinaryData(theEnv)->DeftemplateArray[i]))
+
 
 #ifndef _H_tmpltdef
 #include "tmpltdef.h"

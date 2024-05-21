@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  12/24/23             */
    /*                                                     */
    /*                 FACT MATCH MODULE                   */
    /*******************************************************/
@@ -49,6 +49,12 @@
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      7.00: Data driven backward chaining.                 */
+/*                                                           */
+/*            Deftemplate inheritance.                       */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -82,10 +88,8 @@
    static void                     ProcessFactAlphaMatch(Environment *,Fact *,struct multifieldMarker *,struct factPatternNode *);
    static struct factPatternNode  *GetNextFactPatternNode(Environment *,bool,struct factPatternNode *);
    static bool                     SkipFactPatternNode(Environment *,struct factPatternNode *);
-   static void                     ProcessMultifieldNode(Environment *,
-                                                         struct factPatternNode *,
-                                                         struct multifieldMarker *,
-                                                         struct multifieldMarker *,size_t,size_t);
+   static void                     ProcessMultifieldNode(Environment *,struct factPatternNode *,struct multifieldMarker *,
+                                                         struct multifieldMarker *,size_t,size_t,CLIPSBitMap *,bool);
    static void                     PatternNetErrorMessage(Environment *,struct factPatternNode *);
 
 /*************************************************************************/
@@ -98,7 +102,9 @@ void FactPatternMatch(
   size_t offset,
   size_t multifieldsProcessed,
   struct multifieldMarker *markers,
-  struct multifieldMarker *endMark)
+  struct multifieldMarker *endMark,
+  CLIPSBitMap *changeMap,
+  bool applyReactivity)
   {
    size_t theSlotField;
    unsigned short offsetSlot;
@@ -225,15 +231,6 @@ void FactPatternMatch(
 
          else if (EvaluatePatternExpression(theEnv,patternPtr,patternPtr->networkTest))
            {
-            /*=======================================================*/
-            /* If a leaf pattern node has been successfully reached, */
-            /* then the pattern has been satisified. Generate an     */
-            /* alpha match to store in the pattern node.             */
-            /*=======================================================*/
-
-            if (patternPtr->header.stopNode)
-              { ProcessFactAlphaMatch(theEnv,theFact,markers,patternPtr); }
-
             /*===================================*/
             /* Move on to the next pattern node. */
             /*===================================*/
@@ -265,9 +262,9 @@ void FactPatternMatch(
          /*========================================================*/
 
          if (offsetSlot == patternPtr->whichSlot)
-           { ProcessMultifieldNode(theEnv,patternPtr,markers,endMark,offset,multifieldsProcessed); }
+           { ProcessMultifieldNode(theEnv,patternPtr,markers,endMark,offset,multifieldsProcessed,changeMap,applyReactivity); }
          else
-           { ProcessMultifieldNode(theEnv,patternPtr,markers,endMark,0,0); }
+           { ProcessMultifieldNode(theEnv,patternPtr,markers,endMark,0,0,changeMap,applyReactivity); }
 
          /*===================================================*/
          /* Move on to the next pattern node. Since the lower */
@@ -278,6 +275,20 @@ void FactPatternMatch(
          /* field pattern node that failed its constraint.    */
          /*===================================================*/
 
+         patternPtr = GetNextFactPatternNode(theEnv,true,patternPtr);
+        }
+      
+      /*=======================================================*/
+      /* If a leaf pattern node has been successfully reached, */
+      /* then the pattern has been satisified. Generate an     */
+      /* alpha match to store in the pattern node.             */
+      /*=======================================================*/
+
+      else if (patternPtr->header.stopNode)
+        {
+         if (NodeActivatedByChanges(theEnv,patternPtr,changeMap,applyReactivity))
+           { ProcessFactAlphaMatch(theEnv,theFact,markers,patternPtr); }
+           
          patternPtr = GetNextFactPatternNode(theEnv,true,patternPtr);
         }
      }
@@ -296,7 +307,9 @@ static void ProcessMultifieldNode(
   struct multifieldMarker *markers,
   struct multifieldMarker *endMark,
   size_t offset,
-  size_t multifieldsProcessed)
+  size_t multifieldsProcessed,
+  CLIPSBitMap *changeMap,
+  bool applyReactivity)
   {
    struct multifieldMarker *newMark, *oldMark;
    size_t fieldsRemaining;
@@ -395,8 +408,8 @@ static void ProcessMultifieldNode(
          /* on the multifield binding just generated.   */
          /*=============================================*/
 
-         FactPatternMatch(theEnv,FactData(theEnv)->CurrentPatternFact,
-                          thePattern->nextLevel,0,0,FactData(theEnv)->CurrentPatternMarks,newMark);
+         FactPatternMatch(theEnv,FactData(theEnv)->CurrentPatternFact,thePattern->nextLevel,0,0,
+                          FactData(theEnv)->CurrentPatternMarks,newMark,changeMap,applyReactivity);
         }
 
       /*================================================*/
@@ -446,7 +459,7 @@ static void ProcessMultifieldNode(
               {
                FactPatternMatch(theEnv,FactData(theEnv)->CurrentPatternFact,
                                 tempPtr->nextLevel,offset + repeatCount,multifieldsProcessed+1,
-                                FactData(theEnv)->CurrentPatternMarks,newMark);
+                                FactData(theEnv)->CurrentPatternMarks,newMark,changeMap,applyReactivity);
               }
            }
         }
@@ -456,7 +469,7 @@ static void ProcessMultifieldNode(
         {
          FactPatternMatch(theEnv,FactData(theEnv)->CurrentPatternFact,
                           thePattern->nextLevel,offset + repeatCount,multifieldsProcessed+1,
-                          FactData(theEnv)->CurrentPatternMarks,newMark);
+                          FactData(theEnv)->CurrentPatternMarks,newMark,changeMap,applyReactivity);
         }
      }
 
@@ -573,11 +586,11 @@ static void ProcessFactAlphaMatch(
   /* Add the pattern to the list of matches for this fact. */
   /*=======================================================*/
 
-  listOfMatches = (struct patternMatch *) theFact->list;
+  listOfMatches = theFact->list;
   theFact->list = get_struct(theEnv,patternMatch);
-  ((struct patternMatch *) theFact->list)->next = listOfMatches;
-  ((struct patternMatch *) theFact->list)->matchingPattern = (struct patternNodeHeader *) thePattern;
-  ((struct patternMatch *) theFact->list)->theMatch = theMatch;
+  theFact->list->next = listOfMatches;
+  theFact->list->matchingPattern = &thePattern->header;
+  theFact->list->theMatch = theMatch;
 
   /*================================================================*/
   /* Send the partial match to the joins connected to this pattern. */
@@ -888,18 +901,73 @@ void FactsIncrementalReset(
   Environment *theEnv)
   {
    Fact *factPtr;
+   Deftemplate *theDeftemplate;
 
    for (factPtr = GetNextFact(theEnv,NULL);
         factPtr != NULL;
         factPtr = GetNextFact(theEnv,factPtr))
      {
       EngineData(theEnv)->JoinOperationInProgress = true;
-      FactPatternMatch(theEnv,factPtr,
-                       factPtr->whichDeftemplate->patternNetwork,
-                       0,0,NULL,NULL);
+      for (theDeftemplate = factPtr->whichDeftemplate;
+           theDeftemplate != NULL;
+           theDeftemplate = theDeftemplate->parent)
+        {
+         FactPatternMatch(theEnv,factPtr,theDeftemplate->patternNetwork,
+                          0,0,NULL,NULL,NULL,false);
+        }
+      EngineData(theEnv)->JoinOperationInProgress = false;
+     }
+
+   for (factPtr = GetNextGoal(theEnv,NULL);
+        factPtr != NULL;
+        factPtr = GetNextGoal(theEnv,factPtr))
+     {
+      EngineData(theEnv)->JoinOperationInProgress = true;
+      for (theDeftemplate = factPtr->whichDeftemplate;
+           theDeftemplate != NULL;
+           theDeftemplate = theDeftemplate->parent)
+        {
+         FactPatternMatch(theEnv,factPtr,theDeftemplate->goalNetwork, 
+                          0,0,NULL,NULL,NULL,false);
+        }
       EngineData(theEnv)->JoinOperationInProgress = false;
      }
   }
+
+/*********************************************************/
+/* NodeActivatedByChanges: Determines if a fact pattern  */
+/*   node is activated by an update command based on the */
+/*   slots that have been updated in the fact and the    */
+/*   slots that are explicitly matched by the pattern.   */
+/*********************************************************/
+bool NodeActivatedByChanges(
+  Environment *theEnv,
+  struct factPatternNode *theNode,
+  CLIPSBitMap *changeMap,
+  bool applyReactivity)
+  {
+   unsigned short i, compares;
+
+   CLIPSBitMap *modifySlots;
+   
+   if ((! applyReactivity) || (changeMap == NULL))
+     { return true; }
+
+   modifySlots = theNode->modifySlots;
+   if (modifySlots == NULL)
+     { return true; }
+
+   compares = (modifySlots->size < changeMap->size) ? modifySlots->size : changeMap->size;
+   
+   for (i = 0; i < compares; i++)
+     {
+      if (modifySlots->contents[i] & changeMap->contents[i])
+           { return true; }
+     }
+
+   return false;
+  }
+
 
 #endif /* DEFTEMPLATE_CONSTRUCT && DEFRULE_CONSTRUCT */
 

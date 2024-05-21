@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/09/18             */
+   /*            CLIPS Version 7.00  02/06/24             */
    /*                                                     */
    /*                  MULTIFIELD MODULE                  */
    /*******************************************************/
@@ -58,6 +58,13 @@
 /*            now converts non-primitive value tokens        */
 /*            (such as parentheses) to symbols rather than   */
 /*            strings.                                       */
+/*                                                           */
+/*      6.42: Refactored CreateMultifield to remove          */
+/*            duplicated code.                               */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
 /*                                                           */
 /*************************************************************/
 
@@ -283,7 +290,7 @@ Multifield *StringToMultifield(
 Multifield *ArrayToMultifield(
   Environment *theEnv,
   CLIPSValue *theArray,
-  unsigned long size) // TBD size_t
+  unsigned long size)
   {
    Multifield *rv;
    unsigned int i;
@@ -314,24 +321,9 @@ Multifield *CreateMultifield(
   Environment *theEnv,
   size_t size)
   {
-   Multifield *theSegment;
-   size_t newSize;
+   Multifield *theSegment = CreateUnmanagedMultifield(theEnv,size);
 
-   if (size == 0) newSize = 1;
-   else newSize = size;
-
-   theSegment = get_var_struct(theEnv,multifield,sizeof(struct clipsValue) * (newSize - 1));
-
-   theSegment->header.type = MULTIFIELD_TYPE;
-   theSegment->length = size;
-   theSegment->busyCount = 0;
-   theSegment->next = NULL;
-
-   theSegment->next = UtilityData(theEnv)->CurrentGarbageFrame->ListOfMultifields;
-   UtilityData(theEnv)->CurrentGarbageFrame->ListOfMultifields = theSegment;
-   UtilityData(theEnv)->CurrentGarbageFrame->dirty = true;
-   if (UtilityData(theEnv)->CurrentGarbageFrame->LastMultifield == NULL)
-     { UtilityData(theEnv)->CurrentGarbageFrame->LastMultifield = theSegment; }
+   AddToMultifieldList(theEnv,theSegment);
 
    return theSegment;
   }
@@ -763,6 +755,42 @@ bool MultifieldsEqual(
      }
    return true;
   }
+  
+/*******************************************************************/
+/* ValueArraysEqual: Determines if two value arrays are identical. */
+/*******************************************************************/
+bool ValueArraysEqual(
+  CLIPSValue elem1[],
+  size_t length1,
+  CLIPSValue elem2[],
+  size_t length2)
+  {
+   size_t i = 0;
+
+   if (length1 != length2)
+     { return false; }
+
+   /*==================================================*/
+   /* Compare each field of both facts until the facts */
+   /* match completely or the facts mismatch.          */
+   /*==================================================*/
+
+   while (i < length1)
+     {
+      if (elem1[i].header->type == MULTIFIELD_TYPE)
+        {
+         if (MultifieldsEqual(elem1[i].multifieldValue,
+                              elem2[i].multifieldValue) == false)
+          { return false; }
+        }
+      else if (elem1[i].value != elem2[i].value)
+        { return false; }
+
+      i++;
+     }
+
+   return true;
+  }
 
 /************************************************************/
 /* HashMultifield: Returns the hash value for a multifield. */
@@ -771,10 +799,34 @@ size_t HashMultifield(
   Multifield *theSegment,
   size_t theRange)
   {
-   size_t length, i;
+   return HashValueArray(theSegment->contents,theSegment->length,theRange);
+  }
+
+/******************************************************************/
+/* HashValueArray: Returns the hash value for a CLIPSValue array. */
+/******************************************************************/
+size_t HashValueArray(
+  CLIPSValue theValue[],
+  size_t length,
+  size_t theRange)
+  {
+   size_t i, count = 0;
+   
+   for (i = 0; i < length; i++)
+     { count += HashCLIPSValue(&theValue[0],i,theRange); }
+     
+   return count;
+  }
+  
+/************************************************************/
+/* HashCLIPSValue: Returns the hash value for a CLIPSValue. */
+/************************************************************/
+size_t HashCLIPSValue(
+  CLIPSValue *theValue,
+  size_t position,
+  size_t theRange)
+  {
    size_t tvalue;
-   size_t count;
-   CLIPSValue *fieldPtr;
    union
      {
       double fv;
@@ -786,68 +838,52 @@ size_t HashMultifield(
    /* Initialize variables for computing hash value. */
    /*================================================*/
 
-   count = 0;
-   length = theSegment->length;
-   fieldPtr = theSegment->contents;
-
-   /*====================================================*/
-   /* Loop through each value in the multifield, compute */
-   /* its hash value, and add it to the running total.   */
-   /*====================================================*/
-
-   for (i = 0;
-        i < length;
-        i++)
+   switch(theValue->header->type)
      {
-      switch(fieldPtr[i].header->type)
-         {
-          case MULTIFIELD_TYPE:
-            count += HashMultifield(fieldPtr[i].multifieldValue,theRange);
-            break;
+      case MULTIFIELD_TYPE:
+        return HashMultifield(theValue->multifieldValue,theRange);
+        break;
 
-          case FLOAT_TYPE:
-            fis.liv = 0;
-            fis.fv = fieldPtr[i].floatValue->contents;
-            count += (fis.liv * (i + 29))  +
-                     (unsigned long) fieldPtr[i].floatValue->contents;
-            break;
+      case FLOAT_TYPE:
+        fis.liv = 0;
+        fis.fv = theValue->floatValue->contents;
+        return (fis.liv * (position + 29))  +
+               (unsigned long) theValue->floatValue->contents;
+        break;
 
-          case INTEGER_TYPE:
-            count += (((unsigned long) fieldPtr[i].integerValue->contents) * (i + 29)) +
-                      ((unsigned long) fieldPtr[i].integerValue->contents);
-            break;
+      case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
+       return (((unsigned long) theValue->integerValue->contents) * (position + 29)) +
+                ((unsigned long) theValue->integerValue->contents);
+        break;
 
-          case FACT_ADDRESS_TYPE:
+      case FACT_ADDRESS_TYPE:
 #if OBJECT_SYSTEM
-          case INSTANCE_ADDRESS_TYPE:
+      case INSTANCE_ADDRESS_TYPE:
 #endif
-            fis.liv = 0;
-            fis.vv = fieldPtr[i].value;
-            count += fis.liv * (i + 29);
-            break;
+        fis.liv = 0;
+        fis.vv = theValue->value;
+        return fis.liv * (position + 29);
+        break;
 
-          case EXTERNAL_ADDRESS_TYPE:
-            fis.liv = 0;
-            fis.vv = fieldPtr[i].externalAddressValue->contents;
-            count += fis.liv * (i + 29);
-            break;
+      case EXTERNAL_ADDRESS_TYPE:
+        fis.liv = 0;
+        fis.vv = theValue->externalAddressValue->contents;
+        return fis.liv * (position + 29);
+        break;
 
-          case SYMBOL_TYPE:
-          case STRING_TYPE:
+      case SYMBOL_TYPE:
+      case STRING_TYPE:
 #if OBJECT_SYSTEM
-          case INSTANCE_NAME_TYPE:
+      case INSTANCE_NAME_TYPE:
 #endif
-            tvalue = HashSymbol(fieldPtr[i].lexemeValue->contents,theRange);
-            count += tvalue * (i + 29);
-            break;
-         }
+        tvalue = HashSymbol(theValue->lexemeValue->contents,theRange);
+        return tvalue * (position + 29);
+        break;
      }
 
-   /*========================*/
-   /* Return the hash value. */
-   /*========================*/
-
-   return count;
+   return 0;
   }
 
 /**********************/

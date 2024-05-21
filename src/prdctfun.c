@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  08/19/18             */
+   /*            CLIPS Version 6.50  10/13/23             */
    /*                                                     */
    /*              PREDICATE FUNCTIONS MODULE             */
    /*******************************************************/
@@ -43,6 +43,8 @@
 /*                                                           */
 /*            Deprecated the pointerp function and added     */
 /*            the external-addressp function.                */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -136,10 +138,23 @@ void EqFunction(
    /* If any are the same, return FALSE.  */
    /*=====================================*/
 
-   theExpression = GetNextArgument(theExpression);
-   for (i = 2 ; i <= numArgs ; i++)
+   for (i = 2, theExpression = GetNextArgument(theExpression);
+        i <= numArgs;
+        i++, theExpression = GetNextArgument(theExpression))
      {
       EvaluateExpression(theEnv,theExpression,&nextItem);
+
+      if ((item.header->type == UQV_TYPE) &&
+          (nextItem.header->type == UQV_TYPE) &&
+          ((item.integerValue->contents == 0) ||
+           (nextItem.integerValue->contents == 0)))
+        { continue; }
+
+      if (((item.header->type == UQV_TYPE) &&
+           (item.integerValue->contents != 0)) ||
+          ((nextItem.header->type == UQV_TYPE) &&
+           (nextItem.integerValue->contents != 0)))
+        { continue; }
 
       if (nextItem.header->type != item.header->type)
         {
@@ -160,8 +175,6 @@ void EqFunction(
          returnValue->lexemeValue = FalseSymbol(theEnv);
          return;
         }
-
-      theExpression = GetNextArgument(theExpression);
      }
 
    /*=====================================*/
@@ -214,6 +227,25 @@ void NeqFunction(
         i++, theExpression = GetNextArgument(theExpression))
      {
       EvaluateExpression(theEnv,theExpression,&nextItem);
+      
+      if ((item.header->type == UQV_TYPE) &&
+          (nextItem.header->type == UQV_TYPE) &&
+          ((item.integerValue->contents == 0) ||
+           (nextItem.integerValue->contents == 0)))
+        { 
+         returnValue->lexemeValue = FalseSymbol(theEnv);
+         return;
+        }
+        
+      if (((item.header->type == UQV_TYPE) &&
+           (item.integerValue->contents != 0)) ||
+          ((nextItem.header->type == UQV_TYPE) &&
+           (nextItem.integerValue->contents != 0)))
+        { 
+         returnValue->lexemeValue = FalseSymbol(theEnv);
+         return;
+        }
+
       if (nextItem.header->type != item.header->type)
         { continue; }
       else if (nextItem.header->type == MULTIFIELD_TYPE)

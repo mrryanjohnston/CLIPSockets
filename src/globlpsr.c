@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  04/30/21             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*              DEFGLOBAL PARSER MODULE                */
    /*******************************************************/
@@ -48,6 +48,8 @@
 /*      6.41: Normalized multifields intially assigned to    */
 /*            global variables so that subsequences of       */
 /*            larger multifields are correctly assigned.     */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -150,7 +152,7 @@ bool ParseDefglobal(
       /* Determine if the module exists. */
       /*=================================*/
 
-      theModule = FindDefmodule(theEnv,theToken.lexemeValue->contents);
+      theModule = LookupDefmodule(theEnv,theToken.lexemeValue);
       if (theModule == NULL)
         {
          CantFindItemErrorMessage(theEnv,"defmodule",theToken.lexemeValue->contents,true);
@@ -257,7 +259,7 @@ static bool GetVariableDefinition(
    if ((GetWatchItem(theEnv,"compilations") == 1) && GetPrintWhileLoading(theEnv))
      {
       const char *outRouter = STDOUT;
-      if (QFindDefglobal(theEnv,variableName) != NULL)
+      if (LookupDefglobal(theEnv,variableName) != NULL)
         {
          outRouter = STDWRN;
          PrintWarningID(theEnv,"CSTRCPSR",1,true);
@@ -364,7 +366,7 @@ static void AddDefglobal(
    /* been defined, then create a new data structure.        */
    /*========================================================*/
 
-   defglobalPtr = QFindDefglobal(theEnv,name);
+   defglobalPtr = LookupDefglobal(theEnv,name);
    if (defglobalPtr == NULL)
      {
       newGlobal = true;
@@ -447,12 +449,13 @@ static void AddDefglobal(
    defglobalPtr->header.whichModule = (struct defmoduleItemHeader *)
                                GetModuleItem(theEnv,NULL,FindModuleItem(theEnv,"defglobal")->moduleIndex);
 
-   /*=============================================*/
-   /* Add the defglobal to the list of defglobals */
-   /* for the current module.                     */
-   /*=============================================*/
+   /*====================================*/
+   /* Add the defglobal to the list of   */
+   /* defglobals for the current module. */
+   /*====================================*/
 
    AddConstructToModule(&defglobalPtr->header);
+   AddConstructToHashMap(theEnv,&defglobalPtr->header,defglobalPtr->header.whichModule);
   }
 
 /*****************************************************************/

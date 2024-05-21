@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  10/01/16            */
+   /*             CLIPS Version 7.00  02/06/24            */
    /*                                                     */
    /*                 SYMBOL HEADER FILE                  */
    /*******************************************************/
@@ -73,6 +73,8 @@
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
 /*                                                           */
 /*            UDF redesign.                                  */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -193,7 +195,10 @@ struct symbolData
    CLIPSLexeme                   *FindSymbolHN(Environment *,const char *,unsigned short);
    CLIPSFloat                    *CreateFloat(Environment *,double);
    CLIPSInteger                  *CreateInteger(Environment *,long long);
-   void                          *AddBitMap(Environment *,void *,unsigned short);
+   CLIPSInteger                  *CreateUQV(Environment *,long long);
+   CLIPSInteger                  *CreateQuantity(Environment *,long long);
+   CLIPSInteger                  *AddInteger(Environment *,long long,unsigned short);
+   CLIPSBitMap                   *AddBitMap(Environment *,void *,unsigned short);
    CLIPSExternalAddress          *CreateExternalAddress(Environment *,void *,unsigned short);
    CLIPSExternalAddress          *CreateCExternalAddress(Environment *,void *);
    CLIPSInteger                  *FindLongHN(Environment *,long long);

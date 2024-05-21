@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  04/03/19             */
+   /*            CLIPS Version 7.00  01/16/24             */
    /*                                                     */
    /*               CLASS INITIALIZATION MODULE           */
    /*******************************************************/
@@ -60,6 +60,8 @@
 /*                                                            */
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /**************************************************************/
 
@@ -592,9 +594,10 @@ static void SetupDefclasses(
                 RegisterModuleItem(theEnv,"defclass",
 #if (! RUN_TIME)
                                     AllocateModule,
+                                    NULL,
                                     ReturnModule,
 #else
-                                    NULL,NULL,
+                                    NULL,NULL,NULL,
 #endif
 #if BLOAD_AND_BSAVE || BLOAD || BLOAD_ONLY
                                     BloadDefclassModuleReference,
@@ -622,11 +625,11 @@ static void SetupDefclasses(
                                      (IsConstructDeletableFunction *) DefclassIsDeletable,
                                      (DeleteConstructFunction *) Undefclass,
 #if (! RUN_TIME)
-                                     (FreeConstructFunction *) RemoveDefclass
+                                     (FreeConstructFunction *) RemoveDefclass,
 #else
-                                     NULL
+                                     NULL,
 #endif
-                                     );
+                                     NULL);
 
    AddClearReadyFunction(theEnv,"defclass",InstancesPurge,0,NULL);
 
@@ -746,7 +749,7 @@ static Defclass *AddSystemClass(
    ClearBitString(defaultScopeMap,sizeof(char));
    SetBitMap(defaultScopeMap,0);
 #if DEFMODULE_CONSTRUCT
-   sys->scopeMap = (CLIPSBitMap *) AddBitMap(theEnv,defaultScopeMap,sizeof(char));
+   sys->scopeMap = AddBitMap(theEnv,defaultScopeMap,sizeof(char));
    IncrementBitMapCount(sys->scopeMap);
 #endif
    return(sys);
@@ -832,7 +835,7 @@ static void UpdateDefclassesScope(
         else if (FindImportedConstruct(theEnv,"defclass",matchModule,
                                        className,&count,true,NULL) != NULL)
           SetBitMap(newScopeMap,newModuleID);
-        theDefclass->scopeMap = (CLIPSBitMap *) AddBitMap(theEnv,newScopeMap,newScopeMapSize);
+        theDefclass->scopeMap = AddBitMap(theEnv,newScopeMap,newScopeMapSize);
         IncrementBitMapCount(theDefclass->scopeMap);
        }
    rm(theEnv,newScopeMap,newScopeMapSize);

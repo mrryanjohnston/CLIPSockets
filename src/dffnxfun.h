@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  11/01/16            */
+   /*             CLIPS Version 7.00  01/18/24            */
    /*                                                     */
    /*              DEFFUNCTION HEADER FILE                */
    /*******************************************************/
@@ -61,6 +61,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_dffnxfun
@@ -79,7 +81,7 @@ typedef struct deffunctionModuleData DeffunctionModuleData;
 
 struct deffunctionModuleData
   {
-   struct defmoduleItemHeader header;
+   struct defmoduleItemHeaderHM header;
   };
 
 struct deffunction

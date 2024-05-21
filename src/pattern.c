@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                 RULE PATTERN MODULE                 */
    /*******************************************************/
@@ -161,7 +161,7 @@ void AddHashedPatternNode(
    size_t hashValue;
    struct patternNodeHashEntry *newhash, *temp;
 
-   hashValue = GetAtomicHashValue(keyType,keyValue,1) + HashExternalAddress(parent,0); /* TBD mult * 30 */
+   hashValue = GetAtomicHashValue(keyType,keyValue,1) + HashExternalAddress(parent,0);
 
    newhash = get_struct(theEnv,patternNodeHashEntry);
    newhash->parent = parent;
@@ -190,7 +190,7 @@ bool RemoveHashedPatternNode(
    size_t hashValue;
    struct patternNodeHashEntry *hptr, *prev;
 
-   hashValue = GetAtomicHashValue(keyType,keyValue,1) + HashExternalAddress(parent,0); /* TBD mult * 30 */
+   hashValue = GetAtomicHashValue(keyType,keyValue,1) + HashExternalAddress(parent,0);
    hashValue = (hashValue % PatternData(theEnv)->PatternHashTableSize);
 
    for (hptr = PatternData(theEnv)->PatternHashTable[hashValue], prev = NULL;
@@ -231,7 +231,7 @@ void *FindHashedPatternNode(
    size_t hashValue;
    struct patternNodeHashEntry *hptr;
 
-   hashValue = GetAtomicHashValue(keyType,keyValue,1) + HashExternalAddress(parent,0); /* TBD mult * 30 */
+   hashValue = GetAtomicHashValue(keyType,keyValue,1) + HashExternalAddress(parent,0);
    hashValue = (hashValue % PatternData(theEnv)->PatternHashTableSize);
 
    for (hptr = PatternData(theEnv)->PatternHashTable[hashValue];

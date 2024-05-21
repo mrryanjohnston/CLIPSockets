@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  10/01/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*              DEFMODULE PARSER MODULE                */
    /*******************************************************/
@@ -35,6 +35,8 @@
 /*            data structures.                               */
 /*                                                           */
 /*            Callbacks must be environment aware.           */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -191,7 +193,7 @@ bool ParseDefmodule(
 
    if (redefiningMainModule == NULL)
      {
-      newDefmodule = FindDefmodule(theEnv,defmoduleName->contents);
+      newDefmodule = LookupDefmodule(theEnv,defmoduleName);
       if (newDefmodule)
         { overwrite = true; }
       else
@@ -320,6 +322,8 @@ bool ParseDefmodule(
             theHeader->theModule = newDefmodule;
             theHeader->firstItem = NULL;
             theHeader->lastItem = NULL;
+            if (theItem->initFunction != NULL)
+              { (*theItem->initFunction)(theEnv,theHeader); }
            }
         }
      }
@@ -344,6 +348,7 @@ bool ParseDefmodule(
       if (DefmoduleData(theEnv)->LastDefmodule == NULL) DefmoduleData(theEnv)->ListOfDefmodules = newDefmodule;
       else DefmoduleData(theEnv)->LastDefmodule->header.next = &newDefmodule->header;
       DefmoduleData(theEnv)->LastDefmodule = newDefmodule;
+      AddConstructToHashMap(theEnv,&newDefmodule->header,(struct defmoduleItemHeader *) &DefmoduleData(theEnv)->hashMap);
       newDefmodule->header.bsaveID = DefmoduleData(theEnv)->NumberOfDefmodules++;
      }
 
@@ -520,7 +525,7 @@ static bool ParseImportSpec(
    /* Verify the existence of the module. */
    /*=====================================*/
 
-   if ((theModule = FindDefmodule(theEnv,theToken->lexemeValue->contents)) == NULL)
+   if ((theModule = LookupDefmodule(theEnv,theToken->lexemeValue)) == NULL)
      {
       CantFindItemErrorMessage(theEnv,"defmodule",theToken->lexemeValue->contents,true);
       return true;
@@ -622,7 +627,7 @@ static bool ParseImportSpec(
       if ((thePort->constructType == NULL) || (thePort->constructName == NULL))
         { continue; }
 
-      theModule = FindDefmodule(theEnv,thePort->moduleName->contents);
+      theModule = LookupDefmodule(theEnv,thePort->moduleName);
       SetCurrentModule(theEnv,theModule);
       if (FindImportedConstruct(theEnv,thePort->constructType->contents,NULL,
                                 thePort->constructName->contents,&count,

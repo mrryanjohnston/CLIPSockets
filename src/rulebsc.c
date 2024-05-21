@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/02/18             */
+   /*            CLIPS Version 6.50  11/03/23             */
    /*                                                     */
    /*          DEFRULE BASIC COMMANDS HEADER FILE         */
    /*******************************************************/
@@ -58,6 +58,8 @@
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
 /*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -72,11 +74,16 @@
 #include "engine.h"
 #include "envrnmnt.h"
 #include "extnfunc.h"
+#include "factgoal.h"
 #include "multifld.h"
 #include "reteutil.h"
 #include "router.h"
 #include "ruledef.h"
 #include "watch.h"
+
+#if DEFTEMPLATE_CONSTRUCT
+#include "factmngr.h"
+#endif
 
 #if BLOAD || BLOAD_ONLY || BLOAD_AND_BSAVE
 #include "rulebin.h"
@@ -93,6 +100,7 @@
 
    static void                    ResetDefrules(Environment *,void *);
    static void                    ResetDefrulesPrime(Environment *,void *);
+   static void                    ResetDefrulesGoals(Environment *,void *);
    static void                    SaveDefrules(Environment *,Defmodule *,const char *,void *);
 #if (! RUN_TIME)
    static bool                    ClearDefrulesReady(Environment *,void *);
@@ -107,6 +115,7 @@ void DefruleBasicCommands(
   {
    AddResetFunction(theEnv,"defrule",ResetDefrules,70,NULL);
    AddResetFunction(theEnv,"defrule",ResetDefrulesPrime,10,NULL);
+   AddResetFunction(theEnv,"defrule",ResetDefrulesGoals,-10,NULL);
    AddSaveFunction(theEnv,"defrule",SaveDefrules,0,NULL);
 #if (! RUN_TIME)
    AddClearReadyFunction(theEnv,"defrule",ClearDefrulesReady,0,NULL);
@@ -152,7 +161,7 @@ static void ResetDefrules(
   {
    Defmodule *theModule;
    struct joinLink *theLink;
-   struct partialMatch *notParent;
+   struct partialMatch *theParent;
 
    DefruleData(theEnv)->CurrentEntityTimeTag = 1L;
    ClearFocusStack(theEnv);
@@ -171,22 +180,34 @@ static void ResetDefrules(
       if ((theLink->join->patternIsNegated || theLink->join->joinFromTheRight) &&
           (! theLink->join->patternIsExists))
         {
-         notParent = theLink->join->leftMemory->beta[0];
+         theParent = theLink->join->leftMemory->beta[0];
 
-         if (notParent->marker)
-           { RemoveBlockedLink(notParent); }
+         if (theParent->marker)
+           { RemoveBlockedLink(theParent); }
 
          /*==========================================================*/
          /* Prevent any retractions from generating partial matches. */
          /*==========================================================*/
 
-         notParent->marker = notParent;
+         theParent->marker = theParent;
 
-         if (notParent->children != NULL)
-           { PosEntryRetractBeta(theEnv,notParent,notParent->children,NETWORK_ASSERT); }
+         if (theParent->children != NULL)
+           { PosEntryRetractBeta(theEnv,theParent,theParent->children,NETWORK_ASSERT); }
            /*
          if (notParent->dependents != NULL)
            { RemoveLogicalSupport(theEnv,notParent); } */
+        }
+     }
+
+   for (theLink = DefruleData(theEnv)->GoalPrimeJoins;
+        theLink != NULL;
+        theLink = theLink->next)
+     {
+      if (theLink->join->goalExpression != NULL)
+        {
+         theParent = theLink->join->leftMemory->beta[0];
+         theParent->goalMarker = false;
+         theParent->marker = NULL;
         }
      }
   }
@@ -226,9 +247,32 @@ static void ResetDefrulesPrime(
          EPMDrive(theEnv,notParent,theLink->join,NETWORK_ASSERT);
         }
      }
-
   }
 
+/***********************/
+/* ResetDefrulesGoals: */
+/***********************/
+static void ResetDefrulesGoals(
+  Environment *theEnv,
+  void *context)
+  {
+   struct joinLink *theLink;
+
+   for (theLink = DefruleData(theEnv)->GoalPrimeJoins;
+        theLink != NULL;
+        theLink = theLink->next)
+     {
+      if (theLink->join->firstJoin &&
+          GetAlphaMemory(theEnv,(struct patternNodeHeader *) theLink->join->rightSideEntryStructure,0) != NULL)
+        { continue; }
+
+      if (theLink->join->goalExpression != NULL)
+        { AttachGoal(theEnv,theLink->join,NULL,theLink->join->leftMemory->beta[0],false); } 
+     }
+     
+   ProcessGoalQueue(theEnv);
+  }
+  
 #if (! RUN_TIME)
 
 /******************************************************************/

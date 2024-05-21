@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  08/06/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                   DEFRULE MODULE                    */
    /*******************************************************/
@@ -64,6 +64,10 @@
 /*                                                           */
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
 /*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -103,8 +107,11 @@
    static void                   *AllocateModule(Environment *);
    static void                    ReturnModule(Environment *,void *);
    static void                    InitializeDefruleModules(Environment *);
+   static void                    InitModule(Environment *,void *);
    static void                    DeallocateDefruleData(Environment *);
    static void                    DestroyDefruleAction(Environment *,ConstructHeader *,void *);
+   static Defrule                *LookupDefrule(Environment *,CLIPSLexeme *);
+
 #if RUN_TIME
    static void                    AddBetaMemoriesToRule(Environment *,struct joinNode *);
 #endif
@@ -130,6 +137,8 @@ void InitializeDefrules(
    AddReservedPatternSymbol(theEnv,"logical",NULL);
    AddReservedPatternSymbol(theEnv,"exists",NULL);
    AddReservedPatternSymbol(theEnv,"forall",NULL);
+   AddReservedPatternSymbol(theEnv,"goal",NULL);
+   AddReservedPatternSymbol(theEnv,"explicit",NULL);
 
    DefruleBasicCommands(theEnv);
 
@@ -145,7 +154,8 @@ void InitializeDefrules(
                    SetNextConstruct,
                    (IsConstructDeletableFunction *) DefruleIsDeletable,
                    (DeleteConstructFunction *) Undefrule,
-                   (FreeConstructFunction *) ReturnDefrule);
+                   (FreeConstructFunction *) ReturnDefrule,
+                   (LookupConstructFunction *) LookupDefrule);
 
    DefruleData(theEnv)->AlphaMemoryTable = (ALPHA_MEMORY_HASH **)
                   gm2(theEnv,sizeof (ALPHA_MEMORY_HASH *) * ALPHA_MEMORY_HASH_SIZE);
@@ -156,6 +166,7 @@ void InitializeDefrules(
 
    DefruleData(theEnv)->RightPrimeJoins = NULL;
    DefruleData(theEnv)->LeftPrimeJoins = NULL;
+   DefruleData(theEnv)->GoalPrimeJoins = NULL;
   }
 
 /**************************************************/
@@ -240,6 +251,7 @@ static void InitializeDefruleModules(
   {
    DefruleData(theEnv)->DefruleModuleIndex = RegisterModuleItem(theEnv,"defrule",
                                     AllocateModule,
+                                    InitModule,
                                     ReturnModule,
 #if BLOAD_AND_BSAVE || BLOAD || BLOAD_ONLY
                                     BloadDefruleModuleReference,
@@ -268,6 +280,20 @@ static void *AllocateModule(
    return((void *) theItem);
   }
 
+/*********************************************/
+/* InitModule: Initializes a defrule module. */
+/*********************************************/
+static void InitModule(
+  Environment *theEnv,
+  void *theItem)
+  {
+   struct defruleModule *theModule = (struct defruleModule *) theItem;
+   
+   theModule->header.itemCount = 0;
+   theModule->header.hashTableSize = 0;
+   theModule->header.hashTable = NULL;
+  }
+  
 /***********************************************/
 /* ReturnModule: Deallocates a defrule module. */
 /***********************************************/
@@ -389,7 +415,65 @@ Defrule *GetNthDisjunct(
    return NULL;
   }
 
+/**************************************/
+/* LookupDefrule: Finds a defrule by  */
+/*   searching for it in the hashmap. */
+/**************************************/
+static Defrule *LookupDefrule(
+  Environment *theEnv,
+  CLIPSLexeme *defruleName)
+  {
+   struct defmoduleItemHeaderHM *theModuleItem;
+   size_t theHashValue;
+   struct itemHashTableEntry *theItem;
+   
+   theModuleItem = (struct defmoduleItemHeaderHM *)
+                   GetModuleItem(theEnv,NULL,DefruleData(theEnv)->DefruleModuleIndex);
+                   
+   if (theModuleItem->itemCount == 0)
+     { return NULL; }
+
+   theHashValue = HashSymbol(defruleName->contents,theModuleItem->hashTableSize);
+
+   for (theItem = theModuleItem->hashTable[theHashValue];
+        theItem != NULL;
+        theItem = theItem->next)
+     {
+      if (theItem->item->name == defruleName)
+        { return (Defrule *) theItem->item; }
+     }
+
+   return NULL;
+  }
+
 #if RUN_TIME
+
+/***********************************************/
+/* RuntimeDefruleCleanup: Action to be applied */
+/*   to each deftable construct when a runtime */
+/*   destruction occurs.                       */
+/***********************************************/
+static void RuntimeDefruleCleanup(
+  Environment *theEnv,
+  ConstructHeader *theConstruct,
+  void *buffer)
+  {
+#if MAC_XCD
+#pragma unused(buffer)
+#endif
+   Defrule *theDefrule = (Defrule *) theConstruct;
+      
+   RemoveConstructFromHashMap(theEnv,&theDefrule->header,theDefrule->header.whichModule);
+  }
+
+/*************************/
+/* DeallocateDefruleCTC: */
+/*************************/
+static void DeallocateDefruleCTC(
+   Environment *theEnv)
+   {
+    DoForAllConstructs(theEnv,RuntimeDefruleCleanup,DefruleData(theEnv)->DefruleModuleIndex,true,NULL);
+   }
 
 /******************************************/
 /* DefruleRunTimeInitialize:  Initializes */
@@ -398,13 +482,15 @@ Defrule *GetNthDisjunct(
 void DefruleRunTimeInitialize(
   Environment *theEnv,
   struct joinLink *rightPrime,
-  struct joinLink *leftPrime)
+  struct joinLink *leftPrime,
+  struct joinLink *goalPrime)
   {
    Defmodule *theModule;
    Defrule *theRule, *theDisjunct;
 
    DefruleData(theEnv)->RightPrimeJoins = rightPrime;
    DefruleData(theEnv)->LeftPrimeJoins = leftPrime;
+   DefruleData(theEnv)->GoalPrimeJoins = goalPrime;
 
    SaveCurrentModule(theEnv);
 
@@ -417,6 +503,8 @@ void DefruleRunTimeInitialize(
            theRule != NULL;
            theRule = GetNextDefrule(theEnv,theRule))
         {
+         AddConstructToHashMap(theEnv,&theRule->header,theRule->header.whichModule);
+
          for (theDisjunct = theRule;
               theDisjunct != NULL;
               theDisjunct = theDisjunct->disjunct)
@@ -428,8 +516,8 @@ void DefruleRunTimeInitialize(
      }
 
    RestoreCurrentModule(theEnv);
+   AddEnvironmentCleanupFunction(theEnv,"defrulectc",DeallocateDefruleCTC,0);
   }
-
 
 /**************************/
 /* AddBetaMemoriesToRule: */
@@ -461,7 +549,8 @@ void AddBetaMemoriesToJoin(
    if ((theNode->leftMemory != NULL) || (theNode->rightMemory != NULL))
      { return; }
 
-   if ((! theNode->firstJoin) || theNode->patternIsExists || theNode-> patternIsNegated || theNode->joinFromTheRight)
+   if ((! theNode->firstJoin) || theNode->patternIsExists || theNode-> patternIsNegated ||
+       theNode->joinFromTheRight || (theNode->goalExpression != NULL))
      {
       if (theNode->leftHash == NULL)
         {
@@ -482,7 +571,8 @@ void AddBetaMemoriesToJoin(
          theNode->leftMemory->last = NULL;
         }
 
-      if (theNode->firstJoin && (theNode->patternIsExists || theNode-> patternIsNegated || theNode->joinFromTheRight))
+      if (theNode->firstJoin && (theNode->patternIsExists || theNode-> patternIsNegated ||
+                                 theNode->joinFromTheRight || (theNode->goalExpression != NULL)))
         {
          theNode->leftMemory->beta[0] = CreateEmptyPartialMatch(theEnv);
          theNode->leftMemory->beta[0]->owner = theNode;

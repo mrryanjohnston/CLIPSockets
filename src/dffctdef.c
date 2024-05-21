@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  08/06/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*              DEFFACTS DEFINITION MODULE             */
    /*******************************************************/
@@ -46,6 +46,8 @@
 /*                                                           */
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
 /*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -75,10 +77,12 @@
 /***************************************/
 
    static void                   *AllocateModule(Environment *);
+   static void                    InitModule(Environment *,void *);
    static void                    ReturnModule(Environment *,void *);
    static void                    ReturnDeffacts(Environment *,Deffacts *);
    static void                    InitializeDeffactsModules(Environment *);
    static void                    DeallocateDeffactsData(Environment *);
+   static Deffacts               *LookupDeffacts(Environment *,CLIPSLexeme *);
 #if ! RUN_TIME
    static void                    DestroyDeffactsAction(Environment *,ConstructHeader *,void *);
 #else
@@ -106,7 +110,8 @@ void InitializeDeffacts(
                    SetNextConstruct,
                    (IsConstructDeletableFunction *) DeffactsIsDeletable,
                    (DeleteConstructFunction *) Undeffacts,
-                   (FreeConstructFunction *) ReturnDeffacts);
+                   (FreeConstructFunction *) ReturnDeffacts,
+                   (LookupConstructFunction *) LookupDeffacts);
   }
 
 /***************************************************/
@@ -194,7 +199,36 @@ static void RuntimeDeffactsAction(
    Deffacts *theDeffacts = (Deffacts *) theConstruct;
    
    theDeffacts->header.env = theEnv;
+   
+   AddConstructToHashMap(theEnv,&theDeffacts->header,theDeffacts->header.whichModule);
   }
+
+/************************************************/
+/* RuntimeDeffactsCleanup: Action to be applied */
+/*   to each deffacts construct when a runtime  */
+/*   destruction occurs.                        */
+/************************************************/
+static void RuntimeDeffactsCleanup(
+  Environment *theEnv,
+  ConstructHeader *theConstruct,
+  void *buffer)
+  {
+#if MAC_XCD
+#pragma unused(buffer)
+#endif
+   Deffacts *theDeffacts = (Deffacts *) theConstruct;
+      
+   RemoveConstructFromHashMap(theEnv,&theDeffacts->header,theDeffacts->header.whichModule);
+  }
+
+/**************************/
+/* DeallocateDeffactsCTC: */
+/**************************/
+static void DeallocateDeffactsCTC(
+   Environment *theEnv)
+   {
+    DoForAllConstructs(theEnv,RuntimeDeffactsCleanup,DeffactsData(theEnv)->DeffactsModuleIndex,true,NULL);
+   }
 
 /******************************/
 /* DeffactsRunTimeInitialize: */
@@ -203,6 +237,7 @@ void DeffactsRunTimeInitialize(
   Environment *theEnv)
   {
    DoForAllConstructs(theEnv,RuntimeDeffactsAction,DeffactsData(theEnv)->DeffactsModuleIndex,true,NULL);
+   AddEnvironmentCleanupFunction(theEnv,"deffactsctc",DeallocateDeffactsCTC,0);
   }
 
 #endif
@@ -217,6 +252,7 @@ static void InitializeDeffactsModules(
    DeffactsData(theEnv)->DeffactsModuleIndex =
       RegisterModuleItem(theEnv,"deffacts",
                          AllocateModule,
+                         InitModule,
                          ReturnModule,
 #if BLOAD_AND_BSAVE || BLOAD || BLOAD_ONLY
                          BloadDeffactsModuleReference,
@@ -238,6 +274,20 @@ static void *AllocateModule(
   Environment *theEnv)
   {
    return((void *) get_struct(theEnv,deffactsModule));
+  }
+  
+/**********************************************/
+/* InitModule: Initializes a deffacts module. */
+/**********************************************/
+static void InitModule(
+  Environment *theEnv,
+  void *theItem)
+  {
+   struct deffactsModule *theModule = (struct deffactsModule *) theItem;
+   
+   theModule->header.itemCount = 0;
+   theModule->header.hashTableSize = 0;
+   theModule->header.hashTable = NULL;
   }
 
 /************************************************/
@@ -326,6 +376,9 @@ static void ReturnDeffacts(
   {
 #if (! BLOAD_ONLY) && (! RUN_TIME)
    if (theDeffacts == NULL) return;
+   
+   RemoveConstructFromHashMap(theEnv,&theDeffacts->header,
+                              theDeffacts->header.whichModule);
 
    ExpressionDeinstall(theEnv,theDeffacts->assertList);
    ReturnPackedExpression(theEnv,theDeffacts->assertList);
@@ -335,7 +388,38 @@ static void ReturnDeffacts(
    rtn_struct(theEnv,deffacts,theDeffacts);
 #endif
   }
+  
+/***************************************/
+/* LookupDeffacts: Finds a deffacts by */
+/*   searching for it in the hashmap.  */
+/***************************************/
+static Deffacts *LookupDeffacts(
+  Environment *theEnv,
+  CLIPSLexeme *deffactsName)
+  {
+   struct defmoduleItemHeaderHM *theModuleItem;
+   size_t theHashValue;
+   struct itemHashTableEntry *theItem;
+   
+   theModuleItem = (struct defmoduleItemHeaderHM *)
+                   GetModuleItem(theEnv,NULL,DeffactsData(theEnv)->DeffactsModuleIndex);
+                   
+   if (theModuleItem->itemCount == 0)
+     { return NULL; }
 
+   theHashValue = HashSymbol(deffactsName->contents,theModuleItem->hashTableSize);
+
+   for (theItem = theModuleItem->hashTable[theHashValue];
+        theItem != NULL;
+        theItem = theItem->next)
+     {
+      if (theItem->item->name == deffactsName)
+        { return (Deffacts *) theItem->item; }
+     }
+
+   return NULL;
+  }
+  
 /*##################################*/
 /* Additional Environment Functions */
 /*##################################*/

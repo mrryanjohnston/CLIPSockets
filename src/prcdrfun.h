@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/23/20            */
+   /*             CLIPS Version 7.00  05/11/24            */
    /*                                                     */
    /*          PROCEDURAL FUNCTIONS HEADER FILE           */
    /*******************************************************/
@@ -45,6 +45,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Added inline if function.                      */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_prcdrfun
@@ -78,6 +80,7 @@ struct procedureFunctionData
    void                           LoopForCountFunction(Environment *,UDFContext *,UDFValue *);
    void                           GetLoopCount(Environment *,UDFContext *,UDFValue *);
    void                           IfFunction(Environment *,UDFContext *,UDFValue *);
+   void                           IifFunction(Environment *,UDFContext *,UDFValue *);
    void                           BindFunction(Environment *,UDFContext *,UDFValue *);
    void                           PrognFunction(Environment *,UDFContext *,UDFValue *);
    void                           ReturnFunction(Environment *,UDFContext *,UDFValue *);

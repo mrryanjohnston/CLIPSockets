@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  02/19/20             */
+   /*            CLIPS Version 7.00  05/10/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -71,6 +71,11 @@
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
 /*                                                           */
+/*      6.42: Bug fix for watching methods with a specific   */
+/*            method index.                                  */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 /* =========================================
@@ -132,7 +137,8 @@
    static void                    DecrementGenericBusyCount(Environment *,Defgeneric *);
    static void                    IncrementGenericBusyCount(Environment *,Defgeneric *);
    static void                    DeallocateDefgenericData(Environment *);
-
+   static Defgeneric             *LookupDefgeneric(Environment *,CLIPSLexeme *);
+   
 #if ! RUN_TIME
    static void                    DestroyDefgenericAction(Environment *,ConstructHeader *,void *);
 #endif
@@ -197,9 +203,10 @@ void SetupGenericFunctions(
                 RegisterModuleItem(theEnv,"defgeneric",
 #if (! RUN_TIME)
                                     AllocateDefgenericModule,
+                                    InitDefgenericModule,
                                     FreeDefgenericModule,
 #else
-                                    NULL,NULL,
+                                    NULL,NULL,NULL,
 #endif
 #if BLOAD_AND_BSAVE || BLOAD || BLOAD_ONLY
                                     BloadDefgenericModuleReference,
@@ -227,12 +234,11 @@ void SetupGenericFunctions(
                                        (IsConstructDeletableFunction *) DefgenericIsDeletable,
                                        (DeleteConstructFunction *) Undefgeneric,
 #if (! BLOAD_ONLY) && (! RUN_TIME)
-                                       (FreeConstructFunction *) RemoveDefgeneric
+                                       (FreeConstructFunction *) RemoveDefgeneric,
 #else
-                                       NULL
+                                       NULL,
 #endif
-                                       );
-
+                                       (LookupConstructFunction *) LookupDefgeneric);
 
 #if ! RUN_TIME
    AddClearReadyFunction(theEnv,"defgeneric",ClearDefgenericsReady,0,NULL);
@@ -250,7 +256,7 @@ void SetupGenericFunctions(
    AddPortConstructItem(theEnv,"defgeneric",SYMBOL_TOKEN);
 #endif
    AddConstruct(theEnv,"defmethod","defmethods",ParseDefmethod,
-                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+                NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
   /* ================================================================
      Make sure defmethods are cleared last, for other constructs may
@@ -1875,7 +1881,7 @@ static bool DefmethodWatchSupport(
            return false;
          if ((methodIndex.header->type != INTEGER_TYPE) ? false :
              ((methodIndex.integerValue->contents <= 0) ? false :
-              (FindMethodByIndex(theGeneric,theMethod) != METHOD_NOT_FOUND)))
+              (FindMethodByIndex(theGeneric,(unsigned short) methodIndex.integerValue->contents) != METHOD_NOT_FOUND)))
            theMethod = (unsigned short) methodIndex.integerValue->contents;
          else
            {
@@ -2012,6 +2018,36 @@ void SetDefgenericPPForm(
    SetConstructPPForm(theEnv,&theDefgeneric->header,thePPForm);
   }
 
+/*****************************************/
+/* LookupDefgeneric: Finds a defgeneric  */
+/*   by searching for it in the hashmap. */
+/*****************************************/
+static Defgeneric *LookupDefgeneric(
+  Environment *theEnv,
+  CLIPSLexeme *defgenericName)
+  {
+   struct defmoduleItemHeaderHM *theModuleItem;
+   size_t theHashValue;
+   struct itemHashTableEntry *theItem;
+   
+   theModuleItem = (struct defmoduleItemHeaderHM *)
+                   GetModuleItem(theEnv,NULL,DefgenericData(theEnv)->DefgenericModuleIndex);
+                   
+   if (theModuleItem->itemCount == 0)
+     { return NULL; }
 
+   theHashValue = HashSymbol(defgenericName->contents,theModuleItem->hashTableSize);
+
+   for (theItem = theModuleItem->hashTable[theHashValue];
+        theItem != NULL;
+        theItem = theItem->next)
+     {
+      if (theItem->item->name == defgenericName)
+        { return (Defgeneric *) theItem->item; }
+     }
+
+   return NULL;
+  }
+  
 #endif /* DEFGENERIC_CONSTRUCT */
 

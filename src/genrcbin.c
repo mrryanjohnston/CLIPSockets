@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  02/20/20             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -28,6 +28,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -441,7 +443,7 @@ static void BsaveGenerics(
      {
       theModuleItem = (DEFGENERIC_MODULE *)
                       GetModuleItem(theEnv,theModule,FindModuleItem(theEnv,"defgeneric")->moduleIndex);
-      AssignBsaveDefmdlItemHdrVals(&dummy_generic_module.header,
+      AssignBsaveDefmdlItemHdrHMVals(&dummy_generic_module.header,
                                            &theModuleItem->header);
       GenWrite(&dummy_generic_module,
                sizeof(BSAVE_DEFGENERIC_MODULE),fp);
@@ -752,8 +754,10 @@ static void UpdateGenericModule(
    BSAVE_DEFGENERIC_MODULE *bdptr;
 
    bdptr = (BSAVE_DEFGENERIC_MODULE *) buf;
-   UpdateDefmoduleItemHeader(theEnv,&bdptr->header,&DefgenericBinaryData(theEnv)->ModuleArray[obji].header,
-                             sizeof(Defgeneric),DefgenericBinaryData(theEnv)->DefgenericArray);
+   UpdateDefmoduleItemHeaderHM(theEnv,&bdptr->header,&DefgenericBinaryData(theEnv)->ModuleArray[obji].header,
+                               sizeof(Defgeneric),DefgenericBinaryData(theEnv)->DefgenericArray);
+                               
+   AssignHashMapSize(theEnv,&DefgenericBinaryData(theEnv)->ModuleArray[obji].header,bdptr->header.itemCount);
   }
 
 static void UpdateGeneric(
@@ -777,6 +781,9 @@ static void UpdateGeneric(
    DefgenericBinaryData(theEnv)->DefgenericArray[obji].methods = MethodPointer(bgp->methods);
    DefgenericBinaryData(theEnv)->DefgenericArray[obji].mcnt = bgp->mcnt;
    DefgenericBinaryData(theEnv)->DefgenericArray[obji].new_index = 0;
+
+   AddConstructToHashMap(theEnv,&DefgenericBinaryData(theEnv)->DefgenericArray[obji].header,
+                         DefgenericBinaryData(theEnv)->DefgenericArray[obji].header.whichModule);
   }
 
 static void UpdateMethod(
@@ -858,6 +865,10 @@ static void ClearBloadGenerics(
    space = (sizeof(DEFGENERIC_MODULE) * DefgenericBinaryData(theEnv)->ModuleCount);
    if (space == 0L)
      return;
+     
+   for (i = 0; i < DefgenericBinaryData(theEnv)->ModuleCount; i++)
+     { ClearDefmoduleHashMap(theEnv,&DefgenericBinaryData(theEnv)->ModuleArray[i].header); }
+
    genfree(theEnv,DefgenericBinaryData(theEnv)->ModuleArray,space);
    DefgenericBinaryData(theEnv)->ModuleArray = NULL;
    DefgenericBinaryData(theEnv)->ModuleCount = 0L;

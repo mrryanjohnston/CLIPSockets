@@ -1475,9 +1475,7 @@ static void MarkNeededAtom(
       instance-names, instance-addresses,
       fact-addresses or external-addresses
       ===================================== */
-   
-   // TBD fact address and external address
-      
+
    switch (theValue->header->type)
      {
       case SYMBOL_TYPE:
@@ -1727,8 +1725,6 @@ static void SaveAtomBinary(
       instance-names, instance-addresses,
       fact-addresses or external-addresses
       ===================================== */
-
-   // TBD fact address and external address
 
    bsa.type = theValue->header->type;
    switch (theValue->header->type)

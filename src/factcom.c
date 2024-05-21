@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*                FACT COMMANDS MODULE                 */
    /*******************************************************/
@@ -86,6 +86,12 @@
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
+/*                                                           */
+/*            Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -118,6 +124,7 @@
 /***************************************/
 
    static struct expr            *AssertParse(Environment *,struct expr *,const char *);
+   static void                    FactsGoalsCommand(Environment *,UDFContext *,UDFValue *,bool);
 #if DEBUGGING_FUNCTIONS
    static long long               GetFactsArgument(UDFContext *);
 #endif
@@ -132,6 +139,7 @@ void FactCommandDefinitions(
 #if ! RUN_TIME
 #if DEBUGGING_FUNCTIONS
    AddUDF(theEnv,"facts","v",0,4,"l;*",FactsCommand,"FactsCommand",NULL);
+   AddUDF(theEnv,"goals","v",0,4,"l;*",GoalsCommand,"GoalsCommand",NULL);
 #endif
 
    AddUDF(theEnv,"assert","bf",0,UNBOUNDED,NULL,AssertCommand,"AssertCommand",NULL);
@@ -466,6 +474,31 @@ void FactsCommand(
   UDFContext *context,
   UDFValue *returnValue)
   {
+   FactsGoalsCommand(theEnv,context,returnValue,true);
+  }
+
+/**************************************/
+/* GoalsCommand: H/L access routine   */
+/*   for the goals command.           */
+/**************************************/
+void GoalsCommand(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   FactsGoalsCommand(theEnv,context,returnValue,false);
+  }
+
+/*****************************************/
+/* FactsGoalsCommand: Driver routine for */
+/*   the H/L facts and goals commands.   */
+/*****************************************/
+static void FactsGoalsCommand(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue,
+  bool factList)
+  {
    long long start = UNSPECIFIED, end = UNSPECIFIED, max = UNSPECIFIED;
    Defmodule *theModule;
    UDFValue theArg;
@@ -484,7 +517,10 @@ void FactsCommand(
 
    if (! UDFHasNextArgument(context))
      {
-      Facts(theEnv,STDOUT,theModule,start,end,max);
+      if (factList)
+        { Facts(theEnv,STDOUT,theModule,start,end,max); }
+      else
+        { Goals(theEnv,STDOUT,theModule,start,end,max); }
       return;
      }
 
@@ -502,7 +538,7 @@ void FactsCommand(
 
    if (CVIsType(&theArg,SYMBOL_BIT))
      {
-      theModule = FindDefmodule(theEnv,theArg.lexemeValue->contents);
+      theModule = LookupDefmodule(theEnv,theArg.lexemeValue);
       if ((theModule == NULL) && (strcmp(theArg.lexemeValue->contents,"*") != 0))
         {
          SetEvaluationError(theEnv,true);
@@ -523,7 +559,10 @@ void FactsCommand(
       start = theArg.integerValue->contents;
       if (start < 0)
         {
-         ExpectedTypeError1(theEnv,"facts",1,"symbol or 'positive number'");
+         if (factList)
+           { ExpectedTypeError1(theEnv,"facts",1,"symbol or 'positive number'"); }
+         else
+           { ExpectedTypeError1(theEnv,"goals",1,"symbol or 'positive number'"); }
          UDFThrowError(context);
          return;
         }
@@ -551,9 +590,12 @@ void FactsCommand(
    /* List the facts. */
    /*=================*/
 
-   Facts(theEnv,STDOUT,theModule,start,end,max);
+   if (factList)
+     { Facts(theEnv,STDOUT,theModule,start,end,max); }
+   else
+     { Goals(theEnv,STDOUT,theModule,start,end,max); }
   }
-
+  
 /**************************************************/
 /* Facts: C access routine for the facts command. */
 /**************************************************/
@@ -564,6 +606,36 @@ void Facts(
   long long start,
   long long end,
   long long max)
+  {
+   FactsGoalsDriver(theEnv,logicalName,theModule,start,end,max,true);
+  }
+
+/**************************************************/
+/* Goals: C access routine for the goals command. */
+/**************************************************/
+void Goals(
+  Environment *theEnv,
+  const char *logicalName,
+  Defmodule *theModule,
+  long long start,
+  long long end,
+  long long max)
+  {
+   FactsGoalsDriver(theEnv,logicalName,theModule,start,end,max,false);
+  }
+
+/****************************************/
+/* FactsGoalsDriver: Driver routine for */
+/*   the facts and goals commands.      */
+/****************************************/
+void FactsGoalsDriver(
+  Environment *theEnv,
+  const char *logicalName,
+  Defmodule *theModule,
+  long long start,
+  long long end,
+  long long max,
+  bool factList)
   {
    Fact *factPtr;
    unsigned long count = 0;
@@ -595,8 +667,16 @@ void Facts(
    /* Get the first fact to be displayed. */
    /*=====================================*/
 
-   if (allModules) factPtr = GetNextFact(theEnv,NULL);
-   else factPtr = GetNextFactInScope(theEnv,NULL);
+   if (factList)
+     {
+      if (allModules) factPtr = GetNextFact(theEnv,NULL);
+      else factPtr = GetNextFactInScope(theEnv,NULL);
+     }
+   else
+     {
+      if (allModules) factPtr = GetNextGoal(theEnv,NULL);
+      else factPtr = GetNextGoalInScope(theEnv,NULL);
+     }
 
    /*===============================*/
    /* Display facts until there are */
@@ -623,7 +703,10 @@ void Facts(
 
       if ((factPtr->factIndex > end) && (end != UNSPECIFIED))
         {
-         PrintTally(theEnv,logicalName,count,"fact","facts");
+         if (factList)
+           { PrintTally(theEnv,logicalName,count,"fact","facts"); }
+         else
+           { PrintTally(theEnv,logicalName,count,"goal","goals"); }
          SetCurrentModule(theEnv,oldModule);
          return;
         }
@@ -635,7 +718,10 @@ void Facts(
 
       if (max == 0)
         {
-         PrintTally(theEnv,logicalName,count,"fact","facts");
+         if (factList)
+           { PrintTally(theEnv,logicalName,count,"fact","facts"); }
+         else
+           { PrintTally(theEnv,logicalName,count,"goal","goals"); }
          SetCurrentModule(theEnv,oldModule);
          return;
         }
@@ -657,15 +743,26 @@ void Facts(
       /* Proceed to the next fact to be listed. */
       /*========================================*/
 
-      if (allModules) factPtr = GetNextFact(theEnv,factPtr);
-      else factPtr = GetNextFactInScope(theEnv,factPtr);
+      if (factList)
+        {
+         if (allModules) factPtr = GetNextFact(theEnv,factPtr);
+         else factPtr = GetNextFactInScope(theEnv,factPtr);
+        }
+      else
+        {
+         if (allModules) factPtr = GetNextGoal(theEnv,factPtr);
+         else factPtr = GetNextGoalInScope(theEnv,factPtr);
+        }
      }
 
    /*===================================================*/
    /* Print the total of the number of facts displayed. */
    /*===================================================*/
 
-   PrintTally(theEnv,logicalName,count,"fact","facts");
+   if (factList)
+     { PrintTally(theEnv,logicalName,count,"fact","facts"); }
+   else
+     { PrintTally(theEnv,logicalName,count,"goal","goals"); }
 
    /*=============================*/
    /* Restore the current module. */
@@ -673,7 +770,7 @@ void Facts(
 
    SetCurrentModule(theEnv,oldModule);
   }
-
+  
 /****************************************************************/
 /* GetFactsArgument: Returns an argument for the facts command. */
 /*  A return value of -1 indicates that no value was specified. */

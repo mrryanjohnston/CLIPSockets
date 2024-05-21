@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*                DEFFACTS PARSER MODULE               */
    /*******************************************************/
@@ -36,6 +36,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -164,6 +166,7 @@ bool ParseDeffacts(
    /*=============================================*/
 
    AddConstructToModule(&newDeffacts->header);
+   AddConstructToHashMap(theEnv,&newDeffacts->header,newDeffacts->header.whichModule);
 
 #endif /* (! RUN_TIME) && (! BLOAD_ONLY) */
 

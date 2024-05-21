@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*              DEFRULE BSAVE/BLOAD MODULE             */
    /*******************************************************/
@@ -37,6 +37,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -359,6 +361,13 @@ static void BsaveStorage(
      { value = DefruleData(theEnv)->LeftPrimeJoins->bsaveID; }
 
    GenWrite(&value,sizeof(unsigned long),fp);
+
+   if (DefruleData(theEnv)->GoalPrimeJoins == NULL)
+     { value = ULONG_MAX; }
+   else
+     { value = DefruleData(theEnv)->GoalPrimeJoins->bsaveID; }
+
+   GenWrite(&value,sizeof(unsigned long),fp);
   }
 
 /*******************************************/
@@ -398,8 +407,8 @@ static void BsaveBinaryItem(
 
       theModuleItem = (struct defruleModule *)
                       GetModuleItem(theEnv,NULL,FindModuleItem(theEnv,"defrule")->moduleIndex);
-      AssignBsaveDefmdlItemHdrVals(&tempDefruleModule.header,
-                                           &theModuleItem->header);
+      AssignBsaveDefmdlItemHdrHMVals(&tempDefruleModule.header,
+                                     &theModuleItem->header);
       GenWrite(&tempDefruleModule,sizeof(struct bsaveDefruleModule),fp);
      }
 
@@ -615,6 +624,8 @@ static void BsaveJoin(
    tempJoin.rhsType = joinPtr->rhsType;
    tempJoin.firstJoin = joinPtr->firstJoin;
    tempJoin.logicalJoin = joinPtr->logicalJoin;
+   tempJoin.goalJoin = joinPtr->goalJoin;
+   tempJoin.explicitJoin = joinPtr->explicitJoin;
    tempJoin.joinFromTheRight = joinPtr->joinFromTheRight;
    tempJoin.patternIsNegated = joinPtr->patternIsNegated;
    tempJoin.patternIsExists = joinPtr->patternIsExists;
@@ -629,6 +640,7 @@ static void BsaveJoin(
    tempJoin.rightMatchNode =  BsaveJoinIndex(joinPtr->rightMatchNode);
    tempJoin.networkTest = HashedExpressionIndex(theEnv,joinPtr->networkTest);
    tempJoin.secondaryNetworkTest = HashedExpressionIndex(theEnv,joinPtr->secondaryNetworkTest);
+   tempJoin.goalExpression = HashedExpressionIndex(theEnv,joinPtr->goalExpression);
    tempJoin.leftHash = HashedExpressionIndex(theEnv,joinPtr->leftHash);
    tempJoin.rightHash = HashedExpressionIndex(theEnv,joinPtr->rightHash);
 
@@ -661,6 +673,11 @@ static void BsaveLinks(
      { BsaveLink(fp,theLink);  }
 
    for (theLink = DefruleData(theEnv)->RightPrimeJoins;
+        theLink != NULL;
+        theLink = theLink->next)
+     { BsaveLink(fp,theLink);  }
+
+   for (theLink = DefruleData(theEnv)->GoalPrimeJoins;
         theLink != NULL;
         theLink = theLink->next)
      { BsaveLink(fp,theLink);  }
@@ -787,6 +804,7 @@ static void BloadStorage(
    GenReadBinary(theEnv,&DefruleBinaryData(theEnv)->NumberOfLinks,sizeof(long));
    GenReadBinary(theEnv,&DefruleBinaryData(theEnv)->RightPrimeIndex,sizeof(long));
    GenReadBinary(theEnv,&DefruleBinaryData(theEnv)->LeftPrimeIndex,sizeof(long));
+   GenReadBinary(theEnv,&DefruleBinaryData(theEnv)->GoalPrimeIndex,sizeof(long));
 
    /*===================================*/
    /* Allocate the space needed for the */
@@ -886,6 +904,7 @@ static void BloadBinaryItem(
 
    DefruleData(theEnv)->RightPrimeJoins = BloadJoinLinkPointer(DefruleBinaryData(theEnv)->RightPrimeIndex);
    DefruleData(theEnv)->LeftPrimeJoins = BloadJoinLinkPointer(DefruleBinaryData(theEnv)->LeftPrimeIndex);
+   DefruleData(theEnv)->GoalPrimeJoins = BloadJoinLinkPointer(DefruleBinaryData(theEnv)->GoalPrimeIndex);
   }
 
 /**********************************************/
@@ -900,12 +919,13 @@ static void UpdateDefruleModule(
    struct bsaveDefruleModule *bdmPtr;
 
    bdmPtr = (struct bsaveDefruleModule *) buf;
-   UpdateDefmoduleItemHeader(theEnv,&bdmPtr->header,&DefruleBinaryData(theEnv)->ModuleArray[obji].header,
-                             sizeof(Defrule),
-                             (void *) DefruleBinaryData(theEnv)->DefruleArray);
+   UpdateDefmoduleItemHeaderHM(theEnv,&bdmPtr->header,&DefruleBinaryData(theEnv)->ModuleArray[obji].header,
+                               sizeof(Defrule),
+                               (void *) DefruleBinaryData(theEnv)->DefruleArray);
    DefruleBinaryData(theEnv)->ModuleArray[obji].agenda = NULL;
    DefruleBinaryData(theEnv)->ModuleArray[obji].groupings = NULL;
-
+   
+   AssignHashMapSize(theEnv,&DefruleBinaryData(theEnv)->ModuleArray[obji].header,bdmPtr->header.itemCount);
   }
 
 /****************************************/
@@ -940,6 +960,9 @@ static void UpdateDefrule(
    DefruleBinaryData(theEnv)->DefruleArray[obji].watchActivation = AgendaData(theEnv)->WatchActivations;
    DefruleBinaryData(theEnv)->DefruleArray[obji].watchFiring = DefruleData(theEnv)->WatchRules;
 #endif
+
+   AddConstructToHashMap(theEnv,&DefruleBinaryData(theEnv)->DefruleArray[obji].header,
+                         DefruleBinaryData(theEnv)->DefruleArray[obji].header.whichModule);
   }
 
 /*************************************/
@@ -956,6 +979,8 @@ static void UpdateJoin(
    bj = (struct bsaveJoinNode *) buf;
    DefruleBinaryData(theEnv)->JoinArray[obji].firstJoin = bj->firstJoin;
    DefruleBinaryData(theEnv)->JoinArray[obji].logicalJoin = bj->logicalJoin;
+   DefruleBinaryData(theEnv)->JoinArray[obji].goalJoin = bj->goalJoin;
+   DefruleBinaryData(theEnv)->JoinArray[obji].explicitJoin = bj->explicitJoin;
    DefruleBinaryData(theEnv)->JoinArray[obji].joinFromTheRight = bj->joinFromTheRight;
    DefruleBinaryData(theEnv)->JoinArray[obji].patternIsNegated = bj->patternIsNegated;
    DefruleBinaryData(theEnv)->JoinArray[obji].patternIsExists = bj->patternIsExists;
@@ -963,6 +988,7 @@ static void UpdateJoin(
    DefruleBinaryData(theEnv)->JoinArray[obji].rhsType = bj->rhsType;
    DefruleBinaryData(theEnv)->JoinArray[obji].networkTest = HashedExpressionPointer(bj->networkTest);
    DefruleBinaryData(theEnv)->JoinArray[obji].secondaryNetworkTest = HashedExpressionPointer(bj->secondaryNetworkTest);
+   DefruleBinaryData(theEnv)->JoinArray[obji].goalExpression = HashedExpressionPointer(bj->goalExpression);
    DefruleBinaryData(theEnv)->JoinArray[obji].leftHash = HashedExpressionPointer(bj->leftHash);
    DefruleBinaryData(theEnv)->JoinArray[obji].rightHash = HashedExpressionPointer(bj->rightHash);
    DefruleBinaryData(theEnv)->JoinArray[obji].nextLinks = BloadJoinLinkPointer(bj->nextLinks);
@@ -1046,6 +1072,13 @@ static void ClearBload(
    struct patternParser *theParser = NULL;
    struct patternEntity *theEntity = NULL;
    Defmodule *theModule;
+   
+   /*==========================================*/
+   /* Deallocate the DeftableModule hash maps. */
+   /*==========================================*/
+
+   for (i = 0; i < DefruleBinaryData(theEnv)->NumberOfDefruleModules; i++)
+     { ClearDefmoduleHashMap(theEnv,&DefruleBinaryData(theEnv)->ModuleArray[i].header); }
 
    /*===========================================*/
    /* Delete all known entities before removing */
@@ -1118,6 +1151,7 @@ static void ClearBload(
 
    DefruleData(theEnv)->RightPrimeJoins = NULL;
    DefruleData(theEnv)->LeftPrimeJoins = NULL;
+   DefruleData(theEnv)->GoalPrimeJoins = NULL;
   }
 
 /*******************************************************/

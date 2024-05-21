@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*           DEFTEMPLATE BSAVE/BLOAD MODULE            */
    /*******************************************************/
@@ -33,6 +33,14 @@
 /*            data structures.                               */
 /*                                                           */
 /*            Removed initial-fact support.                  */
+/*                                                           */
+/*      7.00: Data driven backward chaining.                 */
+/*                                                           */
+/*            Deftemplate inheritance.                       */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
+/*                                                           */
+/*            Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -260,8 +268,7 @@ static void BsaveBinaryItem(
 
       theModuleItem = (struct deftemplateModule *)
                       GetModuleItem(theEnv,NULL,FindModuleItem(theEnv,"deftemplate")->moduleIndex);
-      AssignBsaveDefmdlItemHdrVals(&tempTemplateModule.header,
-                                           &theModuleItem->header);
+      AssignBsaveDefmdlItemHdrHMVals(&tempTemplateModule.header,&theModuleItem->header);
       GenWrite(&tempTemplateModule,sizeof(struct bsaveDeftemplateModule),fp);
      }
 
@@ -280,11 +287,14 @@ static void BsaveBinaryItem(
            theDeftemplate != NULL;
            theDeftemplate = GetNextDeftemplate(theEnv,theDeftemplate))
         {
-         AssignBsaveConstructHeaderVals(&tempDeftemplate.header,
-                                          &theDeftemplate->header);
+         AssignBsaveConstructHeaderVals(&tempDeftemplate.header,&theDeftemplate->header);
+         tempDeftemplate.parent = BsaveDeftemplateIndex(theDeftemplate->parent);
+         tempDeftemplate.child = BsaveDeftemplateIndex(theDeftemplate->child);
+         tempDeftemplate.sibling = BsaveDeftemplateIndex(theDeftemplate->sibling);
          tempDeftemplate.implied = theDeftemplate->implied;
          tempDeftemplate.numberOfSlots = theDeftemplate->numberOfSlots;
          tempDeftemplate.patternNetwork = BsaveFactPatternIndex(theDeftemplate->patternNetwork);
+         tempDeftemplate.goalNetwork = BsaveFactPatternIndex(theDeftemplate->goalNetwork);
 
          if (theDeftemplate->slotList != NULL)
            { tempDeftemplate.slotList = DeftemplateBinaryData(theEnv)->NumberOfTemplateSlots; }
@@ -321,6 +331,7 @@ static void BsaveBinaryItem(
             tempTemplateSlot.noDefault = theSlot->noDefault;
             tempTemplateSlot.defaultPresent = theSlot->defaultPresent;
             tempTemplateSlot.defaultDynamic = theSlot->defaultDynamic;
+            tempTemplateSlot.reactive = theSlot->reactive;
             tempTemplateSlot.defaultList = HashedExpressionIndex(theEnv,theSlot->defaultList);
             tempTemplateSlot.facetList = HashedExpressionIndex(theEnv,theSlot->facetList);
 
@@ -466,9 +477,11 @@ static void UpdateDeftemplateModule(
    struct bsaveDeftemplateModule *bdmPtr;
 
    bdmPtr = (struct bsaveDeftemplateModule *) buf;
-   UpdateDefmoduleItemHeader(theEnv,&bdmPtr->header,&DeftemplateBinaryData(theEnv)->ModuleArray[obji].header,
-                             sizeof(Deftemplate),
-                             (void *) DeftemplateBinaryData(theEnv)->DeftemplateArray);
+   UpdateDefmoduleItemHeaderHM(theEnv,&bdmPtr->header,&DeftemplateBinaryData(theEnv)->ModuleArray[obji].header,
+                               sizeof(Deftemplate),
+                               (void *) DeftemplateBinaryData(theEnv)->DeftemplateArray);
+                               
+   AssignHashMapSize(theEnv,&DeftemplateBinaryData(theEnv)->ModuleArray[obji].header,bdmPtr->header.itemCount);
   }
 
 /********************************************/
@@ -489,6 +502,10 @@ static void UpdateDeftemplate(
    UpdateConstructHeader(theEnv,&bdtPtr->header,&theDeftemplate->header,DEFTEMPLATE,
                          sizeof(struct deftemplateModule),DeftemplateBinaryData(theEnv)->ModuleArray,
                          sizeof(Deftemplate),DeftemplateBinaryData(theEnv)->DeftemplateArray);
+                         
+   theDeftemplate->parent = BloadDeftemplatePointer(bdtPtr->parent);
+   theDeftemplate->child = BloadDeftemplatePointer(bdtPtr->child);
+   theDeftemplate->sibling = BloadDeftemplatePointer(bdtPtr->sibling);
 
    if (bdtPtr->slotList != ULONG_MAX)
      { theDeftemplate->slotList = (struct templateSlot *) &DeftemplateBinaryData(theEnv)->SlotArray[bdtPtr->slotList]; }
@@ -500,14 +517,23 @@ static void UpdateDeftemplate(
    else
      { theDeftemplate->patternNetwork = NULL; }
 
+   if (bdtPtr->goalNetwork != ULONG_MAX)
+     { theDeftemplate->goalNetwork = (struct factPatternNode *) BloadFactPatternPointer(bdtPtr->goalNetwork); }
+   else
+     { theDeftemplate->goalNetwork = NULL; }
+
    theDeftemplate->implied = bdtPtr->implied;
 #if DEBUGGING_FUNCTIONS
-   theDeftemplate->watch = FactData(theEnv)->WatchFacts;
+   theDeftemplate->watchFacts = FactData(theEnv)->WatchFacts;
+   theDeftemplate->watchGoals = FactData(theEnv)->WatchGoals;
 #endif
    theDeftemplate->inScope = false;
    theDeftemplate->numberOfSlots = bdtPtr->numberOfSlots;
    theDeftemplate->factList = NULL;
    theDeftemplate->lastFact = NULL;
+   
+   AddConstructToHashMap(theEnv,&DeftemplateBinaryData(theEnv)->DeftemplateArray[obji].header,
+                         DeftemplateBinaryData(theEnv)->DeftemplateArray[obji].header.whichModule);
   }
 
 /************************************************/
@@ -535,6 +561,7 @@ static void UpdateDeftemplateSlot(
    theSlot->noDefault = btsPtr->noDefault;
    theSlot->defaultPresent = btsPtr->defaultPresent;
    theSlot->defaultDynamic = btsPtr->defaultDynamic;
+   theSlot->reactive = btsPtr->reactive;
 
    if (btsPtr->next != ULONG_MAX)
      { theSlot->next = (struct templateSlot *) &DeftemplateBinaryData(theEnv)->SlotArray[obji + 1]; }
@@ -559,6 +586,13 @@ static void ClearBload(
 
    for (i = 0; i < DeftemplateBinaryData(theEnv)->NumberOfDeftemplates; i++)
      { UnmarkConstructHeader(theEnv,&DeftemplateBinaryData(theEnv)->DeftemplateArray[i].header); }
+     
+   /*=============================================*/
+   /* Deallocate the DeftemplateModule hash maps. */
+   /*=============================================*/
+
+   for (i = 0; i < DeftemplateBinaryData(theEnv)->NumberOfTemplateModules; i++)
+     { ClearDefmoduleHashMap(theEnv,&DeftemplateBinaryData(theEnv)->ModuleArray[i].header); }
 
    /*=======================================*/
    /* Decrement in use counters for symbols */

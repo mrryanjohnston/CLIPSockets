@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  07/29/21             */
+   /*            CLIPS Version 6.50  10/08/23             */
    /*                                                     */
    /*          FACT RETE FUNCTION GENERATION MODULE       */
    /*******************************************************/
@@ -36,6 +36,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -256,8 +258,12 @@ struct expr *FactGenPNConstant(
       hack1.whichSlot = (theField->slotNumber - 1);
 
       top = GenConstant(theEnv,FACT_PN_CONSTANT1,AddBitMap(theEnv,&hack1,sizeof(struct factConstantPN1Call)));
-
-      top->argList = GenConstant(theEnv,NodeTypeToType(theField),theField->value);
+      
+      if ((theField->pnType == SYMBOL_NODE) &&
+          (strcmp(theField->lexemeValue->contents,"??") == 0))
+        { top->argList = GenConstant(theEnv,UQV_TYPE,CreateUQV(theEnv,0)); }
+      else
+        { top->argList = GenConstant(theEnv,NodeTypeToType(theField),theField->value); }
 
       return(top);
      }
@@ -292,7 +298,11 @@ struct expr *FactGenPNConstant(
 
       top = GenConstant(theEnv,FACT_PN_CONSTANT2,AddBitMap(theEnv,&hack2,sizeof(struct factConstantPN2Call)));
 
-      top->argList = GenConstant(theEnv,NodeTypeToType(theField),theField->value);
+      if ((theField->pnType == SYMBOL_NODE) &&
+          (strcmp(theField->lexemeValue->contents,"??") == 0))
+        { top->argList = GenConstant(theEnv,UQV_TYPE,CreateUQV(theEnv,0)); }
+      else
+        { top->argList = GenConstant(theEnv,NodeTypeToType(theField),theField->value); }
 
       return(top);
      }
@@ -315,7 +325,11 @@ struct expr *FactGenPNConstant(
       top->argList = FactGenGetfield(theEnv,theField);
       theField->pnType = tempValue;
 
-      top->argList->nextArg = GenConstant(theEnv,NodeTypeToType(theField),theField->value);
+      if ((theField->pnType == SYMBOL_NODE) &&
+          (strcmp(theField->lexemeValue->contents,"??") == 0))
+        { top->argList->nextArg = GenConstant(theEnv,UQV_TYPE,CreateUQV(theEnv,0)); }
+      else
+        { top->argList->nextArg = GenConstant(theEnv,NodeTypeToType(theField),theField->value); }
      }
 
    /*===============================================================*/

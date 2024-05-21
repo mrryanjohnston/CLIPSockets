@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  01/07/24            */
    /*                                                     */
    /*               FACT MATCH HEADER FILE                */
    /*******************************************************/
@@ -40,6 +40,8 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      7.00: Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_factmch
@@ -55,9 +57,10 @@
    void                           FactPatternMatch(Environment *,Fact *,
                                                    struct factPatternNode *,size_t,size_t,
                                                    struct multifieldMarker *,
-                                                   struct multifieldMarker *);
+                                                   struct multifieldMarker *,CLIPSBitMap *,bool);
    void                           MarkFactPatternForIncrementalReset(Environment *,struct patternNodeHeader *,bool);
    void                           FactsIncrementalReset(Environment *);
+   bool                           NodeActivatedByChanges(Environment *,struct factPatternNode *,CLIPSBitMap *,bool);
 
 #endif /* _H_factmch */
 

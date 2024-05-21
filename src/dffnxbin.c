@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/01/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -28,6 +28,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -312,7 +314,7 @@ static void BsaveDeffunctions(
      {
       theModuleItem = (DeffunctionModuleData *)
                       GetModuleItem(theEnv,theModule,FindModuleItem(theEnv,"deffunction")->moduleIndex);
-      AssignBsaveDefmdlItemHdrVals(&dummy_mitem.header,&theModuleItem->header);
+      AssignBsaveDefmdlItemHdrHMVals(&dummy_mitem.header,&theModuleItem->header);
       GenWrite(&dummy_mitem,sizeof(BSAVE_DEFFUNCTION_MODULE),fp);
       theModule = GetNextDefmodule(theEnv,theModule);
      }
@@ -441,8 +443,10 @@ static void UpdateDeffunctionModule(
    BSAVE_DEFFUNCTION_MODULE *bdptr;
 
    bdptr = (BSAVE_DEFFUNCTION_MODULE *) buf;
-   UpdateDefmoduleItemHeader(theEnv,&bdptr->header,&DeffunctionBinaryData(theEnv)->ModuleArray[obji].header,
+   UpdateDefmoduleItemHeaderHM(theEnv,&bdptr->header,&DeffunctionBinaryData(theEnv)->ModuleArray[obji].header,
                              sizeof(Deffunction),DeffunctionBinaryData(theEnv)->DeffunctionArray);
+                             
+   AssignHashMapSize(theEnv,&DeffunctionBinaryData(theEnv)->ModuleArray[obji].header,bdptr->header.itemCount);
   }
 
 /***************************************************
@@ -481,6 +485,9 @@ static void UpdateDeffunction(
    dptr->minNumberOfParameters = bdptr->minNumberOfParameters;
    dptr->maxNumberOfParameters = bdptr->maxNumberOfParameters;
    dptr->numberOfLocalVars = bdptr->numberOfLocalVars;
+   
+   AddConstructToHashMap(theEnv,&DeffunctionBinaryData(theEnv)->DeffunctionArray[obji].header,
+                         DeffunctionBinaryData(theEnv)->DeffunctionArray[obji].header.whichModule);
   }
 
 /***************************************************************
@@ -502,6 +509,10 @@ static void ClearDeffunctionBload(
    space = (sizeof(DeffunctionModuleData) * DeffunctionBinaryData(theEnv)->ModuleCount);
    if (space == 0L)
      return;
+     
+   for (i = 0; i < DeffunctionBinaryData(theEnv)->ModuleCount; i++)
+     { ClearDefmoduleHashMap(theEnv,&DeffunctionBinaryData(theEnv)->ModuleArray[i].header); }
+
    genfree(theEnv,DeffunctionBinaryData(theEnv)->ModuleArray,space);
    DeffunctionBinaryData(theEnv)->ModuleArray = NULL;
    DeffunctionBinaryData(theEnv)->ModuleCount = 0L;

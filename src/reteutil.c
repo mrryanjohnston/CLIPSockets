@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  10/03/19             */
+   /*            CLIPS Version 6.50  11/03/23             */
    /*                                                     */
    /*                 RETE UTILITY MODULE                 */
    /*******************************************************/
@@ -58,6 +58,8 @@
 /*            Incremental reset is always enabled.           */
 /*                                                           */
 /*            UDF redesign.                                  */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -146,6 +148,7 @@ struct partialMatch *CopyPartialMatch(
    linker->busy = false;
    linker->rhsMemory = false;
    linker->deleting = false;
+   linker->goalMarker = false;
    linker->bcount = list->bcount;
    linker->hashValue = 0;
 
@@ -169,6 +172,7 @@ struct partialMatch *CreateEmptyPartialMatch(
    linker->busy = false;
    linker->rhsMemory = false;
    linker->deleting = false;
+   linker->goalMarker = false;
    linker->bcount = 1;
    linker->hashValue = 0;
    linker->binds[0].gm.theValue = NULL;
@@ -253,10 +257,13 @@ void UpdateBetaPMLinks(
      }
 
    theMemory->count++;
+   
+#if DEBUGGING_FUNCTIONS
    if (side == LHS)
     { join->memoryLeftAdds++; }
    else
     { join->memoryRightAdds++; }
+#endif
 
    thePM->owner = join;
 
@@ -362,11 +369,13 @@ void UnlinkBetaPMFromNodeAndLineage(
    /*=============================================*/
 
    theMemory->count--;
-
+   
+#if DEBUGGING_FUNCTIONS
    if (side == LHS)
     { join->memoryLeftDeletes++; }
    else
     { join->memoryRightDeletes++; }
+#endif
 
    betaLocation = thePM->hashValue % theMemory->size;
 
@@ -420,11 +429,13 @@ void UnlinkNonLeftLineage(
    /*=============================================*/
 
    theMemory->count--;
-
+   
+#if DEBUGGING_FUNCTIONS
    if (side == LHS)
     { join->memoryLeftDeletes++; }
    else
     { join->memoryRightDeletes++; }
+#endif
 
    betaLocation = thePM->hashValue % theMemory->size;
 
@@ -473,7 +484,7 @@ void UnlinkNonLeftLineage(
      {
       tempPM = (struct partialMatch *) thePM->marker;
 
-      if (tempPM != NULL)
+      if ((tempPM != NULL) && (! thePM->goalMarker))
         { tempPM->blockList = thePM->nextBlocked; }
      }
    else
@@ -556,7 +567,8 @@ static void UnlinkBetaPartialMatchfromAlphaAndBetaLineage(
    if (thePM->nextBlocked != NULL)
      { thePM->nextBlocked->prevBlocked = thePM->prevBlocked; }
 
-   thePM->marker = NULL;
+   if (! thePM->goalMarker)
+     { thePM->marker = NULL; }
    thePM->nextBlocked = NULL;
    thePM->prevBlocked = NULL;
 
@@ -684,7 +696,9 @@ struct partialMatch *CreateAlphaMatch(
    InitializePMLinks(theMatch);
    theMatch->betaMemory = false;
    theMatch->busy = false;
+   theMatch->rhsMemory = false;
    theMatch->deleting = false;
+   theMatch->goalMarker = false;
    theMatch->bcount = 1;
    theMatch->hashValue = hashOffset;
 
@@ -1647,6 +1661,14 @@ void TagRuleNetwork(
      }
 
    for (theLink = DefruleData(theEnv)->RightPrimeJoins;
+        theLink != NULL;
+        theLink = theLink->next)
+     {
+      theLink->bsaveID = *linkCount;
+      (*linkCount)++;
+     }
+
+   for (theLink = DefruleData(theEnv)->GoalPrimeJoins;
         theLink != NULL;
         theLink = theLink->next)
      {

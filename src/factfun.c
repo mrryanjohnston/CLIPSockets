@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*               FACT FUNCTIONS MODULE                 */
    /*******************************************************/
@@ -98,6 +98,8 @@
 /*                                                           */
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -426,7 +428,7 @@ void GetFactListFunction(
       if (! UDFFirstArgument(context,SYMBOL_BIT,&theArg))
         { return; }
 
-      if ((theModule = FindDefmodule(theEnv,theArg.lexemeValue->contents)) == NULL)
+      if ((theModule = LookupDefmodule(theEnv,theArg.lexemeValue)) == NULL)
         {
          if (strcmp("*",theArg.lexemeValue->contents) != 0)
            {

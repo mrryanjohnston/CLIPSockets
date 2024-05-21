@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  04/20/20             */
+   /*            CLIPS Version 7.00  01/13/24             */
    /*                                                     */
    /*             ENVIRONMENT BUILD MODULE                */
    /*******************************************************/
@@ -16,6 +16,8 @@
 /*                                                           */
 /*      6.40: Added to separate environment creation and     */
 /*            deletion code.                                 */
+/*                                                           */
+/*      7.00: Deftable construct added.                      */
 /*                                                           */
 /*************************************************************/
 
@@ -78,6 +80,10 @@
 #include "classini.h"
 #endif
 
+#if DEFTABLE_CONSTRUCT
+#include "tabledef.h"
+#endif
+
 #if DEVELOPER
 #include "developr.h"
 #endif
@@ -109,7 +115,7 @@
 /* CreateEnvironment: Creates an environment data structure */
 /*   and initializes its content to zero/null.              */
 /************************************************************/
-Environment *CreateEnvironment()
+Environment *CreateEnvironment(void)
   {
    return CreateEnvironmentDriver(NULL,NULL,NULL,NULL,NULL,NULL);
   }
@@ -426,6 +432,14 @@ static void InitializeEnvironment(
 
 #if OBJECT_SYSTEM
    SetupObjectSystem(theEnvironment);
+#endif
+
+   /*====================================*/
+   /* Initialize the deftable construct. */
+   /*====================================*/
+
+#if DEFTABLE_CONSTRUCT
+   InitializeDeftable(theEnvironment);
 #endif
 
    /*=====================================*/

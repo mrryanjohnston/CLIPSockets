@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  06/22/18             */
+   /*            CLIPS Version 6.50  10/13/23             */
    /*                                                     */
    /*                    REORDER MODULE                   */
    /*******************************************************/
@@ -54,6 +54,8 @@
 /*            data structures.                               */
 /*                                                           */
 /*            Removed initial-fact support.                  */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -1116,6 +1118,8 @@ void CopyLHSParseNode(
    dest->negated = src->negated;
    dest->exists = src->exists;
    dest->existsNand = src->existsNand;
+   dest->goalCE = src->goalCE;
+   dest->explicitCE = src->explicitCE;
    dest->bindingVariable = src->bindingVariable;
    dest->withinMultifieldSlot = src->withinMultifieldSlot;
    dest->multifieldSlot = src->multifieldSlot;
@@ -1202,6 +1206,8 @@ struct lhsParseNode *GetLHSParseNode(
    newNode->negated = false;
    newNode->exists = false;
    newNode->existsNand = false;
+   newNode->goalCE = false;
+   newNode->explicitCE = false;
    newNode->bindingVariable = false;
    newNode->withinMultifieldSlot = false;
    newNode->multifieldSlot = false;

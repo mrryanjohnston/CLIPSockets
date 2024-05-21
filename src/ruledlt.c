@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*                 RULE DELETION MODULE                */
    /*******************************************************/
@@ -38,6 +38,10 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -54,6 +58,9 @@
 #include "constrct.h"
 #include "drive.h"
 #include "engine.h"
+#if DEFTEMPLATE_CONSTRUCT
+#include "factgoal.h"
+#endif
 #include "envrnmnt.h"
 #include "memalloc.h"
 #include "pattern.h"
@@ -88,6 +95,8 @@ void ReturnDefrule(
    Defrule *nextPtr, *tmpPtr;
 
    if (theDefrule == NULL) return;
+   
+   RemoveConstructFromHashMap(theEnv,&theDefrule->header,theDefrule->header.whichModule);
 
    /*======================================*/
    /* If a rule is redefined, then we want */
@@ -187,6 +196,11 @@ void ReturnDefrule(
    /*==========================*/
 
    if (EngineData(theEnv)->ExecutingRule == NULL) FlushGarbagePartialMatches(theEnv);
+
+#if DEFTEMPLATE_CONSTRUCT
+   ProcessGoalQueue(theEnv);
+#endif
+
 #endif
   }
 
@@ -296,7 +310,6 @@ static void DetachJoins(
   bool destroy)
   {
    struct joinNode *prevJoin, *rightJoin;
-   struct joinLink *lastLink, *theLink;
    unsigned lastMark;
 
    /*===========================*/
@@ -362,6 +375,7 @@ static void DetachJoins(
         {
          RemoveHashedExpression(theEnv,join->networkTest);
          RemoveHashedExpression(theEnv,join->secondaryNetworkTest);
+         RemoveHashedExpression(theEnv,join->goalExpression);
          RemoveHashedExpression(theEnv,join->leftHash);
          RemoveHashedExpression(theEnv,join->rightHash);
         }
@@ -372,94 +386,28 @@ static void DetachJoins(
       /*============================*/
 
       if (join->firstJoin && (join->rightSideEntryStructure == NULL))
-        {
-         lastLink = NULL;
-
-         theLink = DefruleData(theEnv)->RightPrimeJoins;
-         while (theLink != NULL)
-           {
-            if (theLink->join == join)
-              {
-               if (lastLink == NULL)
-                 { DefruleData(theEnv)->RightPrimeJoins = theLink->next; }
-               else
-                 { lastLink->next = theLink->next; }
-
-#if (! RUN_TIME) && (! BLOAD_ONLY)
-               rtn_struct(theEnv,joinLink,theLink);
-#endif
-
-               theLink = NULL;
-              }
-            else
-              {
-               lastLink = theLink;
-               theLink = lastLink->next;
-              }
-           }
-        }
+        { DefruleData(theEnv)->RightPrimeJoins = DetachLink(theEnv,DefruleData(theEnv)->RightPrimeJoins,join); }
 
       /*===========================*/
       /* Fix the left prime links. */
       /*===========================*/
 
       if (join->firstJoin && (join->patternIsNegated || join->joinFromTheRight) && (! join->patternIsExists))
-        {
-         lastLink = NULL;
-         theLink = DefruleData(theEnv)->LeftPrimeJoins;
-         while (theLink != NULL)
-           {
-            if (theLink->join == join)
-              {
-               if (lastLink == NULL)
-                 { DefruleData(theEnv)->LeftPrimeJoins = theLink->next; }
-               else
-                 { lastLink->next = theLink->next; }
+        { DefruleData(theEnv)->LeftPrimeJoins = DetachLink(theEnv,DefruleData(theEnv)->LeftPrimeJoins,join); }
+        
+      /*===========================*/
+      /* Fix the goal prime links. */
+      /*===========================*/
 
-#if (! RUN_TIME) && (! BLOAD_ONLY)
-               rtn_struct(theEnv,joinLink,theLink);
-#endif
-
-               theLink = NULL;
-              }
-            else
-              {
-               lastLink = theLink;
-               theLink = theLink->next;
-              }
-           }
-        }
-
+      if (join->firstJoin && join->goalJoin)
+        { DefruleData(theEnv)->GoalPrimeJoins = DetachLink(theEnv,DefruleData(theEnv)->GoalPrimeJoins,join); }
+        
       /*==================================================*/
       /* Remove the link to the join from the join above. */
       /*==================================================*/
 
       if (prevJoin != NULL)
-        {
-         lastLink = NULL;
-         theLink = prevJoin->nextLinks;
-         while (theLink != NULL)
-           {
-            if (theLink->join == join)
-              {
-               if (lastLink == NULL)
-                 { prevJoin->nextLinks = theLink->next; }
-               else
-                 { lastLink->next = theLink->next; }
-
-#if (! RUN_TIME) && (! BLOAD_ONLY)
-               rtn_struct(theEnv,joinLink,theLink);
-#endif
-
-               theLink = NULL;
-              }
-            else
-              {
-               lastLink = theLink;
-               theLink = theLink->next;
-              }
-            }
-        }
+        { prevJoin->nextLinks = DetachLink(theEnv,prevJoin->nextLinks,join); }
 
       /*==========================================*/
       /* Remove the right join link if it exists. */
@@ -467,28 +415,7 @@ static void DetachJoins(
 
       if (rightJoin != NULL)
         {
-         lastLink = NULL;
-         theLink = rightJoin->nextLinks;
-         while (theLink != NULL)
-           {
-            if (theLink->join == join)
-              {
-               if (lastLink == NULL)
-                 { rightJoin->nextLinks = theLink->next; }
-               else
-                 { lastLink->next = theLink->next; }
-
-#if (! RUN_TIME) && (! BLOAD_ONLY)
-               rtn_struct(theEnv,joinLink,theLink);
-#endif
-               theLink = NULL;
-              }
-            else
-              {
-               lastLink = theLink;
-               theLink = theLink->next;
-              }
-            }
+         rightJoin->nextLinks = DetachLink(theEnv,rightJoin->nextLinks,join);
 
          if ((rightJoin->nextLinks == NULL) &&
              (rightJoin->ruleToActivate == NULL))
@@ -533,6 +460,40 @@ static void DetachJoins(
      }
   }
 
+/***************/
+/* DetachLink: */
+/***************/
+struct joinLink *DetachLink(
+  Environment *theEnv,
+  struct joinLink *first,
+  struct joinNode *join)
+  {
+   struct joinLink *lastLink, *theLink;
+
+   lastLink = NULL;
+   
+   for (theLink = first; theLink != NULL; theLink = theLink->next)
+     {
+      if (theLink->join == join)
+        {
+         if (lastLink == NULL)
+           { first = theLink->next; }
+         else
+           { lastLink->next = theLink->next; }
+
+#if (! RUN_TIME) && (! BLOAD_ONLY)
+         rtn_struct(theEnv,joinLink,theLink);
+#endif
+
+         return first;
+        }
+      
+      lastLink = theLink;
+     }
+     
+   return first;
+  }
+        
 #if (! RUN_TIME) && (! BLOAD_ONLY)
 
 /***********************************************************************/

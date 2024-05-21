@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/07/17             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*           INSTANCE MULTIFIELD_TYPE SLOT MODULE      */
    /*******************************************************/
@@ -152,7 +152,7 @@ void MVSlotReplaceCommand(
    /* Verify the start and end index arguments. */
    /*===========================================*/
 
-   if ((end < start) || (start < 1) || (end < 1) || // TBD Refactor
+   if ((end < start) || (start < 1) || (end < 1) ||
        (((long long) ((size_t) start)) != start) ||
        (((long long) ((size_t) end)) != end))
      {
@@ -180,7 +180,7 @@ void MVSlotReplaceCommand(
    rs += oldseg.begin;
    re += oldseg.begin;
 
-   dstLen = srcLen - (re - rs + 1); // TBD Refactor
+   dstLen = srcLen - (re - rs + 1);
    newseg.begin = 0;
    newseg.range = dstLen;
    newseg.multifieldValue = CreateMultifield(theEnv,dstLen);
@@ -190,7 +190,7 @@ void MVSlotReplaceCommand(
    /* Delete the members from the slot. */
    /*===================================*/
    
-   if (newval.header->type == MULTIFIELD_TYPE) // TBD Refactor
+   if (newval.header->type == MULTIFIELD_TYPE)
      { dstLen = srcLen - (re - rs + 1) + newval.range; }
    else
      { dstLen = srcLen - (re - rs); }
@@ -317,7 +317,7 @@ void MVSlotDeleteCommand(
    /* Verify the start and end index arguments. */
    /*===========================================*/
 
-   if ((end < start) || (start < 1) || (end < 1) || // TBD Refactor
+   if ((end < start) || (start < 1) || (end < 1) ||
        (((long long) ((size_t) start)) != start) ||
        (((long long) ((size_t) end)) != end))
      {
@@ -353,7 +353,7 @@ void MVSlotDeleteCommand(
    /* Delete the members from the slot. */
    /*===================================*/
    
-   dstLen = srcLen - (re - rs + 1); // TBD Refactor
+   dstLen = srcLen - (re - rs + 1);
    newseg.begin = 0;
    newseg.range = dstLen;
    newseg.multifieldValue = CreateMultifield(theEnv,dstLen);
@@ -414,7 +414,7 @@ void DirectMVReplaceCommand(
    /* Verify the start and end index arguments. */
    /*===========================================*/
 
-   if ((end < start) || (start < 1) || (end < 1) || // TBD Refactor
+   if ((end < start) || (start < 1) || (end < 1) ||
        (((long long) ((size_t) start)) != start) ||
        (((long long) ((size_t) end)) != end))
      {
@@ -444,7 +444,7 @@ void DirectMVReplaceCommand(
    rs += oldseg.begin;
    re += oldseg.begin;
 
-   dstLen = srcLen - (re - rs + 1); // TBD Refactor
+   dstLen = srcLen - (re - rs + 1);
    newseg.begin = 0;
    newseg.range = dstLen;
    newseg.multifieldValue = CreateMultifield(theEnv,dstLen);
@@ -453,7 +453,7 @@ void DirectMVReplaceCommand(
    /* Delete the members from the slot. */
    /*===================================*/
    
-   if (newval.header->type == MULTIFIELD_TYPE) // TBD Refactor
+   if (newval.header->type == MULTIFIELD_TYPE)
      { dstLen = srcLen - (re - rs + 1) + newval.range; }
    else
      { dstLen = srcLen - (re - rs); }
@@ -586,7 +586,7 @@ void DirectMVDeleteCommand(
    /* Verify the start and end index arguments. */
    /*===========================================*/
 
-   if ((end < start) || (start < 1) || (end < 1) || // TBD Refactor
+   if ((end < start) || (start < 1) || (end < 1) ||
        (((long long) ((size_t) start)) != start) ||
        (((long long) ((size_t) end)) != end))
      {
@@ -621,7 +621,7 @@ void DirectMVDeleteCommand(
    /* Delete the section out of the multifield value. */
    /*=================================================*/
 
-   dstLen = srcLen - (re - rs + 1); // TBD Refactor
+   dstLen = srcLen - (re - rs + 1);
    newseg.begin = 0;
    newseg.range = dstLen;
    newseg.multifieldValue = CreateMultifield(theEnv,dstLen);

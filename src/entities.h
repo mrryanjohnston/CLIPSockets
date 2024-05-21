@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  11/01/16            */
+   /*             CLIPS Version 7.00  12/31/23            */
    /*                                                     */
    /*                ENTITIES HEADER FILE                 */
    /*******************************************************/
@@ -17,6 +17,8 @@
 /* Revision History:                                         */
 /*                                                           */
 /*      6.40: Created to store key data structures.          */
+/*                                                           */
+/*      7.00: Support for non-reactive fact patterns.        */
 /*                                                           */
 /*************************************************************/
 
@@ -257,6 +259,7 @@ struct patternEntityRecord
    void (*matchFunction)(Environment *,void *);
    bool (*synchronized)(Environment *,void *);
    bool (*isDeleted)(Environment *,void *);
+   bool (*checkDeletions)(Environment *,void *);
   };
 
 /*****************/

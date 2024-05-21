@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  08/11/16             */
+   /*            CLIPS Version 6.50  09/23/23             */
    /*                                                     */
    /*              INCREMENTAL RESET MODULE               */
    /*******************************************************/
@@ -53,6 +53,8 @@
 /*                                                           */
 /*            Incremental reset is always enabled.           */
 /*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -68,6 +70,9 @@
 #include "engine.h"
 #include "envrnmnt.h"
 #include "evaluatn.h"
+#if DEFTEMPLATE_CONSTRUCT
+#include "factgoal.h"
+#endif
 #include "pattern.h"
 #include "router.h"
 #include "reteutil.h"
@@ -86,6 +91,7 @@
    static void                    PrimeJoinFromRightMemory(Environment *,struct joinNode *);
    static void                    MarkPatternForIncrementalReset(Environment *,unsigned short,
                                                                  struct patternNodeHeader *,bool);
+   static void                    CheckForPrimableGoals(Environment *,Defrule *,struct joinNode *);
 #endif
 
 /**************************************************************/
@@ -98,6 +104,14 @@ void IncrementalReset(
 #if (! RUN_TIME) && (! BLOAD_ONLY)
    Defrule *tempPtr;
    struct patternParser *theParser;
+
+   /*==================================================*/
+   /* Perform an incremental reset for any prior rules */
+   /* that can now generate goals because a new goal   */
+   /* network has been created for a deftemplate.      */
+   /*==================================================*/
+   
+   IncrementalResetAddGoalExpressions(theEnv);
 
    /*=====================================================*/
    /* Mark the pattern and join network data structures   */
@@ -135,7 +149,16 @@ void IncrementalReset(
       if (theParser->incrementalResetFunction != NULL)
         { (*theParser->incrementalResetFunction)(theEnv); }
      }
-
+        
+   /*===========================*/
+   /* Generate and queue goals. */
+   /*===========================*/
+   
+   for (tempPtr = tempRule;
+        tempPtr != NULL;
+        tempPtr = tempPtr->disjunct)
+     { CheckForPrimableGoals(theEnv,tempPtr,tempPtr->lastJoin); }
+  
    /*========================*/
    /* End incremental reset. */
    /*========================*/
@@ -147,6 +170,19 @@ void IncrementalReset(
    /*====================================================*/
 
    MarkNetworkForIncrementalReset(theEnv,tempRule,false);
+   
+   /*==============================*/
+   /*  */
+   /*==============================*/
+   
+   IncrementalResetGoals(theEnv);
+   ReleaseGoalUpdates(theEnv);
+   
+   /*==============================*/
+   /* Process any generated goals. */
+   /*==============================*/
+   
+   ProcessGoalQueue(theEnv);
 #endif
   }
 
@@ -191,6 +227,7 @@ static void MarkJoinsForIncrementalReset(
       if (joinPtr->ruleToActivate != NULL)
         {
          joinPtr->marked = false;
+         joinPtr->goalMarked = false;
          joinPtr->initialize = value;
          continue;
         }
@@ -203,6 +240,7 @@ static void MarkJoinsForIncrementalReset(
       /*================*/
 
       joinPtr->marked = false; /* GDR 6.05 */
+      joinPtr->goalMarked = false;
 
       if (joinPtr->initialize)
         {
@@ -277,6 +315,51 @@ static void CheckForPrimableJoins(
 
       //if (joinPtr->joinFromTheRight)
       //  { CheckForPrimableJoins(theEnv,tempRule,(struct joinNode *) joinPtr->rightSideEntryStructure); }
+     }
+  }
+
+/**************************/
+/* CheckForPrimableGoals: */
+/**************************/
+static void CheckForPrimableGoals(
+  Environment *theEnv,
+  Defrule *tempRule,
+  struct joinNode *joinPtr)
+  {
+   /*========================================*/
+   /* Loop through each of the rule's joins. */
+   /*========================================*/
+
+   for (;
+        joinPtr != NULL;
+        joinPtr = GetPreviousJoin(joinPtr))
+     {
+      /*===============================*/
+      /* Update the join if necessary. */
+      /*===============================*/
+
+      if ((joinPtr->initialize) &&
+          (! joinPtr->goalMarked) &&
+          (joinPtr->goalJoin))
+        {
+         if (joinPtr->firstJoin == true)
+           {
+            struct alphaMemoryHash *listOfHashNodes;
+            struct partialMatch *listOfMatches;
+            
+            listOfHashNodes =  ((struct patternNodeHeader *) joinPtr->rightSideEntryStructure)->firstHash;
+            if (listOfHashNodes != NULL)
+              { listOfMatches = listOfHashNodes->alphaMemory; }
+            else
+              { listOfMatches = NULL; }
+
+            if ((listOfMatches == NULL) &&
+                (! joinPtr->leftMemory->beta[0]->goalMarker))
+              { AttachGoal(theEnv,joinPtr,NULL,joinPtr->leftMemory->beta[0],true); }
+
+            joinPtr->goalMarked = true;
+           }
+        }
      }
   }
 

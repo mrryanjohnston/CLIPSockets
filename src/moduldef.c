@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  10/01/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                  DEFMODULE MODULE                   */
    /*******************************************************/
@@ -50,6 +50,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -76,6 +78,9 @@
 
 #include "moduldef.h"
 
+#define CONSTRUCT_INITIAL_HASH_TABLE_SIZE 17
+#define CONSTRUCT_HASH_TABLE_LOAD_FACTOR 2
+
 /***************************************/
 /* LOCAL INTERNAL FUNCTION DEFINITIONS */
 /***************************************/
@@ -84,7 +89,11 @@
    static void                       ReturnDefmodule(Environment *,Defmodule *,bool);
 #endif
    static void                       DeallocateDefmoduleData(Environment *);
-
+   static size_t                     DecreaseHashSize(size_t);
+   static size_t                     IncreaseHashSize(size_t);
+   static void                       RehashValues(struct itemHashTableEntry **,size_t,struct itemHashTableEntry **,size_t);
+   static void                       UpdateHashMapSize(Environment *,struct defmoduleItemHeaderHM *,size_t);
+  
 /************************************************/
 /* AllocateDefmoduleGlobals: Initializes global */
 /*   variables used by the defmodule construct. */
@@ -116,6 +125,8 @@ static void DeallocateDefmoduleData(
    size_t space;
 #endif
 
+   ClearDefmoduleHashMap(theEnv,&DefmoduleData(theEnv)->hashMap);
+  
 #if (BLOAD || BLOAD_ONLY || BLOAD_AND_BSAVE) && (! RUN_TIME)
    for (i = 0; i < DefmoduleData(theEnv)->BNumberOfDefmodules; i++)
      {
@@ -191,7 +202,7 @@ void InitializeDefmodules(
 
 #if DEFMODULE_CONSTRUCT && (! RUN_TIME) && (! BLOAD_ONLY)
    AddConstruct(theEnv,"defmodule","defmodules",ParseDefmodule,NULL,NULL,NULL,NULL,
-                                                        NULL,NULL,NULL,NULL,NULL);
+                                                        NULL,NULL,NULL,NULL,NULL,NULL);
 #endif
 
 #if (! RUN_TIME) && DEFMODULE_CONSTRUCT
@@ -209,6 +220,7 @@ unsigned RegisterModuleItem(
   Environment *theEnv,
   const char *theItem,
   AllocateModuleFunction *allocateFunction,
+  InitModuleFunction *initFunction,
   FreeModuleFunction *freeFunction,
   void *(*bloadModuleReference)(Environment *,unsigned long),
   void  (*constructsToCModuleReference)(Environment *,FILE *,unsigned long,unsigned int,unsigned int),
@@ -219,6 +231,7 @@ unsigned RegisterModuleItem(
    newModuleItem = get_struct(theEnv,moduleItem);
    newModuleItem->name = theItem;
    newModuleItem->allocateFunction = allocateFunction;
+   newModuleItem->initFunction = initFunction;
    newModuleItem->freeFunction = freeFunction;
    newModuleItem->bloadModuleReference = bloadModuleReference;
    newModuleItem->constructsToCModuleReference = constructsToCModuleReference;
@@ -465,6 +478,8 @@ void CreateMainModule(
             theHeader->theModule = newDefmodule;
             theHeader->firstItem = NULL;
             theHeader->lastItem = NULL;
+            if (theItem->initFunction != NULL)
+              { (*theItem->initFunction)(theEnv,theHeader); }
            }
         }
      }
@@ -480,6 +495,9 @@ void CreateMainModule(
 
    DefmoduleData(theEnv)->LastDefmodule = newDefmodule;
    DefmoduleData(theEnv)->ListOfDefmodules = newDefmodule;
+   
+   AddConstructToHashMap(theEnv,&newDefmodule->header,(struct defmoduleItemHeader *) &DefmoduleData(theEnv)->hashMap);
+
    SetCurrentModule(theEnv,newDefmodule);
   }
 
@@ -497,9 +515,15 @@ void SetListOfDefmodules(
 
    if (DefmoduleData(theEnv)->LastDefmodule == NULL) return;
    DefmoduleData(theEnv)->LastDefmodule->header.env = theEnv;
+   
+   AddConstructToHashMap(theEnv,&DefmoduleData(theEnv)->LastDefmodule->header,
+                                (struct defmoduleItemHeader *) &DefmoduleData(theEnv)->hashMap);
 
    while (DefmoduleData(theEnv)->LastDefmodule->header.next != NULL)
      {
+      AddConstructToHashMap(theEnv,DefmoduleData(theEnv)->LastDefmodule->header.next,
+                                   (struct defmoduleItemHeader *) &DefmoduleData(theEnv)->hashMap);
+
       DefmoduleData(theEnv)->LastDefmodule = (Defmodule *) DefmoduleData(theEnv)->LastDefmodule->header.next;
       DefmoduleData(theEnv)->LastDefmodule->header.env = theEnv;
      }
@@ -584,6 +608,9 @@ static void ReturnDefmodule(
 
    if (! environmentClear)
      { SetCurrentModule(theEnv,theDefmodule); }
+
+   RemoveConstructFromHashMap(theEnv,&theDefmodule->header,
+                              (struct defmoduleItemHeader *) &DefmoduleData(theEnv)->hashMap);
 
    /*============================================*/
    /* Call the free functions for the constructs */
@@ -683,18 +710,38 @@ Defmodule *FindDefmodule(
   Environment *theEnv,
   const char *defmoduleName)
   {
-   Defmodule *defmodulePtr;
    CLIPSLexeme *findValue;
 
    if ((findValue = FindSymbolHN(theEnv,defmoduleName,SYMBOL_BIT)) == NULL) return NULL;
 
-   defmodulePtr = DefmoduleData(theEnv)->ListOfDefmodules;
-   while (defmodulePtr != NULL)
-     {
-      if (defmodulePtr->header.name == findValue)
-        { return defmodulePtr; }
+   return LookupDefmodule(theEnv,findValue);
+  }
+  
+/*****************************************/
+/* LookupDefmodule: Finds a defmodule by */
+/*   searching for it in the hashmap.    */
+/*****************************************/
+Defmodule *LookupDefmodule(
+  Environment *theEnv,
+  CLIPSLexeme *defmoduleName)
+  {
+   struct defmoduleItemHeaderHM *theModuleItem;
+   size_t theHashValue;
+   struct itemHashTableEntry *theItem;
 
-      defmodulePtr = (Defmodule *) defmodulePtr->header.next;
+   theModuleItem = &DefmoduleData(theEnv)->hashMap;
+                   
+   if (theModuleItem->itemCount == 0)
+     { return NULL; }
+     
+   theHashValue = HashSymbol(defmoduleName->contents,theModuleItem->hashTableSize);
+
+   for (theItem = theModuleItem->hashTable[theHashValue];
+        theItem != NULL;
+        theItem = theItem->next)
+     {
+      if (theItem->item->name == defmoduleName)
+        { return (Defmodule *) theItem->item; }
      }
 
    return NULL;
@@ -732,7 +779,6 @@ void SetCurrentModuleCommand(
   UDFValue *returnValue)
   {
    UDFValue theArg;
-   const char *argument;
    Defmodule *theModule;
    CLIPSLexeme *oldModuleName;
 
@@ -757,17 +803,15 @@ void SetCurrentModuleCommand(
    if (! UDFFirstArgument(context,SYMBOL_BIT,&theArg))
      { return; }
 
-   argument = theArg.lexemeValue->contents;
-
    /*================================================*/
    /* Set the current module to the specified value. */
    /*================================================*/
 
-   theModule = FindDefmodule(theEnv,argument);
+   theModule = LookupDefmodule(theEnv,theArg.lexemeValue);
 
    if (theModule == NULL)
      {
-      CantFindItemErrorMessage(theEnv,"defmodule",argument,true);
+      CantFindItemErrorMessage(theEnv,"defmodule",theArg.lexemeValue->contents,true);
       return;
      }
 
@@ -814,4 +858,328 @@ unsigned short GetNumberOfDefmodules(
    return 1;
 #endif
   }
+  
+/***********/
+/* isPrime */
+/***********/
+bool IsPrime(
+  size_t n)
+  {
+   size_t i;
 
+   if (n <= 1)
+     { return false; }
+
+   if (n <= 3)
+     { return true; }
+      
+   if (((n % 2) == 0) ||
+       ((n % 3) == 0))
+     { return false; }
+
+   for (i = 5; i * i <= n; i += 6)
+     {
+      if (((n % i) == 0) ||
+          ((n % (i + 2)) == 0))
+        { return false; }
+     }
+   
+   return true;
+  }
+  
+/********************/
+/* IncreaseHashSize */
+/********************/
+static size_t IncreaseHashSize(
+  size_t currentSize)
+  {
+   if (currentSize == 0)
+     { return CONSTRUCT_INITIAL_HASH_TABLE_SIZE; }
+
+   currentSize = (currentSize * 2) + 1;
+   
+   while (! IsPrime(currentSize))
+     { currentSize++; }
+   
+   return currentSize;
+  }
+
+/*********************/
+/* DecreaseHashSize: */
+/*********************/
+static size_t DecreaseHashSize(
+  size_t currentSize)
+  {
+   if (currentSize == 0)
+     { return 0; }
+ 
+   currentSize = currentSize / 2;
+   
+   while (! IsPrime(currentSize))
+     { currentSize++; }
+   
+   return currentSize;
+  }
+
+/**************************/
+/* AddConstructToHashMap: */
+/**************************/
+void AddConstructToHashMap(
+  Environment *theEnv,
+  ConstructHeader *theCH,
+  struct defmoduleItemHeader *theIH)
+  {
+   struct defmoduleItemHeaderHM *theMH = (struct defmoduleItemHeaderHM *) theIH;
+   size_t theHashTableSize, spaceNeeded;
+   struct itemHashTableEntry *theEntry;
+   
+   theMH->itemCount++;
+   
+   /*======================================*/
+   /* If no hash table exists, create one. */
+   /*======================================*/
+   
+   if (theMH->hashTableSize == 0)
+     {
+      theHashTableSize = IncreaseHashSize(theMH->hashTableSize);
+      theMH->hashTableSize = theHashTableSize;
+      spaceNeeded = sizeof(struct itemHashTableEntry *) * theHashTableSize;
+      theMH->hashTable = (struct itemHashTableEntry **) gm2(theEnv,spaceNeeded);
+      memset(theMH->hashTable,0,spaceNeeded);
+     }
+   else
+     { theHashTableSize = theMH->hashTableSize; }
+   
+   /*===============================================*/
+   /* Add the new entry to the existing hash table. */
+   /*===============================================*/
+
+   theEntry = get_struct(theEnv,itemHashTableEntry);
+   theEntry->item = theCH;
+   theEntry->hashValue = HashSymbol(theCH->name->contents,0);
+
+   theEntry->next = theMH->hashTable[theEntry->hashValue % theHashTableSize];
+   theMH->hashTable[theEntry->hashValue % theHashTableSize] = theEntry;
+
+   /*=====================================================*/
+   /* If the number of entries is within the load factor, */
+   /* then the hash table doesn't need to be resized.     */
+   /*=====================================================*/
+   
+   if (theMH->itemCount < (theHashTableSize * CONSTRUCT_HASH_TABLE_LOAD_FACTOR))
+     { return; }
+
+   /*=============================*/
+   /* Create a larger hash table. */
+   /*=============================*/
+   
+   theHashTableSize = IncreaseHashSize(theMH->hashTableSize);
+   UpdateHashMapSize(theEnv,theMH,theHashTableSize);
+  }
+
+/*******************************/
+/* RemoveConstructFromHashMap: */
+/*******************************/
+void RemoveConstructFromHashMap(
+  Environment *theEnv,
+  ConstructHeader *theConstructHeader,
+  struct defmoduleItemHeader *theIH)
+  {
+   struct defmoduleItemHeaderHM *theMH = (struct defmoduleItemHeaderHM *) theIH;
+   size_t theHashTableSize, spaceNeeded, theHashValue;
+   struct itemHashTableEntry *theEntry, *lastEntry = NULL;
+   bool found = false;
+
+   if (theMH->hashTable == NULL)
+     { return; }
+     
+   /*==================================*/
+   /* Remove the item from hash table. */
+   /*==================================*/
+   
+   theHashValue = HashSymbol(theConstructHeader->name->contents,theMH->hashTableSize);
+   
+   for (theEntry = theMH->hashTable[theHashValue];
+        theEntry != NULL;
+        theEntry = theEntry->next)
+     {
+      if (theEntry->item == theConstructHeader)
+        {
+         if (lastEntry == NULL)
+           { theMH->hashTable[theHashValue] = theEntry->next; }
+         else
+           { lastEntry->next = theEntry->next; }
+           
+         theMH->itemCount--;
+         found = true;
+         rtn_struct(theEnv,itemHashTableEntry,theEntry);
+         break;
+        }
+        
+      lastEntry = theEntry;
+     }
+   
+   if (! found)
+     { return; }
+
+   /*=====================================================*/
+   /* If the number of entries is within the load factor, */
+   /* then the hash table doesn't need to be resized.     */
+   /*=====================================================*/
+
+   if (theMH->itemCount > (theMH->hashTableSize / CONSTRUCT_HASH_TABLE_LOAD_FACTOR))
+     { return; }
+
+   /*=============================================*/
+   /* If no items remain, release the hash table. */
+   /*=============================================*/
+
+   if (theMH->itemCount == 0)
+     {
+      spaceNeeded = sizeof(struct itemHashTableEntry *) * theMH->hashTableSize;
+      rm(theEnv,theMH->hashTable,spaceNeeded);
+      theMH->hashTableSize = 0;
+      theMH->hashTable = NULL;
+      return;
+     }
+  
+   /*==============================*/
+   /* Create a smaller hash table. */
+   /*==============================*/
+   
+   theHashTableSize = DecreaseHashSize(theMH->hashTableSize);
+   UpdateHashMapSize(theEnv,theMH,theHashTableSize);
+  }
+
+/**********************/
+/* UpdateHashMapSize: */
+/**********************/
+static void UpdateHashMapSize(
+  Environment *theEnv,
+  struct defmoduleItemHeaderHM *theMH,
+  size_t newHashTableSize)
+  {
+   size_t spaceNeeded;
+   struct itemHashTableEntry **newHashTable;
+   
+   /*============================*/
+   /* Create the new hash table. */
+   /*============================*/
+   
+   spaceNeeded = sizeof(struct itemHashTableEntry *) * newHashTableSize;
+   newHashTable = (struct itemHashTableEntry **) gm2(theEnv,spaceNeeded);
+   memset(newHashTable,0,spaceNeeded);
+
+   /*===================================*/
+   /* Copy the values from the old hash */
+   /* table to the new hash table.      */
+   /*===================================*/
+   
+   RehashValues(theMH->hashTable,theMH->hashTableSize,newHashTable,newHashTableSize);
+
+   /*===========================*/
+   /* Delete the old hash table */
+   /* and install the new one.  */
+   /*===========================*/
+   
+   spaceNeeded = sizeof(struct itemHashTableEntry *) * theMH->hashTableSize;
+   rm(theEnv,theMH->hashTable,spaceNeeded);
+   
+   theMH->hashTable = newHashTable;
+   theMH->hashTableSize = newHashTableSize;
+  }
+
+/*****************************************/
+/* RehashValues: Copies hash values from */
+/*    one hash table to another.         */
+/*****************************************/
+static void RehashValues(
+  struct itemHashTableEntry **oldHashTable,
+  size_t oldHashTableSize,
+  struct itemHashTableEntry **newHashTable,
+  size_t newHashTableSize)
+  {
+   size_t i;
+   struct itemHashTableEntry *theEntry;
+
+   for (i = 0; i < oldHashTableSize; i++)
+     {
+      theEntry = oldHashTable[i];
+      while (theEntry != NULL)
+        {
+         oldHashTable[i] = theEntry->next;
+         
+         theEntry->next = newHashTable[theEntry->hashValue % newHashTableSize];
+         newHashTable[theEntry->hashValue % newHashTableSize] = theEntry;
+         
+         theEntry = oldHashTable[i];
+        }
+     }
+  }
+
+/*********************/
+/* AssignHashMapSize */
+/*********************/
+void AssignHashMapSize(
+  Environment *theEnv,
+  struct defmoduleItemHeaderHM *theMH,
+  size_t newHashTableSize)
+  {
+   size_t spaceNeeded;
+   
+   if (theMH->hashTableSize == 0)
+     {
+      if (newHashTableSize == 0)
+        { return; }
+        
+      theMH->hashTableSize = newHashTableSize;
+      spaceNeeded = sizeof(struct itemHashTableEntry *) * newHashTableSize;
+      theMH->hashTable = (struct itemHashTableEntry **) gm2(theEnv,spaceNeeded);
+      memset(theMH->hashTable,0,spaceNeeded);
+      return;
+     }
+     
+   if (newHashTableSize == 0)
+     {
+      spaceNeeded = sizeof(struct itemHashTableEntry *) * theMH->hashTableSize;
+      rm(theEnv,theMH->hashTable,spaceNeeded);
+   
+      theMH->hashTable = NULL;
+      theMH->hashTableSize = 0;
+   
+      return;
+     }
+     
+   UpdateHashMapSize(theEnv,theMH,newHashTableSize);
+  }
+  
+/*************************/
+/* ClearDefmoduleHashMap */
+/*************************/
+void ClearDefmoduleHashMap(
+  Environment *theEnv,
+  struct defmoduleItemHeaderHM *header)
+  {
+   size_t spaceNeeded, i;
+   struct itemHashTableEntry *theItem, *nextItem;
+   
+   if (header->hashTableSize == 0)
+     { return; }
+     
+   for (i = 0; i < header->hashTableSize; i++)
+     {
+      theItem = header->hashTable[i];
+      while (theItem != NULL)
+        {
+         nextItem = theItem->next;
+         rtn_struct(theEnv,itemHashTableEntry,theItem);
+         theItem = nextItem;
+        }
+     }
+     
+   spaceNeeded = sizeof(struct itemHashTableEntry *) * header->hashTableSize;
+   rm(theEnv,header->hashTable,spaceNeeded);
+   header->itemCount = 0;
+   header->hashTableSize = 0;
+   header->hashTable = NULL;
+  }

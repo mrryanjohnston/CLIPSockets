@@ -60,6 +60,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_rulecom
@@ -105,6 +107,7 @@ typedef enum
    void                           AlphaJoins(Environment *,Defrule *,unsigned short,struct joinInformation *);
    void                           BetaJoins(Environment *,Defrule *,unsigned short,struct joinInformation *);
    void                           JoinActivityResetCommand(Environment *,UDFContext *,UDFValue *);
+   void                           WhyCommand(Environment *,UDFContext *,UDFValue *);
    void                           GetFocusFunction(Environment *,UDFContext *,UDFValue *);
    Defmodule                     *GetFocus(Environment *);
 #if DEVELOPER

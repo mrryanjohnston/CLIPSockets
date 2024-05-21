@@ -16,7 +16,7 @@ Write CLIPS code that can talk to the internet!
 Create a server that listens, accepts, and reads a message from a client:
 
 ```clips
-         CLIPS (6.4.1 4/8/23)
+         CLIPS (Forge Alpha 5/12/24)
 CLIPS> (create-socket AF_INET SOCK_STREAM)
 3
 CLIPS> (bind-socket 3 127.0.0.1 8889)
@@ -34,7 +34,7 @@ CLIPS> (readline 127.0.0.1:42616)
 A client that would connect to that server would look like this:
 
 ```clips
-         CLIPS (6.4.1 4/8/23)
+         CLIPS (Forge Alpha 5/12/24)
 CLIPS> (create-socket AF_INET SOCK_STREAM)
 3
 CLIPS> (connect 3 127.0.0.1 8889)
@@ -290,10 +290,8 @@ tcpdump -nn -i any port 8888
 ### Small technical braindump
 
 This codebase is based on
-[CLIPS version 6.4.1](https://sourceforge.net/projects/clipsrules/files/CLIPS/6.4.1/)
-released on 4/8/23. I added a `socketrtr.h` and `socketrtr.c` to support reading/writing to sockets.
+[CLIPS 7.0.x](https://sourceforge.net/p/clipsrules/code/HEAD/tree/branches/70x/core/)
+released on 5/12/24. I added a `socketrtr.h` and `socketrtr.c` to support reading/writing to sockets.
 I add user defined functions (UDFs) to CLIPS environments compiled with this source code
 in `userfunctions.c`. I initialize the socket router in `router.c`
-inside of the function `InitializeDefaultRouters`. Finally, I updated the makefile
-to use gnu99 as well as to include the new `socketrtr.c` files.
-
+inside of the function `InitializeDefaultRouters`.

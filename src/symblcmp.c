@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*           SYMBOL_TYPE CONSTRUCT COMPILER MODULE          */
    /*******************************************************/
@@ -87,7 +87,7 @@ void AtomicValuesToCode(
   const char *pathName,
   char *fileNameBuffer)
   {
-   unsigned int version; // TBD Necessary?
+   unsigned int version;
 
    SetAtomicValueIndices(theEnv,true);
 

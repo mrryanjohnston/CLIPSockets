@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/05/18             */
+   /*            CLIPS Version 6.42  05/04/24             */
    /*                                                     */
    /*                I/O FUNCTIONS MODULE                 */
    /*******************************************************/
@@ -102,6 +102,16 @@
 /*            and read-number functions to FALSE and added   */
 /*            an error code for read.                        */
 /*                                                           */
+/*      6.42: Updated format function to handle width and    */
+/*            precision for UTF-8 multibyte characters.      */
+/*                                                           */
+/*            Updated readline function to handle crlf as    */
+/*            a single character.                            */
+/*                                                           */
+/*            Added cr and lf special symbols for printing   */
+/*            carriage returns and line feeds in the         */
+/*            printout, println, and print functions.        */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -132,6 +142,25 @@
 
 #include "iofun.h"
 
+typedef enum
+  {
+   MINUS_FLAG = (1 << 0),
+   ZERO_FLAG = (1 << 1),
+   PLUS_FLAG = (1 << 2),
+   SPACE_FLAG = (1 << 3),
+   NUMBER_FLAG = (1 << 4),
+  } FormatFlag;
+
+struct conversionInfo
+  {
+   unsigned flags;
+   int width;
+   size_t precision;
+   char conversionChar;
+   bool widthSpecified;
+   bool precisionSpecified;
+  };
+
 /***************/
 /* DEFINITIONS */
 /***************/
@@ -160,11 +189,13 @@ struct IOFunctionData
 #if IO_FUNCTIONS
    static void             ReadTokenFromStdin(Environment *,struct token *);
    static const char      *ControlStringCheck(UDFContext *,unsigned int);
-   static char             FindFormatFlag(const char *,size_t *,char *,size_t);
-   static const char      *PrintFormatFlag(UDFContext *,const char *,unsigned int,int);
+   static char             FindFormatFlag(const char *,size_t *,StringBuilder *,struct conversionInfo *);
+   static const char      *PrintFormatFlag(UDFContext *,unsigned int,int,struct conversionInfo *);
    static char            *FillBuffer(Environment *,const char *,size_t *,size_t *);
    static void             ReadNumber(Environment *,const char *,struct token *,bool);
    static void             PrintDriver(UDFContext *,const char *,bool);
+   static void             CreateConversionString(StringBuilder *,struct conversionInfo *,UDFValue *);
+   static int              GetCharForReadline(Environment *,const char *);
 #endif
 
 /**************************************/
@@ -314,6 +345,10 @@ static void PrintDriver(
               else
                 { WriteString(theEnv,logicalName,"\n"); }
              }
+           else if (strcmp(theArg.lexemeValue->contents,"cr") == 0)
+             { WriteString(theEnv,logicalName,"\r"); }
+           else if (strcmp(theArg.lexemeValue->contents,"lf") == 0)
+             { WriteString(theEnv,logicalName,"\n"); }
            else if (strcmp(theArg.lexemeValue->contents,"tab") == 0)
              { WriteString(theEnv,logicalName,"\t"); }
            else if (strcmp(theArg.lexemeValue->contents,"vtab") == 0)
@@ -1258,12 +1293,13 @@ void FormatFunction(
    char formatFlagType;
    unsigned int f_cur_arg = 3;
    size_t form_pos = 0;
-   char percentBuffer[FLAG_MAX];
    char *fstr = NULL;
    size_t fmaxm = 0;
    size_t fpos = 0;
    void *hptr;
    const char *theString;
+   StringBuilder *percentBuffer;
+   struct conversionInfo conversion;
 
    /*======================================*/
    /* Set default return value for errors. */
@@ -1300,11 +1336,11 @@ void FormatFunction(
       return;
      }
 
-   /*=====================================================*/
-   /* Second argument must be a string.  The appropriate  */
-   /* number of arguments specified by the string must be */
-   /* present in the argument list.                       */
-   /*=====================================================*/
+   /*===================================================*/
+   /* Second argument must be a string. The appropriate */
+   /* number of arguments specified by the string must  */
+   /* be present in the argument list.                  */
+   /*===================================================*/
 
    if ((formatString = ControlStringCheck(context,argCount)) == NULL)
      {
@@ -1316,6 +1352,8 @@ void FormatFunction(
    /* Search the format string, printing the */
    /* format flags as they are encountered.  */
    /*========================================*/
+   
+   percentBuffer = CreateStringBuilder(theEnv,FLAG_MAX);
 
    while (formatString[form_pos] != '\0')
      {
@@ -1330,34 +1368,39 @@ void FormatFunction(
       else
         {
 		 form_pos++;
-         formatFlagType = FindFormatFlag(formatString,&form_pos,percentBuffer,FLAG_MAX);
+         formatFlagType = FindFormatFlag(formatString,&form_pos,percentBuffer,&conversion);
          if (formatFlagType != ' ')
            {
-            if ((theString = PrintFormatFlag(context,percentBuffer,f_cur_arg,formatFlagType)) == NULL)
+            if ((theString = PrintFormatFlag(context,f_cur_arg,formatFlagType,&conversion)) == NULL)
               {
                if (fstr != NULL) rm(theEnv,fstr,fmaxm);
                returnValue->value = hptr;
+               SBDispose(percentBuffer);
                return;
               }
             fstr = AppendToString(theEnv,theString,fstr,&fpos,&fmaxm);
             if (fstr == NULL)
               {
                returnValue->value = hptr;
+               SBDispose(percentBuffer);
                return;
               }
             f_cur_arg++;
            }
          else
            {
-            fstr = AppendToString(theEnv,percentBuffer,fstr,&fpos,&fmaxm);
+            fstr = AppendToString(theEnv,percentBuffer->contents,fstr,&fpos,&fmaxm);
             if (fstr == NULL)
               {
                returnValue->value = hptr;
+               SBDispose(percentBuffer);
                return;
               }
            }
         }
      }
+   
+   SBDispose(percentBuffer);
 
    if (fstr != NULL)
      {
@@ -1381,15 +1424,18 @@ static const char *ControlStringCheck(
   {
    UDFValue t_ptr;
    const char *str_array;
-   char print_buff[FLAG_MAX];
+   StringBuilder *printBuffer;
    size_t i;
    unsigned int per_count;
    char formatFlag;
    Environment *theEnv = context->environment;
-
+   struct conversionInfo conversion;
+   
    if (! UDFNthArgument(context,2,STRING_BIT,&t_ptr))
      { return NULL; }
 
+   printBuffer = CreateStringBuilder(theEnv,FLAG_MAX);
+   
    per_count = 0;
    str_array = t_ptr.lexemeValue->contents;
    for (i = 0; str_array[i] != '\0' ; )
@@ -1397,14 +1443,15 @@ static const char *ControlStringCheck(
       if (str_array[i] == '%')
         {
          i++;
-         formatFlag = FindFormatFlag(str_array,&i,print_buff,FLAG_MAX);
+         formatFlag = FindFormatFlag(str_array,&i,printBuffer,&conversion);
          if (formatFlag == '-')
            {
             PrintErrorID(theEnv,"IOFUN",3,false);
             WriteString(theEnv,STDERR,"Invalid format flag \"");
-            WriteString(theEnv,STDERR,print_buff);
+            WriteString(theEnv,STDERR,printBuffer->contents);
             WriteString(theEnv,STDERR,"\" specified in format function.\n");
             SetEvaluationError(theEnv,true);
+            SBDispose(printBuffer);
             return (NULL);
            }
          else if (formatFlag != ' ')
@@ -1413,7 +1460,9 @@ static const char *ControlStringCheck(
       else
         { i++; }
      }
-
+     
+   SBDispose(printBuffer);
+ 
    if ((per_count + 2) != argCount)
      {
       ExpectedCountError(theEnv,"format",EXACTLY,per_count+2);
@@ -1431,12 +1480,24 @@ static const char *ControlStringCheck(
 static char FindFormatFlag(
   const char *formatString,
   size_t *a,
-  char *formatBuffer,
-  size_t bufferMax)
+  StringBuilder *formatBuffer,
+  struct conversionInfo *conversion)
   {
    char inchar, formatFlagType;
-   size_t copy_pos = 0;
+   int minWidth = 0;
+   size_t precision = 0;
+   bool widthFound = false, precisionFound = false;
+   char *sizeModifier = NULL;
 
+   SBReset(formatBuffer);
+   
+   conversion->width = 0;
+   conversion->widthSpecified = false;
+   conversion->precision = 0;
+   conversion->precisionSpecified = false;
+   conversion->flags = 0;
+   conversion->conversionChar = ' ';
+   
    /*====================================================*/
    /* Set return values to the default value. A blank    */
    /* character indicates that no format flag was found  */
@@ -1453,92 +1514,252 @@ static char FindFormatFlag(
 
    if (formatString[*a] == 'n')
      {
-      gensprintf(formatBuffer,"\n");
+      SBAppend(formatBuffer,"\n");
       (*a)++;
-      return(formatFlagType);
+      return formatFlagType;
      }
    else if (formatString[*a] == 'r')
      {
-      gensprintf(formatBuffer,"\r");
+      SBAppend(formatBuffer,"\r");
       (*a)++;
-      return(formatFlagType);
+      return formatFlagType;
      }
    else if (formatString[*a] == 't')
      {
-      gensprintf(formatBuffer,"\t");
+      SBAppend(formatBuffer,"\t");
       (*a)++;
-      return(formatFlagType);
+      return formatFlagType;
      }
    else if (formatString[*a] == 'v')
      {
-      gensprintf(formatBuffer,"\v");
+      SBAppend(formatBuffer,"\v");
       (*a)++;
-      return(formatFlagType);
+      return formatFlagType;
      }
    else if (formatString[*a] == '%')
      {
-      gensprintf(formatBuffer,"%%");
+      SBAppend(formatBuffer,"%");
       (*a)++;
-      return(formatFlagType);
+      return formatFlagType;
      }
 
    /*======================================================*/
    /* Identify the format flag which requires a parameter. */
    /*======================================================*/
 
-   formatBuffer[copy_pos++] = '%';
-   formatBuffer[copy_pos] = '\0';
-   while ((formatString[*a] != '%') &&
-          (formatString[*a] != '\0') &&
-          (copy_pos < (bufferMax - 5)))
+   conversion->conversionChar = '-';
+   formatFlagType = '-';
+   SBAddChar(formatBuffer,'%');
+
+   /*==================*/
+   /* Parse the flags. */
+   /*==================*/
+
+   while ((formatString[*a] == '-') ||
+          (formatString[*a] == '0') ||
+          (formatString[*a] == '+')||
+          (formatString[*a] == ' ') ||
+          (formatString[*a] == '#'))
      {
       inchar = formatString[*a];
       (*a)++;
-
-      if ( (inchar == 'd') ||
-           (inchar == 'o') ||
-           (inchar == 'x') ||
-           (inchar == 'u'))
+      SBAddChar(formatBuffer,inchar);
+      switch (inchar)
         {
-         formatFlagType = inchar;
-         formatBuffer[copy_pos++] = 'l';
-         formatBuffer[copy_pos++] = 'l';
-         formatBuffer[copy_pos++] = inchar;
-         formatBuffer[copy_pos] = '\0';
-         return(formatFlagType);
+         case '-':
+           conversion->flags |= MINUS_FLAG;
+           break;
+           
+         case '0':
+           conversion->flags |= ZERO_FLAG;
+           break;
+           
+         case '+':
+           conversion->flags |= PLUS_FLAG;
+           break;
+           
+         case ' ':
+           conversion->flags |= SPACE_FLAG;
+           break;
+           
+         case '#':
+           conversion->flags |= NUMBER_FLAG;
+           break;
         }
-      else if ( (inchar == 'c') ||
-                (inchar == 's') ||
-                (inchar == 'e') ||
-                (inchar == 'f') ||
-                (inchar == 'g') )
-        {
-         formatBuffer[copy_pos++] = inchar;
-         formatBuffer[copy_pos] = '\0';
-         formatFlagType = inchar;
-         return(formatFlagType);
-        }
-
-      /*=======================================================*/
-      /* If the type hasn't been read, then this should be the */
-      /* -M.N part of the format specification (where M and N  */
-      /* are integers).                                        */
-      /*=======================================================*/
-
-      if ( (! isdigit(inchar)) &&
-           (inchar != '.') &&
-           (inchar != '-') )
-        {
-         formatBuffer[copy_pos++] = inchar;
-         formatBuffer[copy_pos] = '\0';
-         return('-');
-        }
-
-      formatBuffer[copy_pos++] = inchar;
-      formatBuffer[copy_pos] = '\0';
      }
 
-   return(formatFlagType);
+   /*================================*/
+   /* Parse the minimum field width. */
+   /*================================*/
+  
+   while (isdigit(formatString[*a]))
+     {
+      inchar = formatString[*a];
+      (*a)++;
+      minWidth = (minWidth * 10) + (inchar - '0');
+      widthFound = true;
+      conversion->width = minWidth;
+      conversion->widthSpecified = true;
+     }
+
+   /*======================*/
+   /* Parse the precision. */
+   /*======================*/
+   
+   if (formatString[*a] == '.')
+     {
+      (*a)++;
+      precisionFound = true;
+      conversion->precisionSpecified = true;
+      
+      while (isdigit(formatString[*a]))
+        {
+         inchar = formatString[*a];
+         (*a)++;
+         precision = (precision * 10) + (size_t) (inchar - '0');
+         conversion->precision = precision;
+        }
+     }
+
+   /*==============================*/
+   /* Parse the conversion letter. */
+   /*==============================*/
+   
+   inchar = formatString[*a];
+   (*a)++;
+
+   if ( (inchar == 'd') ||
+        (inchar == 'o') ||
+        (inchar == 'x') ||
+        (inchar == 'u'))
+     {
+      sizeModifier = "ll";
+      formatFlagType = inchar;
+      conversion->conversionChar = inchar;
+     }
+   else if ( (inchar == 'c') ||
+             (inchar == 's') ||
+             (inchar == 'e') ||
+             (inchar == 'f') ||
+             (inchar == 'g') )
+     {
+      formatFlagType = inchar;
+      conversion->conversionChar = inchar;
+     }
+     
+   /*==============================*/
+   /* Append the width, precision, */
+   /* and conversion letter.       */
+   /*==============================*/
+     
+   if (widthFound)
+     { SBAppendInteger(formatBuffer,minWidth); }
+
+   if (precisionFound)
+     {
+      SBAppend(formatBuffer,".");
+      SBAppendInteger(formatBuffer,(long long) precision);
+     }
+     
+   if (sizeModifier != NULL)
+     { SBAppend(formatBuffer,sizeModifier); }
+
+   if (inchar != '\0')
+     { SBAddChar(formatBuffer,inchar); }
+      
+   return formatFlagType;
+  }
+    
+/***************************/
+/* CreateConversionString: */
+/***************************/
+static void CreateConversionString(
+  StringBuilder *formatBuffer,
+  struct conversionInfo *conversion,
+  UDFValue *argument)
+  {
+   size_t charsInString, bytesInString;
+   size_t charsToPrint, bytesToPrint;
+   const char *str;
+   
+   SBReset(formatBuffer);
+
+   if ((conversion->conversionChar == 'c') &&
+       ((argument->header->type == SYMBOL_TYPE) ||
+        (argument->header->type == STRING_TYPE)))
+     {
+      conversion->conversionChar = 's';
+      conversion->precisionSpecified = true;
+      conversion->precision = 1;
+     }
+   
+   if (conversion->conversionChar == 's')
+     {
+      str = argument->lexemeValue->contents;
+      bytesInString = strlen(str);
+      charsInString = UTF8Length(str);
+      
+      /*===================*/
+      /* Handle precision. */
+      /*===================*/
+      
+      if (conversion->precisionSpecified)
+        {
+         charsToPrint = conversion->precision;
+         
+         if (charsToPrint > charsInString)
+           { charsToPrint = charsInString; }
+           
+         bytesToPrint = UTF8Offset(str,charsToPrint);
+         conversion->precision = bytesToPrint;
+        }
+      else
+        {
+         charsToPrint = charsInString;
+         bytesToPrint = bytesInString;
+        }
+
+      /*===============*/
+      /* Handle width. */
+      /*===============*/
+      
+      if (conversion->widthSpecified)
+        { conversion->width += (bytesToPrint - charsToPrint); }
+     }
+
+   SBAddChar(formatBuffer,'%');
+   
+   if (conversion->flags & MINUS_FLAG)
+     { SBAddChar(formatBuffer,'-'); }
+     
+   if (conversion->flags & ZERO_FLAG)
+     { SBAddChar(formatBuffer,'0'); }
+     
+   if (conversion->flags & PLUS_FLAG)
+     { SBAddChar(formatBuffer,'+'); }
+     
+   if (conversion->flags & SPACE_FLAG)
+     { SBAddChar(formatBuffer,' '); }
+     
+   if (conversion->flags & NUMBER_FLAG)
+     { SBAddChar(formatBuffer,'#'); }
+     
+   if (conversion->widthSpecified)
+     { SBAppendInteger(formatBuffer,conversion->width); }
+     
+   if (conversion->precisionSpecified)
+     {
+      SBAddChar(formatBuffer,'.');
+      SBAppendInteger(formatBuffer,(long long) conversion->precision);
+     }
+
+   if ((conversion->conversionChar == 'd') ||
+       (conversion->conversionChar == 'o') ||
+       (conversion->conversionChar == 'x') ||
+       (conversion->conversionChar == 'u'))
+     { SBAppend(formatBuffer,"ll"); }
+     
+   SBAddChar(formatBuffer,conversion->conversionChar);
   }
 
 /**********************************************************************/
@@ -1547,9 +1768,9 @@ static char FindFormatFlag(
 /**********************************************************************/
 static const char *PrintFormatFlag(
   UDFContext *context,
-  const char *formatString,
   unsigned int whichArg,
-  int formatType)
+  int formatType,
+  struct conversionInfo *conversion)
   {
    UDFValue theResult;
    const char *theString;
@@ -1557,16 +1778,27 @@ static const char *PrintFormatFlag(
    size_t theLength;
    CLIPSLexeme *oldLocale;
    Environment *theEnv = context->environment;
+   StringBuilder *conversionSB;
+   char *formatString;
+   
+   conversionSB = CreateStringBuilder(theEnv,FLAG_MAX);
 
    /*=================*/
    /* String argument */
    /*=================*/
-
+      
    switch (formatType)
      {
       case 's':
         if (! UDFNthArgument(context,whichArg,LEXEME_BITS,&theResult))
-          { return(NULL); }
+          {
+           SBDispose(conversionSB);
+           return NULL ;
+          }
+          
+        CreateConversionString(conversionSB,conversion,&theResult);
+        formatString = conversionSB->contents;
+
         theLength = strlen(formatString) + strlen(theResult.lexemeValue->contents) + 200;
         printBuffer = (char *) gm2(theEnv,(sizeof(char) * theLength));
         gensprintf(printBuffer,formatString,theResult.lexemeValue->contents);
@@ -1574,12 +1806,16 @@ static const char *PrintFormatFlag(
 
       case 'c':
         UDFNthArgument(context,whichArg,ANY_TYPE_BITS,&theResult);
+
+        CreateConversionString(conversionSB,conversion,&theResult);
+        formatString = conversionSB->contents;
+
         if ((theResult.header->type == STRING_TYPE) ||
             (theResult.header->type == SYMBOL_TYPE))
-          {
-           theLength = strlen(formatString) + 200;
+          {           
+           theLength = strlen(formatString) + strlen(theResult.lexemeValue->contents) + 200;
            printBuffer = (char *) gm2(theEnv,(sizeof(char) * theLength));
-           gensprintf(printBuffer,formatString,theResult.lexemeValue->contents[0]);
+           gensprintf(printBuffer,formatString,theResult.lexemeValue->contents);
           }
         else if (theResult.header->type == INTEGER_TYPE)
           {
@@ -1590,6 +1826,7 @@ static const char *PrintFormatFlag(
         else
           {
            ExpectedTypeError1(theEnv,"format",whichArg,"symbol, string, or integer");
+           SBDispose(conversionSB);
            return NULL;
           }
         break;
@@ -1599,7 +1836,14 @@ static const char *PrintFormatFlag(
       case 'o':
       case 'u':
         if (! UDFNthArgument(context,whichArg,NUMBER_BITS,&theResult))
-          { return(NULL); }
+          {
+           SBDispose(conversionSB);
+           return(NULL);
+          }
+
+        CreateConversionString(conversionSB,conversion,&theResult);
+        formatString = conversionSB->contents;
+
         theLength = strlen(formatString) + 200;
         printBuffer = (char *) gm2(theEnv,(sizeof(char) * theLength));
 
@@ -1618,7 +1862,14 @@ static const char *PrintFormatFlag(
       case 'g':
       case 'e':
         if (! UDFNthArgument(context,whichArg,NUMBER_BITS,&theResult))
-          { return(NULL); }
+          {
+           SBDispose(conversionSB);
+           return NULL;
+          }
+        
+        CreateConversionString(conversionSB,conversion,&theResult);
+        formatString = conversionSB->contents;
+
         theLength = strlen(formatString) + 200;
         printBuffer = (char *) gm2(theEnv,(sizeof(char) * theLength));
 
@@ -1638,8 +1889,11 @@ static const char *PrintFormatFlag(
       default:
          WriteString(theEnv,STDERR," Error in format, the conversion character");
          WriteString(theEnv,STDERR," for formatted output is not valid\n");
+         SBDispose(conversionSB);
          return NULL;
      }
+
+   SBDispose(conversionSB);
 
    theString = CreateString(theEnv,printBuffer)->contents;
    rm(theEnv,printBuffer,sizeof(char) * theLength);
@@ -1720,6 +1974,27 @@ void ReadlineFunction(
    return;
   }
 
+/***********************/
+/* GetCharForReadline: */
+/***********************/
+static int GetCharForReadline(
+  Environment *theEnv,
+  const char *logicalName)
+  {
+   int c;
+   
+   c = ReadRouter(theEnv,logicalName);
+   if (c != '\r')
+     { return c; }
+
+   c = ReadRouter(theEnv,logicalName);
+   if (c == '\n')
+     { return c; }
+      
+   UnreadRouter(theEnv,logicalName,c);
+   return '\r';
+  }
+  
 /*************************************************************/
 /* FillBuffer: Read characters from a specified logical name */
 /*   and places them into a buffer until a carriage return   */
@@ -1738,8 +2013,7 @@ static char *FillBuffer(
    /* Read until end of line or eof. */
    /*================================*/
 
-   c = ReadRouter(theEnv,logicalName);
-
+   c = GetCharForReadline(theEnv,logicalName);
    if (c == EOF)
      { return NULL; }
 
@@ -1751,7 +2025,7 @@ static char *FillBuffer(
           (! GetHaltExecution(theEnv)))
      {
       buf = ExpandStringWithChar(theEnv,c,buf,currentPosition,maximumSize,*maximumSize+80);
-      c = ReadRouter(theEnv,logicalName);
+      c = GetCharForReadline(theEnv,logicalName);
      }
 
    /*==================*/

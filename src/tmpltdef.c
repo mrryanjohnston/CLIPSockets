@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/01/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                 DEFTEMPLATE MODULE                  */
    /*******************************************************/
@@ -55,6 +55,14 @@
 /*                                                           */
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
 /*                                                           */
+/*      7.00: Data driven backward chaining.                 */
+/*                                                           */
+/*            Deftemplate inheritance.                       */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
+/*                                                           */
+/*            Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -94,12 +102,14 @@
 /***************************************/
 
    static void                   *AllocateModule(Environment *);
+   static void                    InitModule(Environment *,void *);
    static void                    ReturnModule(Environment *,void *);
    static void                    ReturnDeftemplate(Environment *,Deftemplate *);
    static void                    InitializeDeftemplateModules(Environment *);
    static void                    DeallocateDeftemplateData(Environment *);
    static void                    DestroyDeftemplateAction(Environment *,ConstructHeader *,void *);
    static void                    DestroyDeftemplate(Environment *,Deftemplate *);
+   static Deftemplate            *LookupDeftemplate(Environment *,CLIPSLexeme *);
 #if RUN_TIME
    static void                    RuntimeDeftemplateAction(Environment *,ConstructHeader *,void *);
    static void                    SearchForHashedPatternNodes(Environment *,struct factPatternNode *);
@@ -142,7 +152,8 @@ void InitializeDeftemplates(
                    SetNextConstruct,
                    (IsConstructDeletableFunction *) DeftemplateIsDeletable,
                    (DeleteConstructFunction *) Undeftemplate,
-                   (FreeConstructFunction *) ReturnDeftemplate);
+                   (FreeConstructFunction *) ReturnDeftemplate,
+                   (LookupConstructFunction *) LookupDeftemplate);
 
    InstallPrimitive(theEnv,(EntityRecord *) &DeftemplateData(theEnv)->DeftemplatePtrRecord,DEFTEMPLATE_PTR);
   }
@@ -196,7 +207,6 @@ static void DestroyDeftemplateAction(
    DestroyDeftemplate(theEnv,theDeftemplate);
   }
 
-
 /*************************************************************/
 /* InitializeDeftemplateModules: Initializes the deftemplate */
 /*   construct for use with the defmodule construct.         */
@@ -206,6 +216,7 @@ static void InitializeDeftemplateModules(
   {
    DeftemplateData(theEnv)->DeftemplateModuleIndex = RegisterModuleItem(theEnv,"deftemplate",
                                     AllocateModule,
+                                    InitModule,
                                     ReturnModule,
 #if BLOAD_AND_BSAVE || BLOAD || BLOAD_ONLY
                                     BloadDeftemplateModuleReference,
@@ -231,6 +242,20 @@ static void *AllocateModule(
   Environment *theEnv)
   {
    return((void *) get_struct(theEnv,deftemplateModule));
+  }
+  
+/*************************************************/
+/* InitModule: Initializes a deftemplate module. */
+/*************************************************/
+static void InitModule(
+  Environment *theEnv,
+  void *theItem)
+  {
+   struct deftemplateModule *theModule = (struct deftemplateModule *) theItem;
+   
+   theModule->header.itemCount = 0;
+   theModule->header.hashTableSize = 0;
+   theModule->header.hashTable = NULL;
   }
 
 /*************************************************/
@@ -305,6 +330,7 @@ bool DeftemplateIsDeletable(
 
    if (theDeftemplate->busyCount > 0) return false;
    if (theDeftemplate->patternNetwork != NULL) return false;
+   if (theDeftemplate->goalNetwork != NULL) return false;
 
    return true;
   }
@@ -319,8 +345,11 @@ static void ReturnDeftemplate(
   {
 #if (! BLOAD_ONLY) && (! RUN_TIME)
    struct templateSlot *slotPtr;
+   Deftemplate *lastDeftemplate;
 
    if (theDeftemplate == NULL) return;
+   
+   RemoveConstructFromHashMap(theEnv,&theDeftemplate->header,theDeftemplate->header.whichModule);
 
    /*====================================================================*/
    /* If a template is redefined, then we want to save its debug status. */
@@ -328,7 +357,8 @@ static void ReturnDeftemplate(
 
 #if DEBUGGING_FUNCTIONS
    DeftemplateData(theEnv)->DeletedTemplateDebugFlags = 0;
-   if (theDeftemplate->watch) BitwiseSet(DeftemplateData(theEnv)->DeletedTemplateDebugFlags,0);
+   if (theDeftemplate->watchFacts) BitwiseSet(DeftemplateData(theEnv)->DeletedTemplateDebugFlags,0);
+   if (theDeftemplate->watchGoals) BitwiseSet(DeftemplateData(theEnv)->DeletedTemplateDebugFlags,1);
 #endif
 
    /*===========================================*/
@@ -350,6 +380,24 @@ static void ReturnDeftemplate(
 
    ReturnSlots(theEnv,theDeftemplate->slotList);
 
+   /*=================================*/
+   /* Update the child/sibling links. */
+   /*=================================*/
+   
+   if (theDeftemplate->parent != NULL)
+     {
+      DecrementDeftemplateBusyCount(theEnv,theDeftemplate->parent);
+      if (theDeftemplate->parent->child == theDeftemplate)
+        { theDeftemplate->parent->child = theDeftemplate->sibling; }
+      else
+        {
+         lastDeftemplate = theDeftemplate->parent->child;
+         while (lastDeftemplate->sibling != theDeftemplate)
+           { lastDeftemplate = lastDeftemplate->sibling; }
+         lastDeftemplate->sibling = theDeftemplate->sibling;
+        }
+     }
+
    /*==================================*/
    /* Free storage used by the header. */
    /*==================================*/
@@ -359,7 +407,38 @@ static void ReturnDeftemplate(
    rtn_struct(theEnv,deftemplate,theDeftemplate);
 #endif
   }
+ 
+/******************************************/
+/* LookupDeftemplate: Finds a deftemplate */
+/*   by searching for it in the hashmap.  */
+/******************************************/
+static Deftemplate *LookupDeftemplate(
+  Environment *theEnv,
+  CLIPSLexeme *deftemplateName)
+  {
+   struct defmoduleItemHeaderHM *theModuleItem;
+   size_t theHashValue;
+   struct itemHashTableEntry *theItem;
+   
+   theModuleItem = (struct defmoduleItemHeaderHM *)
+                   GetModuleItem(theEnv,NULL,DeftemplateData(theEnv)->DeftemplateModuleIndex);
+                   
+   if (theModuleItem->itemCount == 0)
+     { return NULL; }
 
+   theHashValue = HashSymbol(deftemplateName->contents,theModuleItem->hashTableSize);
+
+   for (theItem = theModuleItem->hashTable[theHashValue];
+        theItem != NULL;
+        theItem = theItem->next)
+     {
+      if (theItem->item->name == deftemplateName)
+        { return (Deftemplate *) theItem->item; }
+     }
+
+   return NULL;
+  }
+  
 /**************************************************************/
 /* DestroyDeftemplate: Returns the data structures associated */
 /*   with a deftemplate construct to the pool of free memory. */
@@ -385,6 +464,7 @@ static void DestroyDeftemplate(
 #endif
 
    DestroyFactPatternNetwork(theEnv,theDeftemplate->patternNetwork);
+   DestroyFactPatternNetwork(theEnv,theDeftemplate->goalNetwork);
 
    /*==================================*/
    /* Free storage used by the header. */
@@ -468,7 +548,7 @@ Fact *GetNextFactInTemplate(
 /******************************/
 /* CreateDeftemplateScopeMap: */
 /******************************/
-void *CreateDeftemplateScopeMap(
+CLIPSBitMap *CreateDeftemplateScopeMap(
   Environment *theEnv,
   Deftemplate *theDeftemplate)
   {
@@ -478,7 +558,7 @@ void *CreateDeftemplateScopeMap(
    Defmodule *matchModule, *theModule;
    unsigned long moduleID;
    unsigned int count;
-   void *theBitMap;
+   CLIPSBitMap *theBitMap;
 
    templateName = theDeftemplate->header.name->contents;
    matchModule = theDeftemplate->header.whichModule->theModule;
@@ -502,7 +582,7 @@ void *CreateDeftemplateScopeMap(
    theBitMap = AddBitMap(theEnv,scopeMap,scopeMapSize);
    IncrementBitMapCount(theBitMap);
    rm(theEnv,scopeMap,scopeMapSize);
-   return(theBitMap);
+   return theBitMap;
   }
 
 #endif
@@ -526,6 +606,9 @@ static void RuntimeDeftemplateAction(
    
    theDeftemplate->header.env = theEnv;
    SearchForHashedPatternNodes(theEnv,theDeftemplate->patternNetwork);
+   SearchForHashedPatternNodes(theEnv,theDeftemplate->goalNetwork);
+   
+   AddConstructToHashMap(theEnv,&theDeftemplate->header,theDeftemplate->header.whichModule);
   }
 
 /********************************/
@@ -546,6 +629,33 @@ static void SearchForHashedPatternNodes(
       }
    }
 
+/***************************************************/
+/* RuntimeDeftemplateCleanup: Action to be applied */
+/*   to each deftemplate construct when a runtime  */
+/*   destruction occurs.                           */
+/***************************************************/
+static void RuntimeDeftemplateCleanup(
+  Environment *theEnv,
+  ConstructHeader *theConstruct,
+  void *buffer)
+  {
+#if MAC_XCD
+#pragma unused(buffer)
+#endif
+   Deftemplate *theDeftemplate = (Deftemplate *) theConstruct;
+      
+   RemoveConstructFromHashMap(theEnv,&theDeftemplate->header,theDeftemplate->header.whichModule);
+  }
+
+/*****************************/
+/* DeallocateDeftemplateCTC: */
+/*****************************/
+static void DeallocateDeftemplateCTC(
+   Environment *theEnv)
+   {
+    DoForAllConstructs(theEnv,RuntimeDeftemplateCleanup,DeftemplateData(theEnv)->DeftemplateModuleIndex,true,NULL);
+   }
+
 /*********************************/
 /* DeftemplateRunTimeInitialize: */
 /*********************************/
@@ -553,6 +663,7 @@ void DeftemplateRunTimeInitialize(
   Environment *theEnv)
   {
    DoForAllConstructs(theEnv,RuntimeDeftemplateAction,DeftemplateData(theEnv)->DeftemplateModuleIndex,true,NULL);
+   AddEnvironmentCleanupFunction(theEnv,"deftemplatectc",DeallocateDeftemplateCTC,0);
   }
 
 #endif /* RUN_TIME */

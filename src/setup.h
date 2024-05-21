@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.41  05/10/21            */
+   /*             CLIPS Version 7.00  01/08/24            */
    /*                                                     */
    /*                  SETUP HEADER FILE                  */
    /*******************************************************/
@@ -93,6 +93,8 @@
 /*            Changed IBM flag to WINDOWS_OS.                */
 /*                                                           */
 /*      6.41: Added SYSTEM_FUNCTION compiler flag.           */
+/*                                                           */
+/*      7.00: Deftable construct added.                      */
 /*                                                           */
 /*************************************************************/
 
@@ -259,6 +261,15 @@
 
 #ifndef DEFGENERIC_CONSTRUCT
 #define DEFGENERIC_CONSTRUCT 1
+#endif
+
+/****************************************************/
+/* DEFTABLE_CONSTRUCT:  Determines whether deftable */
+/*   construct is included.                         */
+/****************************************************/
+
+#ifndef DEFTABLE_CONSTRUCT
+#define DEFTABLE_CONSTRUCT 1
 #endif
 
 /*****************************************************************/

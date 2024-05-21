@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  11/12/22             */
+   /*            CLIPS Version 6.50  10/13/23             */
    /*                                                     */
    /*          PROCEDURAL FUNCTIONS PARSER MODULE         */
    /*******************************************************/
@@ -483,7 +483,7 @@ static void ReplaceLoopCountVars(
       else if (theExp->argList != NULL)
         {
          if ((theExp->type != FCALL) ? false :
-             (theExp->value == (void *) FindFunction(theEnv,"loop-for-count")))
+             (theExp->functionValue == FindFunction(theEnv,"loop-for-count")))
            ReplaceLoopCountVars(theEnv,loopVar,theExp->argList,depth+1);
          else
            ReplaceLoopCountVars(theEnv,loopVar,theExp->argList,depth);

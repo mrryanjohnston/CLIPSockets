@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 6.50  09/02/23             */
    /*                                                     */
    /*                    SCANNER MODULE                   */
    /*******************************************************/
@@ -36,6 +36,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -216,6 +218,12 @@ void GetToken(
              else
 #endif
              theToken->printForm = AppendStrings(theEnv,"?",theToken->lexemeValue->contents);
+            }
+          else if (inchar == '?')
+            {
+             theToken->tknType = SYMBOL_TOKEN;
+             theToken->lexemeValue = CreateSymbol(theEnv,"??");
+             theToken->printForm = "??";
             }
           else
             {

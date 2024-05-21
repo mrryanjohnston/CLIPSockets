@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  01/23/24            */
    /*                                                     */
    /*           DEFMODULE BSAVE/BLOAD HEADER FILE         */
    /*******************************************************/
@@ -25,6 +25,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -53,6 +55,7 @@ struct bsaveDefmoduleItemHeader
    unsigned long theModule;
    unsigned long firstItem;
    unsigned long lastItem;
+   unsigned long itemCount;
   };
 
 struct bsavePortItem
@@ -69,11 +72,17 @@ struct bsavePortItem
    void                           UpdateDefmoduleItemHeader
                                                  (Environment *,struct bsaveDefmoduleItemHeader *,
                                                   struct defmoduleItemHeader *,size_t,void *);
+   void                           UpdateDefmoduleItemHeaderHM
+                                                 (Environment *,struct bsaveDefmoduleItemHeader *,
+                                                  struct defmoduleItemHeaderHM *,size_t,void *);
 
 #if BLOAD_AND_BSAVE
    void                           AssignBsaveDefmdlItemHdrVals
                                                  (struct bsaveDefmoduleItemHeader *,
                                                   struct defmoduleItemHeader *);
+   void                           AssignBsaveDefmdlItemHdrHMVals
+                                                 (struct bsaveDefmoduleItemHeader *,
+                                                  struct defmoduleItemHeaderHM *);
 #endif
 
 #endif /* RUN_TIME */

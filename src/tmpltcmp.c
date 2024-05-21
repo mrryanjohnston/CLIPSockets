@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/07/24             */
    /*                                                     */
    /*          DEFTEMPLATE CONSTRUCTS-TO-C MODULE         */
    /*******************************************************/
@@ -43,6 +43,12 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Data driven backward chaining.                 */
+/*                                                           */
+/*            Deftemplate inheritance.                       */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
 /*                                                           */
 /*************************************************************/
 
@@ -288,6 +294,19 @@ static void DeftemplateToCode(
                                   ConstructPrefix(DeftemplateData(theEnv)->DeftemplateCodeItem));
    fprintf(theFile,",");
 
+   /*=============================*/
+   /* Parent, child, and sibling. */
+   /*=============================*/
+   
+   DeftemplateCConstructReference(theEnv,theFile,theTemplate->parent,imageID,maxIndices);
+   fprintf(theFile,",");
+
+   DeftemplateCConstructReference(theEnv,theFile,theTemplate->child,imageID,maxIndices);
+   fprintf(theFile,",");
+
+   DeftemplateCConstructReference(theEnv,theFile,theTemplate->sibling,imageID,maxIndices);
+   fprintf(theFile,",");
+
    /*===========*/
    /* Slot List */
    /*===========*/
@@ -307,16 +326,23 @@ static void DeftemplateToCode(
    /* Number of Slots, and Busy Count.         */
    /*==========================================*/
 
-   fprintf(theFile,"%d,0,0,%d,%ld,",theTemplate->implied,theTemplate->numberOfSlots,theTemplate->busyCount);
+   fprintf(theFile,"%d,0,0,0,%d,%ld,",theTemplate->implied,theTemplate->numberOfSlots,theTemplate->busyCount);
 
-   /*=================*/
-   /* Pattern Network */
-   /*=================*/
+   /*==========================*/
+   /* Pattern and Goal Network */
+   /*==========================*/
 
    if (theTemplate->patternNetwork == NULL)
      { fprintf(theFile,"NULL"); }
    else
      { FactPatternNodeReference(theEnv,theTemplate->patternNetwork,theFile,imageID,maxIndices); }
+
+   fprintf(theFile,",");
+
+   if (theTemplate->goalNetwork == NULL)
+     { fprintf(theFile,"NULL"); }
+   else
+     { FactPatternNodeReference(theEnv,theTemplate->goalNetwork,theFile,imageID,maxIndices); }
 
    /*============================================*/
    /* Print the factList and lastFact references */
@@ -349,8 +375,9 @@ static void SlotToCode(
    /* Multislot and Default Flags */
    /*=============================*/
 
-   fprintf(theFile,",%d,%d,%d,%d,",theSlot->multislot,theSlot->noDefault,
-                                   theSlot->defaultPresent,theSlot->defaultDynamic);
+   fprintf(theFile,",%d,%d,%d,%d,%d,",theSlot->multislot,theSlot->noDefault,
+                                   theSlot->defaultPresent,theSlot->defaultDynamic,
+                                   theSlot->reactive);
 
    /*=============*/
    /* Constraints */

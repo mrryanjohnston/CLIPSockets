@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  02/19/20             */
+   /*            CLIPS Version 6.50  10/13/23             */
    /*                                                     */
    /*               EXTERNAL FUNCTION MODULE              */
    /*******************************************************/
@@ -50,6 +50,8 @@
 /*            UDF redesign.                                  */
 /*                                                           */
 /*            Eval support for run time and bload only.      */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -687,6 +689,17 @@ bool UDFNextArgument(
         return false;
         break;
 
+      case UQV_TYPE:
+        returnValue->value = CreateSymbol(theEnv,"??");
+        if (expectedType & SYMBOL_BIT) return true;
+        ExpectedTypeError0(theEnv,UDFContextFunctionName(context),argumentPosition);
+        PrintTypesString(theEnv,STDERR,expectedType,true);
+        SetHaltExecution(theEnv,true);
+        SetEvaluationError(theEnv,true);
+        AssignErrorValue(context);
+        return false;
+        break;
+
       case SYMBOL_TYPE:
         returnValue->value = argPtr->value;
         if (expectedType & SYMBOL_BIT) return true;
@@ -757,6 +770,19 @@ bool UDFNextArgument(
 
       case FLOAT_TYPE:
         if (expectedType & FLOAT_BIT)
+          {
+           if (EvaluationData(theEnv)->EvaluationError)
+             {
+              AssignErrorValue(context);
+              return false;
+             }
+           else return true;
+          }
+        break;
+
+      case UQV_TYPE:
+        returnValue->value = CreateSymbol(theEnv,"??");
+        if (expectedType & SYMBOL_BIT)
           {
            if (EvaluationData(theEnv)->EvaluationError)
              {

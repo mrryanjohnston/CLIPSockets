@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  11/17/17            */
+   /*             CLIPS Version 7.00  01/05/24            */
    /*                                                     */
    /*                MULTIFIELD HEADER FILE               */
    /*******************************************************/
@@ -56,6 +56,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_multifld
@@ -94,8 +96,11 @@ struct multifieldBuilder
    void                           StoreInMultifield(Environment *,UDFValue *,Expression *,bool);
    Multifield                    *CopyMultifield(Environment *,Multifield *);
    bool                           MultifieldsEqual(Multifield *,Multifield *);
+   bool                           ValueArraysEqual(CLIPSValue [],size_t,CLIPSValue [],size_t);
    Multifield                    *DOToMultifield(Environment *,UDFValue *);
    size_t                         HashMultifield(Multifield *,size_t);
+   size_t                         HashCLIPSValue(CLIPSValue *,size_t,size_t);
+   size_t                         HashValueArray(CLIPSValue [],size_t,size_t);
    Multifield                    *GetMultifieldList(Environment *);
    CLIPSLexeme                   *ImplodeMultifield(Environment *,UDFValue *);
    void                           EphemerateMultifield(Environment *,Multifield *);

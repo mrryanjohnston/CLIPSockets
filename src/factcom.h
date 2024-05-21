@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  05/03/19            */
+   /*             CLIPS Version 7.00  12/31/23            */
    /*                                                     */
    /*               FACT COMMANDS HEADER FILE             */
    /*******************************************************/
@@ -53,6 +53,10 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_factcom
@@ -70,10 +74,13 @@
    void                           RetractCommand(Environment *,UDFContext *,UDFValue *);
    void                           AssertStringFunction(Environment *,UDFContext *,UDFValue *);
    void                           FactsCommand(Environment *,UDFContext *,UDFValue *);
+   void                           GoalsCommand(Environment *,UDFContext *,UDFValue *);
    void                           Facts(Environment *,const char *,Defmodule *,long long,long long,long long);
+   void                           Goals(Environment *,const char *,Defmodule *,long long,long long,long long);
    void                           SetFactDuplicationCommand(Environment *,UDFContext *,UDFValue *);
    void                           GetFactDuplicationCommand(Environment *,UDFContext *,UDFValue *);
    void                           FactIndexFunction(Environment *,UDFContext *,UDFValue *);
+   void                           FactsGoalsDriver(Environment *,const char *,Defmodule *,long long,long long,long long,bool);
 
 #endif /* DEFTEMPLATE_CONSTRUCT */
 

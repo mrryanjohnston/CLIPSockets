@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/02/18             */
+   /*            CLIPS Version 6.50  09/14/23             */
    /*                                                     */
    /*          DEFTEMPLATE BASIC COMMANDS MODULE          */
    /*******************************************************/
@@ -56,6 +56,12 @@
 /*                                                           */
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
+/*                                                           */
+/*      6.50: Changed the function name DeftemplateGetWatch  */
+/*            to DeftemplateGetWatchFacts.                   */
+/*                                                           */
+/*            Added functions DeftemplateGetWatchGoals and   */
+/*            DeftemplateSetWatchGoals.                      */
 /*                                                           */
 /*************************************************************/
 
@@ -261,25 +267,46 @@ void ListDeftemplates(
    ListConstruct(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,logicalName,theModule);
   }
 
-/********************************************************/
-/* DeftemplateGetWatch: C access routine for retrieving */
-/*   the current watch value of a deftemplate.          */
-/********************************************************/
-bool DeftemplateGetWatch(
+/*************************************************************/
+/* DeftemplateGetWatchFacts: C access routine for retrieving */
+/*   the current watch facts value of a deftemplate.         */
+/*************************************************************/
+bool DeftemplateGetWatchFacts(
   Deftemplate *theTemplate)
   {
-   return theTemplate->watch;
+   return theTemplate->watchFacts;
   }
 
-/******************************************************/
-/* DeftemplateSetWatch:  C access routine for setting */
-/*   the current watch value of a deftemplate.        */
-/******************************************************/
-void DeftemplateSetWatch(
+/***********************************************************/
+/* DeftemplateSetWatchFacts:  C access routine for setting */
+/*   the current watch facts value of a deftemplate.       */
+/***********************************************************/
+void DeftemplateSetWatchFacts(
   Deftemplate *theTemplate,
   bool newState)
   {
-   theTemplate->watch = newState;
+   theTemplate->watchFacts = newState;
+  }
+
+/*************************************************************/
+/* DeftemplateGetWatchGoals: C access routine for retrieving */
+/*   the current watch goals value of a deftemplate.         */
+/*************************************************************/
+bool DeftemplateGetWatchGoals(
+  Deftemplate *theTemplate)
+  {
+   return theTemplate->watchGoals;
+  }
+
+/***********************************************************/
+/* DeftemplateSetWatchGoals:  C access routine for setting */
+/*   the current watch goals value of a deftemplate.       */
+/***********************************************************/
+void DeftemplateSetWatchGoals(
+  Deftemplate *theTemplate,
+  bool newState)
+  {
+   theTemplate->watchGoals = newState;
   }
 
 /**********************************************************/
@@ -296,9 +323,18 @@ bool DeftemplateWatchAccess(
 #pragma unused(code)
 #endif
 
-   return ConstructSetWatchAccess(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,newState,argExprs,
-                                  (ConstructGetWatchFunction *) DeftemplateGetWatch,
-                                  (ConstructSetWatchFunction *) DeftemplateSetWatch);
+   if (code == 0)
+     {
+      return ConstructSetWatchAccess(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,newState,argExprs,
+                                     (ConstructGetWatchFunction *) DeftemplateGetWatchFacts,
+                                     (ConstructSetWatchFunction *) DeftemplateSetWatchFacts);
+     }
+   else
+     {
+      return ConstructSetWatchAccess(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,newState,argExprs,
+                                     (ConstructGetWatchFunction *) DeftemplateGetWatchGoals,
+                                     (ConstructSetWatchFunction *) DeftemplateSetWatchGoals);
+     }
   }
 
 /*************************************************************************/
@@ -315,9 +351,18 @@ bool DeftemplateWatchPrint(
 #pragma unused(code)
 #endif
 
-   return ConstructPrintWatchAccess(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,logName,argExprs,
-                                    (ConstructGetWatchFunction *) DeftemplateGetWatch,
-                                    (ConstructSetWatchFunction *) DeftemplateSetWatch);
+   if (code == 0)
+     {
+      return ConstructPrintWatchAccess(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,logName,argExprs,
+                                       (ConstructGetWatchFunction *) DeftemplateGetWatchFacts,
+                                       (ConstructSetWatchFunction *) DeftemplateSetWatchFacts);
+     }
+   else
+     {
+      return ConstructPrintWatchAccess(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,logName,argExprs,
+                                       (ConstructGetWatchFunction *) DeftemplateGetWatchGoals,
+                                       (ConstructSetWatchFunction *) DeftemplateSetWatchGoals);
+     }
   }
 
 #endif /* DEBUGGING_FUNCTIONS */

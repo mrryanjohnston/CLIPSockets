@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  04/08/20             */
+   /*            CLIPS Version 7.00  01/13/24             */
    /*                                                     */
    /*                   DEVELOPER MODULE                  */
    /*******************************************************/
@@ -46,6 +46,10 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -65,6 +69,7 @@
 #if DEFRULE_CONSTRUCT && DEFTEMPLATE_CONSTRUCT
 #include "tmpltdef.h"
 #include "factbld.h"
+#include "factfun.h"
 #include "facthsh.h"
 #endif
 
@@ -85,6 +90,10 @@
    static void                    PrintOPNLevel(Environment *,OBJECT_PATTERN_NODE *,char *,int);
 #endif
 
+#if DEFRULE_CONSTRUCT && DEFTEMPLATE_CONSTRUCT
+   static void                    ShowFactPatternNetworkDriver(Environment *,struct factPatternNode *);
+#endif
+
 /**************************************************/
 /* DeveloperCommands: Sets up developer commands. */
 /**************************************************/
@@ -99,7 +108,9 @@ void DeveloperCommands(
    AddUDF(theEnv,"validate-fact-integrity","b", 0,0,NULL,ValidateFactIntegrityCommand,"ValidateFactIntegrityCommand",NULL);
 
    AddUDF(theEnv,"show-fpn","v",1,1,"y",ShowFactPatternNetworkCommand,"ShowFactPatternNetworkCommand",NULL);
+   AddUDF(theEnv,"show-gpn","v",1,1,"y",ShowGoalPatternNetworkCommand,"ShowGoalPatternNetworkCommand",NULL);
    AddUDF(theEnv,"show-fht","v",0,0,NULL,ShowFactHashTableCommand,"ShowFactHashTableCommand",NULL);
+   AddUDF(theEnv,"fact-stop-node-matches","v",1,1,"lf",FactStopNodeMatchesCommand,"FactStopNodeMatchesCommand",NULL);
 #endif
 
 #if DEFRULE_CONSTRUCT && OBJECT_SYSTEM
@@ -368,10 +379,8 @@ void ShowFactPatternNetworkCommand(
   UDFContext *context,
   UDFValue *returnValue)
   {
-   struct factPatternNode *patternPtr;
    Deftemplate *theDeftemplate;
    const char *theName;
-   int depth = 0, i;
 
    theName = GetConstructName(context,"show-fpn","template name");
    if (theName == NULL) return;
@@ -379,10 +388,46 @@ void ShowFactPatternNetworkCommand(
    theDeftemplate = FindDeftemplate(theEnv,theName);
    if (theDeftemplate == NULL) return;
 
-   patternPtr = theDeftemplate->patternNetwork;
+   ShowFactPatternNetworkDriver(theEnv,theDeftemplate->patternNetwork);
+  }
+  
+/*************************************************************/
+/* ShowGoalPatternNetworkCommand: Command for displaying the */
+/*   goal pattern network for a specified deftemplate.       */
+/*************************************************************/
+void ShowGoalPatternNetworkCommand(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   Deftemplate *theDeftemplate;
+   const char *theName;
+
+   theName = GetConstructName(context,"show-gpn","template name");
+   if (theName == NULL) return;
+
+   theDeftemplate = FindDeftemplate(theEnv,theName);
+   if (theDeftemplate == NULL) return;
+
+   ShowFactPatternNetworkDriver(theEnv,theDeftemplate->goalNetwork);
+  }
+  
+/************************************************/
+/* ShowFactPatternNetworkDriver: Driver routine */
+/*   for show-fpn and show-fgn commands.        */
+/************************************************/
+static void ShowFactPatternNetworkDriver(
+  Environment *theEnv,
+  struct factPatternNode *rootNode)
+  {
+   struct factPatternNode *patternPtr;
+   int depth = 0, i;
+
+   patternPtr = rootNode;
    while (patternPtr != NULL)
      {
       for (i = 0; i < depth; i++) WriteString(theEnv,STDOUT," ");
+      
       if (patternPtr->header.singlefieldNode) WriteString(theEnv,STDOUT,"SF   ");
       else if (patternPtr->header.multifieldNode)
         {
@@ -392,18 +437,27 @@ void ShowFactPatternNetworkCommand(
          PrintUnsignedInteger(theEnv,STDOUT,patternPtr->leaveFields);
          WriteString(theEnv,STDOUT," ");
         }
+      else if (patternPtr->header.stopNode)
+        { WriteString(theEnv,STDOUT,"PM   "); }
 
       WriteString(theEnv,STDOUT,"Slot: ");
-
       PrintUnsignedInteger(theEnv,STDOUT,patternPtr->whichSlot);
+      
       WriteString(theEnv,STDOUT," Field: ");
       PrintUnsignedInteger(theEnv,STDOUT,patternPtr->whichField);
+ 
       WriteString(theEnv,STDOUT," Expression: ");
       if (patternPtr->networkTest == NULL) WriteString(theEnv,STDOUT,"None");
       else PrintExpression(theEnv,STDOUT,patternPtr->networkTest);
+ 
       WriteString(theEnv,STDOUT," RightHash: ");
       if (patternPtr->header.rightHash == NULL) WriteString(theEnv,STDOUT,"None");
       else PrintExpression(theEnv,STDOUT,patternPtr->header.rightHash);
+
+      WriteString(theEnv,STDOUT," Filter: ");
+      if (patternPtr->modifySlots == NULL) WriteString(theEnv,STDOUT,"None");
+      else PrintAtom(theEnv,STDOUT,BITMAP_TYPE,patternPtr->modifySlots);
+      
       WriteString(theEnv,STDOUT,"\n");
 
       if (patternPtr->nextLevel == NULL)
@@ -421,6 +475,37 @@ void ShowFactPatternNetworkCommand(
          patternPtr = patternPtr->nextLevel;
          depth++;
         }
+     }
+  }
+  
+/**************************************************/
+/* FactStopNodeMatchesCommand: H/L access routine */
+/*   for the fact-stop-node-matches function.     */
+/**************************************************/
+void FactStopNodeMatchesCommand(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   Fact *theFact;
+   struct patternMatch *theMatch;
+   struct factPatternNode *theNode;
+
+   theFact = GetFactAddressOrIndexArgument(context,true);
+
+   if (theFact == NULL)
+     { return; }
+     
+   for (theMatch = theFact->list;
+        theMatch != NULL;
+        theMatch = theMatch->next)
+     {
+      theNode = (struct factPatternNode *) theMatch->matchingPattern;
+      
+      WriteString(theEnv,STDOUT," Filter: ");
+      if (theNode->modifySlots == NULL) WriteString(theEnv,STDOUT,"None");
+      else PrintAtom(theEnv,STDOUT,BITMAP_TYPE,theNode->modifySlots);
+      WriteString(theEnv,STDOUT,"\n");
      }
   }
 

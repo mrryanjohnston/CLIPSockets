@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  08/25/16            */
+   /*             CLIPS Version 6.50  09/14/23            */
    /*                                                     */
    /*       DEFTEMPLATE BASIC COMMANDS HEADER FILE        */
    /*******************************************************/
@@ -54,6 +54,12 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      6.50: Changed the function name DeftemplateGetWatch  */
+/*            to DeftemplateGetWatchFacts.                   */
+/*                                                           */
+/*            Added functions DeftemplateGetWatchGoals and   */
+/*            DeftemplateSetWatchGoals.                      */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_tmpltbsc
@@ -76,8 +82,10 @@
    bool                           PPDeftemplate(Environment *,const char *,const char *);
    void                           ListDeftemplatesCommand(Environment *,UDFContext *,UDFValue *);
    void                           ListDeftemplates(Environment *,const char *,Defmodule *);
-   bool                           DeftemplateGetWatch(Deftemplate *);
-   void                           DeftemplateSetWatch(Deftemplate *,bool);
+   bool                           DeftemplateGetWatchFacts(Deftemplate *);
+   void                           DeftemplateSetWatchFacts(Deftemplate *,bool);
+   bool                           DeftemplateGetWatchGoals(Deftemplate *);
+   void                           DeftemplateSetWatchGoals(Deftemplate *,bool);
    bool                           DeftemplateWatchAccess(Environment *,int,bool,struct expr *);
    bool                           DeftemplateWatchPrint(Environment *,const char *,int,struct expr *);
 #endif

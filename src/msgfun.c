@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  06/22/18             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*              OBJECT MESSAGE FUNCTIONS               */
    /*******************************************************/
@@ -137,7 +137,7 @@ bool CheckHandlerArgCount(
 
    hnd = MessageHandlerData(theEnv)->CurrentCore->hnd;
    if ((hnd->maxParams == PARAMETERS_UNBOUNDED) ?
-          (ProceduralPrimitiveData(theEnv)->ProcParamArraySize < hnd->minParams) : // TBD
+          (ProceduralPrimitiveData(theEnv)->ProcParamArraySize < hnd->minParams) :
           (ProceduralPrimitiveData(theEnv)->ProcParamArraySize != hnd->minParams))
      {
       SetEvaluationError(theEnv,true);

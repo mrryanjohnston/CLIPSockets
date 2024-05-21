@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  02/03/21             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                  CLASS COMMANDS MODULE              */
    /*******************************************************/
@@ -106,7 +106,7 @@
   SIDE EFFECTS : None
   NOTES        : None
  ******************************************************************/
-Defclass *FindDefclass( // TBD Needs to look in imported
+Defclass *FindDefclass(
   Environment *theEnv,
   const char *classAndModuleName)
   {

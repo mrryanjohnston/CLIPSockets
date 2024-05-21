@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  12/26/23            */
    /*                                                     */
    /*                RETRACT HEADER FILE                  */
    /*******************************************************/
@@ -41,6 +41,8 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      7.00: Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_retract
@@ -60,6 +62,7 @@ struct rdriveinfo
   };
 
 void                           NetworkRetract(Environment *,struct patternMatch *);
+void                           NetworkRetractMatch(Environment *,struct patternMatch *);
 void                           ReturnPartialMatch(Environment *,struct partialMatch *);
 void                           DestroyPartialMatch(Environment *,struct partialMatch *);
 void                           FlushGarbagePartialMatches(Environment *);

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  02/06/24             */
    /*                                                     */
    /*                PRINT UTILITY MODULE                 */
    /*******************************************************/
@@ -69,6 +69,10 @@
 /*                                                           */
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
 /*                                                           */
 /*************************************************************/
 
@@ -159,6 +163,8 @@ void PrintAtom(
   void *value)
   {
    CLIPSExternalAddress *theAddress;
+   CLIPSBitMap *theBitMap;
+   unsigned i;
    char buffer[20];
 
    switch (type)
@@ -168,6 +174,12 @@ void PrintAtom(
         break;
       case INTEGER_TYPE:
         WriteInteger(theEnv,logicalName,((CLIPSInteger *) value)->contents);
+        break;
+      case QUANTITY_TYPE:
+        WriteInteger(theEnv,logicalName,((CLIPSInteger *) value)->contents);
+        break;
+      case UQV_TYPE:
+        WriteString(theEnv,logicalName,"??");
         break;
       case SYMBOL_TYPE:
         WriteString(theEnv,logicalName,((CLIPSLexeme *) value)->contents);
@@ -215,6 +227,15 @@ void PrintAtom(
 #endif
 
       case VOID_TYPE:
+        break;
+        
+      case BITMAP_TYPE:
+        theBitMap = (CLIPSBitMap *) value;
+        for (i = 0; i < (theBitMap->size * BITS_PER_BYTE); i++)
+          {
+           if (TestBitMap(theBitMap->contents,i)) WriteString(theEnv,logicalName,"1");
+           else WriteString(theEnv,logicalName,"0");
+          }
         break;
 
       default:

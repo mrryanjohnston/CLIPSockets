@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  01/03/24             */
    /*                                                     */
    /*             DEFTEMPLATE FUNCTIONS MODULE            */
    /*******************************************************/
@@ -99,6 +99,8 @@
 /*            Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      7.00: Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -115,6 +117,7 @@
 #include "default.h"
 #include "envrnmnt.h"
 #include "exprnpsr.h"
+#include "factmch.h"
 #include "factmngr.h"
 #include "factrhs.h"
 #include "memalloc.h"
@@ -124,6 +127,7 @@
 #include "prcdrpsr.h"
 #include "prntutil.h"
 #include "reorder.h"
+#include "retract.h"
 #include "router.h"
 #include "scanner.h"
 #include "symbol.h"
@@ -143,6 +147,7 @@
    static CLIPSLexeme            *CheckDeftemplateAndSlotArguments(UDFContext *,Deftemplate **);
    static void                    FreeTemplateValueArray(Environment *,CLIPSValue *,Deftemplate *);
    static struct expr            *ModAndDupParse(Environment *,struct expr *,const char *,const char *);
+   static void                    ModifyUpdateDriver(Environment *,UDFContext *,UDFValue *,bool);
 #if (! RUN_TIME) && (! BLOAD_ONLY)
    static CLIPSLexeme            *FindTemplateForFactAddress(CLIPSLexeme *,struct lhsParseNode *);
 #endif
@@ -155,6 +160,7 @@ void DeftemplateFunctions(
   {
 #if ! RUN_TIME
    AddUDF(theEnv,"modify","bf",0,UNBOUNDED,"*;lf",ModifyCommand,"ModifyCommand",NULL);
+   AddUDF(theEnv,"update","bf",0,UNBOUNDED,"*;lf",UpdateCommand,"UpdateCommand",NULL);
    AddUDF(theEnv,"duplicate","bf",0,UNBOUNDED,"*;lf",DuplicateCommand,"DuplicateCommand",NULL);
 
    AddUDF(theEnv,"deftemplate-slot-names","bm",1,1,"y",DeftemplateSlotNamesFunction,"DeftemplateSlotNamesFunction",NULL);
@@ -174,6 +180,7 @@ void DeftemplateFunctions(
    AddUDF(theEnv,"deftemplate-slot-facet-value","*",3,3,"y",DeftemplateSlotFacetValueFunction,"DeftemplateSlotFacetValueFunction",NULL);
 
    FuncSeqOvlFlags(theEnv,"modify",false,false);
+   FuncSeqOvlFlags(theEnv,"update",false,false);
    FuncSeqOvlFlags(theEnv,"duplicate",false,false);
 #else
 #if MAC_XCD
@@ -182,6 +189,7 @@ void DeftemplateFunctions(
 #endif
 
    AddFunctionParser(theEnv,"modify",ModifyParse);
+   AddFunctionParser(theEnv,"update",UpdateParse);
    AddFunctionParser(theEnv,"duplicate",DuplicateParse);
   }
 
@@ -214,6 +222,29 @@ void ModifyCommand(
   UDFContext *context,
   UDFValue *returnValue)
   {
+   ModifyUpdateDriver(theEnv,context,returnValue,false);
+  }
+
+/*************************************************************/
+/* UpdateCommand: H/L access routine for the update command. */
+/*************************************************************/
+void UpdateCommand(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   ModifyUpdateDriver(theEnv,context,returnValue,true);
+  }
+
+/**********************************************************************/
+/* ModifyUpdateDriver: Driver routine for the modify/update commands. */
+/**********************************************************************/
+static void ModifyUpdateDriver(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue,
+  bool applyReactivity)
+  {
    long long factNum;
    Fact *oldFact;
    struct expr *testPtr;
@@ -225,6 +256,7 @@ void ModifyCommand(
    int replacementCount = 0;
    bool found;
    CLIPSValue *theValueArray;
+   CLIPSBitMap *theBitMap;
    char *changeMap;
 
    /*===================================================*/
@@ -497,23 +529,43 @@ void ModifyCommand(
       returnValue->value = oldFact;
       return;
      }
-    
+     
+   /*====================================*/
+   /* Copy the unchanged values from the */
+   /* old fact to the value array.       */
+   /*====================================*/
+   
+   for (i = 0; i < oldFact->theProposition.length; i++)
+     {
+      if (! TestBitMap(changeMap,i))
+        { theValueArray[i].value = oldFact->theProposition.contents[i].value; }
+     }
+
    /*=========================================*/
    /* Replace the old values with the values. */
    /*=========================================*/
    
-   if ((oldFact = ReplaceFact(theEnv,oldFact,theValueArray,changeMap)) != NULL)
+   if (changeMap != NULL)
+     {
+      theBitMap = AddBitMap(theEnv,changeMap,CountToBitMapSize(templatePtr->numberOfSlots));
+      IncrementBitMapReferenceCount(theEnv,theBitMap);
+      rm(theEnv,(void *) changeMap,CountToBitMapSize(templatePtr->numberOfSlots));
+     }
+   else
+     { theBitMap = NULL; }
+
+   if ((oldFact = ReplaceFact(theEnv,oldFact,theValueArray,theBitMap,applyReactivity)) != NULL)
      { returnValue->factValue = oldFact; }
 
+   if (theBitMap != NULL)
+     { DecrementBitMapReferenceCount(theEnv,theBitMap); }
+     
    /*=============================*/
    /* Free the data object array. */
    /*=============================*/
 
    if (theValueArray != NULL)
      { rm(theEnv,theValueArray,sizeof(void *) * templatePtr->numberOfSlots); }
-
-   if (changeMap != NULL)
-     { rm(theEnv,(void *) changeMap,CountToBitMapSize(templatePtr->numberOfSlots)); }
 
    return;
   }
@@ -525,11 +577,13 @@ Fact *ReplaceFact(
   Environment *theEnv,
   Fact *oldFact,
   CLIPSValue *theValueArray,
-  char *changeMap)
+  CLIPSBitMap *changeMap,
+  bool applyReactivity)
   {
    size_t i;
    Fact *theFact;
    Fact *factListPosition, *templatePosition;
+   size_t factHash;
    
    /*===============================================*/
    /* Call registered modify notification functions */
@@ -543,8 +597,22 @@ Fact *ReplaceFact(
       for (theModifyFunction = FactData(theEnv)->ListOfModifyFunctions;
            theModifyFunction != NULL;
            theModifyFunction = theModifyFunction->next)
+        { (*theModifyFunction->func)(theEnv,oldFact,NULL,theModifyFunction->context); }
+     }
+
+   /*===============================================================*/
+   /* If fact duplication isn't allowed, then treat a modify/update */
+   /* command that creates a duplicate fact as just a retract.      */
+   /*===============================================================*/
+
+   if (! FactData(theEnv)->FactDuplication)
+     {
+      factHash = HashValueArrayFact(oldFact->whichDeftemplate,theValueArray);
+      theFact = FactExistsValueArray(theEnv,oldFact->whichDeftemplate,theValueArray,factHash);
+      if (theFact != NULL)
         {
-         (*theModifyFunction->func)(theEnv,oldFact,NULL,theModifyFunction->context);
+         RetractDriver(theEnv,oldFact,false,NULL,false);
+         return theFact;
         }
      }
 
@@ -561,8 +629,12 @@ Fact *ReplaceFact(
    /* Retract the fact. */
    /*===================*/
 
-   RetractDriver(theEnv,oldFact,true,changeMap);
+   if (applyReactivity)
+     { FactData(theEnv)->CurrentChangeMap = changeMap; }
+   RetractDriver(theEnv,oldFact,true,changeMap,applyReactivity);
    oldFact->garbage = false;
+   if (applyReactivity)
+     { FactData(theEnv)->CurrentChangeMap = NULL; }
 
    /*======================================*/
    /* Copy the new values to the old fact. */
@@ -570,7 +642,7 @@ Fact *ReplaceFact(
 
    for (i = 0; i < oldFact->theProposition.length; i++)
      {
-      if (theValueArray[i].voidValue != VoidConstant(theEnv))
+      if (TestBitMap(changeMap->contents,i))
         {
          AtomDeinstall(theEnv,oldFact->theProposition.contents[i].header->type,oldFact->theProposition.contents[i].value);
          
@@ -593,7 +665,7 @@ Fact *ReplaceFact(
    /* Assert the new fact. */
    /*======================*/
 
-   theFact = AssertDriver(oldFact,oldFact->factIndex,factListPosition,templatePosition,changeMap);
+   theFact = AssertDriver(oldFact,oldFact->factIndex,factListPosition,templatePosition,changeMap,applyReactivity);
 
    /*===============================================*/
    /* Call registered modify notification functions */
@@ -613,6 +685,49 @@ Fact *ReplaceFact(
      }
      
    return theFact;
+  }
+
+/*******************************************************/
+/* NetworkRetractReplaceFact: Retracts a modified fact */
+/*   from the pattern and join networks only from the  */
+/*   the patterns which reference the changed slots.   */
+/*******************************************************/
+struct patternMatch *NetworkRetractReplaceFact(
+  Environment *theEnv,
+  struct patternMatch *listOfMatchedPatterns,
+  CLIPSBitMap *changeMap,
+  bool applyReactivity)
+  {
+   struct patternMatch *tempMatch, *nextMatch, *first, *last;
+   struct factPatternNode *theNode;
+   
+   first = listOfMatchedPatterns;
+   last = NULL;
+   
+   tempMatch = listOfMatchedPatterns;
+   while (tempMatch != NULL)
+     {
+      nextMatch = tempMatch->next;
+
+      theNode = (struct factPatternNode *) tempMatch->matchingPattern;
+        
+      if (NodeActivatedByChanges(theEnv,theNode,changeMap,applyReactivity))
+        {
+         if (first == tempMatch)
+           { first = nextMatch; }
+           
+         if (last != NULL)
+           { last->next = nextMatch; }
+           
+         NetworkRetractMatch(theEnv,tempMatch);
+        }
+      else
+        { last = tempMatch; }
+
+      tempMatch = nextMatch;
+     }
+     
+   return first;
   }
 
 /*******************************************************************/
@@ -878,7 +993,7 @@ void DuplicateCommand(
    /* Perform the duplicate action. */
    /*===============================*/
 
-   theFact = AssertDriver(newFact,0,NULL,NULL,NULL);
+   theFact = AssertDriver(newFact,0,NULL,NULL,NULL,false);
 
    /*========================================*/
    /* The asserted fact is the return value. */
@@ -2128,7 +2243,7 @@ bool UpdateModifyDuplicate(
   Environment *theEnv,
   struct expr *top,
   const char *name,
-  void *vTheLHS)
+  struct lhsParseNode *theLHS)
   {
    struct expr *functionArgs, *tempArg;
    CLIPSLexeme *templateName;
@@ -2145,8 +2260,7 @@ bool UpdateModifyDuplicate(
      {
       if (SearchParsedBindNames(theEnv,functionArgs->lexemeValue) != 0)
         { return true; }
-      templateName = FindTemplateForFactAddress(functionArgs->lexemeValue,
-                                                (struct lhsParseNode *) vTheLHS);
+      templateName = FindTemplateForFactAddress(functionArgs->lexemeValue,theLHS);
       if (templateName == NULL) return true;
      }
    else
@@ -2299,6 +2413,17 @@ struct expr *ModifyParse(
    return ModAndDupParse(theEnv,top,logicalName,"modify");
   }
 
+/*******************************************/
+/* UpdateParse: Parses the update command. */
+/*******************************************/
+struct expr *UpdateParse(
+  Environment *theEnv,
+  struct expr *top,
+  const char *logicalName)
+  {
+   return ModAndDupParse(theEnv,top,logicalName,"update");
+  }
+
 /*************************************************/
 /* DuplicateParse: Parses the duplicate command. */
 /*************************************************/
@@ -2310,9 +2435,9 @@ struct expr *DuplicateParse(
    return ModAndDupParse(theEnv,top,logicalName,"duplicate");
   }
 
-/*************************************************************/
-/* ModAndDupParse: Parses the modify and duplicate commands. */
-/*************************************************************/
+/**********************************************************************/
+/* ModAndDupParse: Parses the modify, update, and duplicate commands. */
+/**********************************************************************/
 static struct expr *ModAndDupParse(
   Environment *theEnv,
   struct expr *top,
@@ -2373,7 +2498,7 @@ static struct expr *ModAndDupParse(
 
       if (theToken.tknType != LEFT_PARENTHESIS_TOKEN)
         {
-         SyntaxErrorMessage(theEnv,"duplicate/modify function");
+         SyntaxErrorMessage(theEnv,"duplicate/modify/update function");
          ReturnExpression(theEnv,top);
          return NULL;
         }
@@ -2385,7 +2510,7 @@ static struct expr *ModAndDupParse(
       GetToken(theEnv,logicalName,&theToken);
       if (theToken.tknType != SYMBOL_TOKEN)
         {
-         SyntaxErrorMessage(theEnv,"duplicate/modify function");
+         SyntaxErrorMessage(theEnv,"duplicate/modify/update function");
          ReturnExpression(theEnv,top);
          return NULL;
         }
@@ -2449,7 +2574,7 @@ static struct expr *ModAndDupParse(
 
       if (theToken.tknType != RIGHT_PARENTHESIS_TOKEN)
         {
-         SyntaxErrorMessage(theEnv,"duplicate/modify function");
+         SyntaxErrorMessage(theEnv,"duplicate/modify/update function");
          ReturnExpression(theEnv,top);
          ReturnExpression(theEnv,firstField);
          return NULL;

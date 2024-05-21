@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -56,6 +56,8 @@
 /*                                                           */
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -151,6 +153,20 @@ void *AllocateDefgenericModule(
   {
    return (void *) get_struct(theEnv,defgenericModule);
   }
+  
+/**********************************************************/
+/* InitDefgenericModule: Initializes a defgeneric module. */
+/**********************************************************/
+void InitDefgenericModule(
+  Environment *theEnv,
+  void *theItem)
+  {
+   struct defgenericModule *theModule = (struct defgenericModule *) theItem;
+   
+   theModule->header.itemCount = 0;
+   theModule->header.hashTableSize = 0;
+   theModule->header.hashTable = NULL;
+  }
 
 /***************************************************
   NAME         : FreeDefgenericModule
@@ -177,7 +193,7 @@ void FreeDefgenericModule(
 
 /*************************************************/
 /* RuntimeDefgenericAction: Action to be applied */
-/*   to each deffacts construct when a runtime   */
+/*   to each defgeneric construct when a runtime */
 /*   initialization occurs.                      */
 /*************************************************/
 static void RuntimeDefgenericAction(
@@ -195,8 +211,37 @@ static void RuntimeDefgenericAction(
 
    for (gi = 0 ; gi < theDefgeneric->mcnt ; gi++)
      { theDefgeneric->methods[gi].header.env = theEnv; }
+     
+   AddConstructToHashMap(theEnv,&theDefgeneric->header,theDefgeneric->header.whichModule);
+  }
+  
+/**************************************************/
+/* RuntimeDefgenericCleanup: Action to be applied */
+/*   to each defgeneric construct when a runtime  */
+/*   destruction occurs.                          */
+/**************************************************/
+static void RuntimeDefgenericCleanup(
+  Environment *theEnv,
+  ConstructHeader *theConstruct,
+  void *buffer)
+  {
+#if MAC_XCD
+#pragma unused(buffer)
+#endif
+   Defgeneric *theDefgeneric = (Defgeneric *) theConstruct;
+      
+   RemoveConstructFromHashMap(theEnv,&theDefgeneric->header,theDefgeneric->header.whichModule);
   }
 
+/****************************/
+/* DeallocateDefgenericCTC: */
+/****************************/
+static void DeallocateDefgenericCTC(
+   Environment *theEnv)
+   {
+    DoForAllConstructs(theEnv,RuntimeDefgenericCleanup,DefgenericData(theEnv)->DefgenericModuleIndex,true,NULL);
+   }
+   
 /********************************/
 /* DefgenericRunTimeInitialize: */
 /********************************/
@@ -204,6 +249,7 @@ void DefgenericRunTimeInitialize(
   Environment *theEnv)
   {
    DoForAllConstructs(theEnv,RuntimeDefgenericAction,DefgenericData(theEnv)->DefgenericModuleIndex,true,NULL);
+   AddEnvironmentCleanupFunction(theEnv,"defgenericctc",DeallocateDefgenericCTC,0);
   }
 
 #endif
@@ -318,6 +364,8 @@ void RemoveDefgeneric(
   Defgeneric *theDefgeneric)
   {
    long i;
+   
+   RemoveConstructFromHashMap(theEnv,&theDefgeneric->header,theDefgeneric->header.whichModule);
 
    for (i = 0 ; i < theDefgeneric->mcnt ; i++)
      DeleteMethodInfo(theEnv,theDefgeneric,&theDefgeneric->methods[i]);

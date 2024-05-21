@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/20/17             */
+   /*            CLIPS Version 7.00  02/06/24             */
    /*                                                     */
    /*                    SYMBOL MODULE                    */
    /*******************************************************/
@@ -67,6 +67,8 @@
 /*            data structures.                               */
 /*                                                           */
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -545,15 +547,46 @@ CLIPSFloat *CreateFloat(
     return peek;
    }
 
+/*****************/
+/* CreateInteger */
+/*****************/
+CLIPSInteger *CreateInteger(
+  Environment *theEnv,
+  long long number)
+  {
+   return AddInteger(theEnv,number,INTEGER_TYPE);
+  }
+
+/*************/
+/* CreateUQV */
+/*************/
+CLIPSInteger *CreateUQV(
+  Environment *theEnv,
+  long long number)
+  {
+   return AddInteger(theEnv,number,UQV_TYPE);
+  }
+
+/******************/
+/* CreateQuantity */
+/******************/
+CLIPSInteger *CreateQuantity(
+  Environment *theEnv,
+  long long number)
+  {
+   return AddInteger(theEnv,number,QUANTITY_TYPE);
+  }
+
 /****************************************************************/
-/* CreateInteger: Searches for the long in the hash table. If   */
+/* AddInteger: Searches for the long in the hash table. If      */
 /*   the long is already in the hash table, then the address of */
 /*   the long is returned. Otherwise, the long is hashed into   */
 /*   the table and the address of the long is also returned.    */
 /****************************************************************/
-CLIPSInteger *CreateInteger(
+CLIPSInteger *AddInteger(
   Environment *theEnv,
-  long long number)
+  long long number,
+  unsigned short theType)
   {
    size_t tally;
    CLIPSInteger *past = NULL, *peek;
@@ -573,8 +606,10 @@ CLIPSInteger *CreateInteger(
 
     while (peek != NULL)
       {
-       if (number == peek->contents)
+       if ((peek->header.type == theType) &&
+           (number == peek->contents))
          { return peek; }
+
        past = peek;
        peek = peek->next;
       }
@@ -593,7 +628,7 @@ CLIPSInteger *CreateInteger(
     peek->bucket = (unsigned int) tally;
     peek->count = 0;
     peek->permanent = false;
-    peek->header.type = INTEGER_TYPE;
+    peek->header.type = theType;
 
     /*=================================================*/
     /* Add the integer to the list of ephemeral items. */
@@ -637,7 +672,7 @@ CLIPSInteger *FindLongHN(
 /*   bitmap is returned. Otherwise, the bitmap is hashed into the */
 /*   table and the address of the bitmap is also returned.        */
 /******************************************************************/
-void *AddBitMap(
+CLIPSBitMap *AddBitMap(
   Environment *theEnv,
   void *vTheBitMap,
   unsigned short size)
@@ -674,17 +709,17 @@ void *AddBitMap(
           for (i = 0; i < size ; i++)
             { if (peek->contents[i] != theBitMap[i]) break; }
 
-          if (i == size) return((void *) peek);
+          if (i == size) return peek;
          }
 
        past = peek;
        peek = peek->next;
       }
 
-    /*==================================================*/
-    /* Add the bitmap at the end of the list of entries */
-    /* for this hash table location.  Return the        */
-    /*==================================================*/
+    /*==========================================*/
+    /* Add the bitmap at the end of the list of */
+    /* entries for this hash table location.    */
+    /*==========================================*/
 
     peek = get_struct(theEnv,clipsBitMap);
     if (past == NULL) SymbolData(theEnv)->BitMapTable[tally] = peek;
@@ -712,7 +747,7 @@ void *AddBitMap(
     /* Return the address of the bitmap. */
     /*===================================*/
 
-    return((void *) peek);
+    return peek;
    }
 
 /***********************************************/
@@ -850,15 +885,15 @@ size_t HashInteger(
 #if WIN_MVC
    if (number < 0)
      { number = - number; }
-   tally = (((size_t) number) % range);
+   tally = (size_t) number;
 #else
-   tally = (((size_t) llabs(number)) % range);
+   tally = (size_t) llabs(number);
 #endif
 
    if (range == 0)
      { return tally; }
 
-   return tally;
+   return tally % range;
   }
 
 /****************************************/
@@ -1339,6 +1374,8 @@ void EphemerateValue(
         break;
 
       case INTEGER_TYPE:
+      case UQV_TYPE:
+      case QUANTITY_TYPE:
         theInteger = (CLIPSInteger *) theValue;
         if (theInteger->markedEphemeral) return;
         AddEphemeralHashNode(theEnv,(GENERIC_HN *) theValue,

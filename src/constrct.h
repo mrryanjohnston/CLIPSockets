@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  10/01/16            */
+   /*             CLIPS Version 7.00  01/16/24            */
    /*                                                     */
    /*                  CONSTRUCT MODULE                   */
    /*******************************************************/
@@ -67,6 +67,8 @@
 /*            File name/line count displayed for errors      */
 /*            and warnings during load command.              */
 /*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_constrct
@@ -113,6 +115,7 @@ struct construct
    IsConstructDeletableFunction *isConstructDeletableFunction;
    DeleteConstructFunction *deleteFunction;
    FreeConstructFunction *freeFunction;
+   LookupConstructFunction *lookupFunction;
    Construct *next;
   };
 
@@ -181,7 +184,8 @@ struct constructData
                                                void (*)(ConstructHeader *,ConstructHeader *),
                                                IsConstructDeletableFunction *,
                                                DeleteConstructFunction *,
-                                               FreeConstructFunction *);
+                                               FreeConstructFunction *,
+                                               LookupConstructFunction *);
    bool                           RemoveConstruct(Environment *,const char *);
    void                           SetCompilationsWatch(Environment *,bool);
    bool                           GetCompilationsWatch(Environment *);

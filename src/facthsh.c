@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  03/02/24             */
    /*                                                     */
    /*                 FACT HASHING MODULE                 */
    /*******************************************************/
@@ -49,6 +49,13 @@
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      6.42: Fixed GC bug by including garbage fact and     */
+/*            instances in the GC frame.                     */
+/*                                                           */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for non-reactive fact patterns.        */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -77,7 +84,6 @@
 /* LOCAL INTERNAL FUNCTION DEFINITIONS */
 /***************************************/
 
-   static Fact                   *FactExists(Environment *,Fact *,size_t);
    static struct factHashEntry  **CreateFactHashTable(Environment *,size_t);
    static void                    ResizeFactHashTable(Environment *);
    static void                    ResetFactHashTable(Environment *);
@@ -116,11 +122,40 @@ size_t HashFact(
    return count;
   }
 
+/***********************************************************************/
+/* HashValueArrayFact: Returns the hash value for a fact value array. */
+/**********************************************************************/
+size_t HashValueArrayFact(
+  Deftemplate *theDeftemplate,
+  CLIPSValue theArray[])
+  {
+   size_t count = 0;
+
+   /*============================================*/
+   /* Get a hash value for the deftemplate name. */
+   /*============================================*/
+
+   count += theDeftemplate->header.name->bucket * 73981;
+
+   /*=================================================*/
+   /* Add in the hash value for the rest of the fact. */
+   /*=================================================*/
+
+   count +=  HashValueArray(theArray,theDeftemplate->numberOfSlots,0);
+
+   /*================================*/
+   /* Make sure the hash value falls */
+   /* in the appropriate range.      */
+   /*================================*/
+
+   return (unsigned long) count;
+  }
+  
 /**********************************************/
 /* FactExists: Determines if a specified fact */
 /*   already exists in the fact hash table.   */
 /**********************************************/
-static Fact *FactExists(
+Fact *FactExists(
   Environment *theEnv,
   Fact *theFact,
   size_t hashValue)
@@ -135,10 +170,48 @@ static Fact *FactExists(
      {
       if (theFact->hashValue != theFactHash->theFact->hashValue)
         { continue; }
+        
+      if (theFact->goal != theFactHash->theFact->goal)
+        { continue; }
 
       if ((theFact->whichDeftemplate == theFactHash->theFact->whichDeftemplate) ?
           MultifieldsEqual(&theFact->theProposition,
                            &theFactHash->theFact->theProposition) : false)
+        { return(theFactHash->theFact); }
+     }
+
+   return NULL;
+  }
+
+/*********************************************************/
+/* FactExistsValueArray: Determines if a specified value */
+/*   array already exists in the fact hash table.        */
+/*********************************************************/
+Fact *FactExistsValueArray(
+  Environment *theEnv,
+  Deftemplate *theDeftemplate,
+  CLIPSValue theArray[],
+  size_t hashValue)
+  {
+   struct factHashEntry *theFactHash;
+   size_t factHashValue = hashValue;
+
+   hashValue = (hashValue % FactData(theEnv)->FactHashTableSize);
+
+   for (theFactHash = FactData(theEnv)->FactHashTable[hashValue];
+        theFactHash != NULL;
+        theFactHash = theFactHash->next)
+     {
+      if (factHashValue != theFactHash->theFact->hashValue)
+        { continue; }
+        
+      if (theFactHash->theFact->goal)
+        { continue; }
+
+      if ((theDeftemplate == theFactHash->theFact->whichDeftemplate) ?
+          ValueArraysEqual(theArray,theDeftemplate->numberOfSlots,
+                           theFactHash->theFact->theProposition.contents,
+                           theDeftemplate->numberOfSlots) : false)
         { return(theFactHash->theFact); }
      }
 
@@ -155,7 +228,7 @@ void AddHashedFact(
   {
    struct factHashEntry *newhash, *temp;
 
-   if (FactData(theEnv)->NumberOfFacts > FactData(theEnv)->FactHashTableSize)
+   if ((FactData(theEnv)->NumberOfFacts + FactData(theEnv)->NumberOfGoals) > FactData(theEnv)->FactHashTableSize)
      { ResizeFactHashTable(theEnv); }
 
    newhash = get_struct(theEnv,factHashEntry);
@@ -192,7 +265,7 @@ bool RemoveHashedFact(
            {
             FactData(theEnv)->FactHashTable[hashValue] = hptr->next;
             rtn_struct(theEnv,factHashEntry,hptr);
-            if (FactData(theEnv)->NumberOfFacts == 1)
+            if ((FactData(theEnv)->NumberOfFacts + FactData(theEnv)->NumberOfGoals) == 1)
               { ResetFactHashTable(theEnv); }
             return true;
            }
@@ -200,7 +273,7 @@ bool RemoveHashedFact(
            {
             prev->next = hptr->next;
             rtn_struct(theEnv,factHashEntry,hptr);
-            if (FactData(theEnv)->NumberOfFacts == 1)
+            if ((FactData(theEnv)->NumberOfFacts + FactData(theEnv)->NumberOfGoals) == 1)
               { ResetFactHashTable(theEnv); }
             return true;
            }
@@ -258,12 +331,7 @@ size_t HandleFactDuplication(
    if (reuseIndex == 0)
      { ReturnFact(theEnv,theFact); }
    else
-     {
-      theFact->nextFact = FactData(theEnv)->GarbageFacts;
-      FactData(theEnv)->GarbageFacts = theFact;
-      UtilityData(theEnv)->CurrentGarbageFrame->dirty = true;
-      theFact->garbage = true;
-     }
+     { AddToGarbageFactList(theEnv,theFact); }
 
 #if DEFRULE_CONSTRUCT
    AddLogicalDependencies(theEnv,(struct patternEntity *) *duplicate,true);
@@ -413,20 +481,25 @@ void ShowFactHashTableCommand(
   UDFContext *context,
   UDFValue *returnValue)
   {
-   unsigned long i, count;
+   unsigned long i, goalCount, factCount;
    struct factHashEntry *theEntry;
-   char buffer[20];
+   char buffer[30];
 
    for (i = 0; i < FactData(theEnv)->FactHashTableSize; i++)
      {
-      for (theEntry =  FactData(theEnv)->FactHashTable[i], count = 0;
+      for (theEntry =  FactData(theEnv)->FactHashTable[i], factCount = 0, goalCount = 0;
            theEntry != NULL;
            theEntry = theEntry->next)
-        { count++; }
-
-      if (count != 0)
         {
-         gensnprintf(buffer,sizeof(buffer),"%4lu: %4d\n",i,count);
+         if (theEntry->theFact->goal)
+           { goalCount++; }
+         else
+           { factCount++; }
+        }
+
+      if ((factCount != 0) || (goalCount != 0))
+        {
+         gensnprintf(buffer,sizeof(buffer),"%5lu: f %4d   g %4d\n",i,factCount,goalCount);
          WriteString(theEnv,STDOUT,buffer);
         }
      }

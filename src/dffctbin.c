@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  01/23/24             */
    /*                                                     */
    /*             DEFFACTS BSAVE/BLOAD MODULE             */
    /*******************************************************/
@@ -24,6 +24,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -266,7 +268,7 @@ static void BsaveBinaryItem(
       SetCurrentModule(theEnv,theModule);
 
       theModuleItem = (struct deffactsModule *) GetModuleItem(theEnv,NULL,DeffactsData(theEnv)->DeffactsModuleIndex);
-      AssignBsaveDefmdlItemHdrVals(&tempDeffactsModule.header,&theModuleItem->header);
+      AssignBsaveDefmdlItemHdrHMVals(&tempDeffactsModule.header,&theModuleItem->header);
       GenWrite(&tempDeffactsModule,sizeof(struct bsaveDeffactsModule),fp);
      }
 
@@ -404,8 +406,10 @@ static void UpdateDeffactsModule(
    struct bsaveDeffactsModule *bdmPtr;
 
    bdmPtr = (struct bsaveDeffactsModule *) buf;
-   UpdateDefmoduleItemHeader(theEnv,&bdmPtr->header,&DeffactsBinaryData(theEnv)->ModuleArray[obji].header,
-                             sizeof(Deffacts),DeffactsBinaryData(theEnv)->DeffactsArray);
+   UpdateDefmoduleItemHeaderHM(theEnv,&bdmPtr->header,&DeffactsBinaryData(theEnv)->ModuleArray[obji].header,
+                               sizeof(Deffacts),DeffactsBinaryData(theEnv)->DeffactsArray);
+                               
+   AssignHashMapSize(theEnv,&DeffactsBinaryData(theEnv)->ModuleArray[obji].header,bdmPtr->header.itemCount);
   }
 
 /*********************************************/
@@ -424,7 +428,10 @@ static void UpdateDeffacts(
                          DEFFACTS,sizeof(struct deffactsModule),DeffactsBinaryData(theEnv)->ModuleArray,
                          sizeof(Deffacts),DeffactsBinaryData(theEnv)->DeffactsArray);
    DeffactsBinaryData(theEnv)->DeffactsArray[obji].assertList = ExpressionPointer(bdp->assertList);
-  }
+
+   AddConstructToHashMap(theEnv,&DeffactsBinaryData(theEnv)->DeffactsArray[obji].header,
+                                 DeffactsBinaryData(theEnv)->DeffactsArray[obji].header.whichModule);
+ }
 
 /**************************************/
 /* ClearBload: Deffacts clear routine */
@@ -443,6 +450,13 @@ static void ClearBload(
 
    for (i = 0; i < DeffactsBinaryData(theEnv)->NumberOfDeffacts; i++)
      { UnmarkConstructHeader(theEnv,&DeffactsBinaryData(theEnv)->DeffactsArray[i].header); }
+     
+   /*==========================================*/
+   /* Deallocate the DeffactsModule hash maps. */
+   /*==========================================*/
+
+   for (i = 0; i < DeffactsBinaryData(theEnv)->NumberOfDeffactsModules; i++)
+     { ClearDefmoduleHashMap(theEnv,&DeffactsBinaryData(theEnv)->ModuleArray[i].header); }
 
    /*=============================================================*/
    /* Deallocate the space used for the deffacts data structures. */

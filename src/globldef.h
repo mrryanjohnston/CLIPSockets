@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  11/13/17            */
+   /*             CLIPS Version 7.00  01/18/24            */
    /*                                                     */
    /*                DEFGLOBAL HEADER FILE                */
    /*******************************************************/
@@ -55,6 +55,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_globldef
@@ -105,7 +107,7 @@ struct defglobal
 
 struct defglobalModule
   {
-   struct defmoduleItemHeader header;
+   struct defmoduleItemHeaderHM header;
   };
 
 #define DefglobalData(theEnv) ((struct defglobalData *) GetEnvironmentData(theEnv,DEFGLOBAL_DATA))
@@ -118,7 +120,6 @@ struct defglobalModule
    bool                           DefglobalIsDeletable(Defglobal *);
    struct defglobalModule        *GetDefglobalModuleItem(Environment *,Defmodule *);
    void                           QSetDefglobalValue(Environment *,Defglobal *,UDFValue *,bool);
-   Defglobal                     *QFindDefglobal(Environment *,CLIPSLexeme *);
    void                           DefglobalValueForm(Defglobal *,StringBuilder *);
    bool                           GetGlobalsChanged(Environment *);
    void                           SetGlobalsChanged(Environment *,bool);
@@ -142,6 +143,7 @@ struct defglobalModule
    const char                    *DefglobalModule(Defglobal *);
    const char                    *DefglobalName(Defglobal *);
    const char                    *DefglobalPPForm(Defglobal *);
+   Defglobal                     *LookupDefglobal(Environment *,CLIPSLexeme *);
 #if RUN_TIME
    void                           DefglobalRunTimeInitialize(Environment *);
 #endif

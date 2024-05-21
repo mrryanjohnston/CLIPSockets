@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  10/18/16            */
+   /*             CLIPS Version 7.00  12/24/23            */
    /*                                                     */
    /*               CLASS PARSER HEADER FILE              */
    /*******************************************************/
@@ -62,7 +62,7 @@
 #endif
 
 #if DEFMODULE_CONSTRUCT
-   void                   *CreateClassScopeMap(Environment *,Defclass *);
+   CLIPSBitMap            *CreateClassScopeMap(Environment *,Defclass *);
 #endif
 
 #endif /* OBJECT_SYSTEM */

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  05/11/24             */
    /*                                                     */
    /*            MISCELLANEOUS FUNCTIONS MODULE           */
    /*******************************************************/
@@ -112,6 +112,9 @@
 /*            Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      7.00: Add $ as an abbreviated function name to call  */
+/*            the create$ function.                          */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -206,6 +209,7 @@ void MiscFunctionDefinitions(
    AddUDF(theEnv,"get-sequence-operator-recognition","b",0,0,NULL,GetSORCommand,"GetSORCommand",NULL);
    AddUDF(theEnv,"get-function-restrictions","s",1,1,"y",GetFunctionRestrictions,"GetFunctionRestrictions",NULL);
    AddUDF(theEnv,"create$","m",0,UNBOUNDED,NULL,CreateFunction,"CreateFunction",NULL);
+   AddUDF(theEnv,"$","m",0,UNBOUNDED,NULL,CreateFunction,"CreateFunction",NULL);
    AddUDF(theEnv,"apropos","v",1,1,"y",AproposCommand,"AproposCommand",NULL);
    AddUDF(theEnv,"get-function-list","m",0,0,NULL,GetFunctionListFunction,"GetFunctionListFunction",NULL);
    AddUDF(theEnv,"funcall","*",1,UNBOUNDED,"*;sy",FuncallFunction,"FuncallFunction",NULL);
@@ -1353,7 +1357,6 @@ void FuncallFunction(
    /* Verify the correct number of arguments. */
    /*=========================================*/
 
-// TBD Support run time check of arguments
 #if ! RUN_TIME
    if (theReference.type == FCALL)
      {

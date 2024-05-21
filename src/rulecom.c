@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 6.50  10/13/23             */
    /*                                                     */
    /*                RULE COMMANDS MODULE                 */
    /*******************************************************/
@@ -74,6 +74,8 @@
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -104,6 +106,10 @@
 #include "utility.h"
 #include "watch.h"
 
+#if DEFTEMPLATE_CONSTRUCT
+#include "factmngr.h"
+#endif
+
 #if BLOAD || BLOAD_AND_BSAVE || BLOAD_ONLY
 #include "rulebin.h"
 #endif
@@ -129,6 +135,10 @@
    static const char             *BetaHeaderString(Environment *,struct joinInformation *,long,long);
    static const char             *ActivityHeaderString(Environment *,struct joinInformation *,long,long);
    static void                    JoinActivityReset(Environment *,ConstructHeader *,void *);
+#if DEFTEMPLATE_CONSTRUCT
+   static void                    WhyTraversePatternNetwork(Environment *,struct factPatternNode *,struct fact *);
+   static void                    WhyListRules(Environment *,struct joinLink *);
+#endif
 #endif
 
 /****************************************************************/
@@ -157,6 +167,7 @@ void DefruleCommands(
    AddUDF(theEnv,"dependents","v",1,1,"infly",DependentsCommand,"DependentsCommand",NULL);
 
    AddUDF(theEnv,"timetag","l",1,1,"infly" ,TimetagFunction,"TimetagFunction",NULL);
+   AddUDF(theEnv,"why","v",1,1,"l",WhyCommand,"WhyCommand",NULL);
 #endif /* DEBUGGING_FUNCTIONS */
 
    AddUDF(theEnv,"get-beta-memory-resizing","b",0,0,NULL,GetBetaMemoryResizingCommand,"GetBetaMemoryResizingCommand",NULL);
@@ -1322,6 +1333,145 @@ void TimetagFunction(
    returnValue->integerValue = CreateInteger(theEnv,(long long) ((struct patternEntity *) ptr)->timeTag);
   }
 
+#if DEFTEMPLATE_CONSTRUCT
+/**********************************/
+/* WhyCommand: H/L access routine */
+/*   for the why command.         */
+/**********************************/
+void WhyCommand(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   UDFValue theArg;
+   long long goalIndex;
+   Fact *theGoal;
+   
+   /*=========================================*/
+   /* This function expects a single argument */
+   /* which must be an integer.               */
+   /*=========================================*/
+
+   if (! UDFFirstArgument(context,INTEGER_BIT,&theArg))
+     { return; }
+     
+   /*==========================================*/
+   /* A goal index must be a positive integer. */
+   /*==========================================*/
+
+   goalIndex = theArg.integerValue->contents;
+   if (goalIndex < 1)
+     {
+      UDFInvalidArgumentMessage(context,"goal-index");
+      return;
+     }
+
+   /*================================================*/
+   /* See if a goal with the specified index exists. */
+   /*================================================*/
+
+   theGoal = FindIndexedGoal(theEnv,goalIndex);
+   if (theGoal == NULL)
+     {
+      char tempBuffer[20];
+      gensnprintf(tempBuffer,sizeof(tempBuffer),"g-%lld",goalIndex);
+      CantFindItemErrorMessage(theEnv,"goal",tempBuffer,false);
+      return;
+     }
+     
+   /* */
+   
+   WhyTraversePatternNetwork(theEnv,theGoal->whichDeftemplate->patternNetwork,theGoal);
+   
+#if DEVELOPER
+   WriteString(theEnv,STDOUT,"Goal support count is ");
+   WriteInteger(theEnv,STDOUT,theGoal->supportCount);
+   WriteString(theEnv,STDOUT,"\n");
+#endif
+  }
+  
+/*****************************/
+/* WhyTraversePatternNetwork */
+/*****************************/
+static void WhyTraversePatternNetwork(
+  Environment *theEnv,
+  struct factPatternNode *theNode,
+  Fact *theGoal)
+  {
+   struct joinNode *theJoin;
+   struct partialMatch *listOfMatches;
+   unsigned long b;
+   struct betaMemory *theMemory;
+   
+   while (theNode != NULL)
+     {
+      for (theJoin = theNode->header.entryJoin; theJoin != NULL; theJoin = theJoin->rightMatchNode)
+        {
+         if (theJoin->goalExpression == NULL) continue;
+
+         if (theJoin->firstJoin)
+           {
+            if (theJoin->leftMemory->beta[0]->marker == theGoal)
+              {
+               WhyListRules(theEnv,theJoin->nextLinks);
+               WriteString(theEnv,STDOUT,"   *\n");
+              }
+           }
+         else
+           {
+            theMemory = theJoin->leftMemory;
+
+            for (b = 0; b < theMemory->size; b++)
+              {
+               listOfMatches = theMemory->beta[b];
+               while (listOfMatches != NULL)
+                 {
+                  if (listOfMatches->marker == theGoal)
+                    {
+                     WhyListRules(theEnv,theJoin->nextLinks);
+                     WriteString(theEnv,STDOUT,"   ");
+                     PrintPartialMatch(theEnv,STDOUT,listOfMatches);
+                     WriteString(theEnv,STDOUT,"\n");
+                    }
+                    
+                  listOfMatches = listOfMatches->nextInMemory;
+                 }
+              }
+           }
+        }
+        
+      WhyTraversePatternNetwork(theEnv,theNode->nextLevel,theGoal);
+      theNode = theNode->rightNode;
+     }
+  }
+  
+/****************/
+/* WhyListRules */
+/****************/
+static void WhyListRules(
+  Environment *theEnv,
+  struct joinLink *nextJoins)
+  {
+   struct joinNode *theJoin;
+   
+   while (nextJoins != NULL)
+     {
+      theJoin = nextJoins->join;
+      
+      if (theJoin->ruleToActivate != NULL)
+        {
+         WriteString(theEnv,STDOUT,DefruleName(theJoin->ruleToActivate));
+         WriteString(theEnv,STDOUT,":\n");
+        }
+      
+      WhyListRules(theEnv,theJoin->nextLinks);
+      
+      nextJoins = nextJoins->next;
+     }
+  }
+
+#endif
+
 #endif /* DEBUGGING_FUNCTIONS */
 
 #if DEVELOPER
@@ -1453,11 +1603,13 @@ static void ShowJoins(
          else
            { rhsType = ' '; }
 
-         gensnprintf(buffer,sizeof(buffer),"%2hu%c%c%c%c : ",joinList[numberOfJoins]->depth,
+         gensnprintf(buffer,sizeof(buffer),"%2hu%c%c%c%c%c%c : ",joinList[numberOfJoins]->depth,
                                      (joinList[numberOfJoins]->firstJoin) ? 'f' : ' ',
                                      rhsType,
                                      (joinList[numberOfJoins]->joinFromTheRight) ? 'j' : ' ',
-                                     (joinList[numberOfJoins]->logicalJoin) ? 'l' : ' ');
+                                     (joinList[numberOfJoins]->logicalJoin) ? 'l' : ' ',
+                                     (joinList[numberOfJoins]->goalJoin) ? 'g' : ' ',
+                                     (joinList[numberOfJoins]->explicitJoin) ? 'x' : ' ');
          WriteString(theEnv,STDOUT,buffer);
          PrintExpression(theEnv,STDOUT,joinList[numberOfJoins]->networkTest);
          WriteString(theEnv,STDOUT,"\n");

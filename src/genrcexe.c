@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  10/01/16             */
+   /*            CLIPS Version 7.00  02/09/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -42,6 +42,10 @@
 /*                                                           */
 /*            Added GCBlockStart and GCBlockEnd functions    */
 /*            for garbage collection blocks.                 */
+/*                                                           */
+/*      6.42: Fix for crash that occurs when a generic       */
+/*            function overloads a function that can only    */
+/*            be called from within a message-handler.       */
 /*                                                           */
 /*************************************************************/
 
@@ -213,13 +217,18 @@ void GenericDispatch(
 #endif
       if (DefgenericData(theEnv)->CurrentMethod->system)
         {
-         Expression fcall;
+         Expression fcall, *oldActions;
 
+         oldActions = ProceduralPrimitiveData(theEnv)->CurrentProcActions;
+         ProceduralPrimitiveData(theEnv)->CurrentProcActions = &fcall;
+         
          fcall.type = FCALL;
          fcall.value = DefgenericData(theEnv)->CurrentMethod->actions->value;
          fcall.nextArg = NULL;
          fcall.argList = GetProcParamExpressions(theEnv);
          EvaluateExpression(theEnv,&fcall,returnValue);
+         
+         ProceduralPrimitiveData(theEnv)->CurrentProcActions = oldActions;
         }
       else
         {
@@ -312,7 +321,7 @@ bool IsMethodApplicable(
 #endif
 
    if (((ProceduralPrimitiveData(theEnv)->ProcParamArraySize < meth->minRestrictions) && (meth->minRestrictions != RESTRICTIONS_UNBOUNDED)) ||
-       ((ProceduralPrimitiveData(theEnv)->ProcParamArraySize > meth->minRestrictions) && (meth->maxRestrictions != RESTRICTIONS_UNBOUNDED))) // TBD minRestrictions || maxRestrictions
+       ((ProceduralPrimitiveData(theEnv)->ProcParamArraySize > meth->minRestrictions) && (meth->maxRestrictions != RESTRICTIONS_UNBOUNDED)))
      return false;
    for (i = 0 , k = 0 ; i < ProceduralPrimitiveData(theEnv)->ProcParamArraySize ; i++)
      {

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 6.50  11/03/23            */
    /*                                                     */
    /*          RULE DELETION MODULE HEADER FILE           */
    /*******************************************************/
@@ -38,6 +38,8 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_ruledlt
@@ -48,6 +50,7 @@
 
    void                           ReturnDefrule(Environment *,Defrule *);
    void                           DestroyDefrule(Environment *,Defrule *);
+   struct joinLink               *DetachLink(Environment *,struct joinLink *,struct joinNode *);
 
 #endif /* _H_ruledlt */
 

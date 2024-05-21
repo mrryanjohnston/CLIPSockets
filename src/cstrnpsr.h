@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  12/02/23            */
    /*                                                     */
    /*             CONSTRAINT PARSER HEADER FILE           */
    /*******************************************************/
@@ -80,6 +80,7 @@ typedef struct constraintParseRecord CONSTRAINT_PARSE_RECORD;
                                                            CONSTRAINT_RECORD *,CONSTRAINT_RECORD *);
    void                           OverlayConstraintParseRecord(CONSTRAINT_PARSE_RECORD *,
                                                                       CONSTRAINT_PARSE_RECORD *);
+   void                           NoConjunctiveUseError(Environment *,const char *,const char *);
 #endif /* (! RUN_TIME) && (! BLOAD_ONLY) */
 
 #endif /* _H_cstrnpsr */

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  01/22/24             */
    /*                                                     */
    /*                    ENGINE MODULE                    */
    /*******************************************************/
@@ -87,6 +87,11 @@
 /*                                                           */
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
+/*                                                           */
+/*      6.42: Added call to clean the current garbage frame  */
+/*            for an embedded Run function call.             */
+/*                                                           */
+/*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
 /*************************************************************/
 
@@ -686,6 +691,8 @@ long long Run(
    /*================================*/
 
    GCBlockEnd(theEnv,&gcb);
+   if (EvaluationData(theEnv)->CurrentExpression == NULL)
+     { CleanCurrentGarbageFrame(theEnv,NULL); }
    CallPeriodicTasks(theEnv);
 
    /*===================================*/
@@ -1491,7 +1498,6 @@ void FocusCommand(
   UDFValue *returnValue)
   {
    UDFValue theArg;
-   const char *argument;
    Defmodule *theModule;
    unsigned int argCount, i;
 
@@ -1506,12 +1512,11 @@ void FocusCommand(
       if (! UDFNthArgument(context,i,SYMBOL_BIT,&theArg))
         { return; }
 
-      argument = theArg.lexemeValue->contents;
-      theModule = FindDefmodule(theEnv,argument);
+      theModule = LookupDefmodule(theEnv,theArg.lexemeValue);
 
       if (theModule == NULL)
         {
-         CantFindItemErrorMessage(theEnv,"defmodule",argument,true);
+         CantFindItemErrorMessage(theEnv,"defmodule",theArg.lexemeValue->contents,true);
          returnValue->lexemeValue = FalseSymbol(theEnv);
          return;
         }

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  08/28/17             */
+   /*            CLIPS Version 6.50  09/07/23             */
    /*                                                     */
    /*                  MATCH HEADER FILE                  */
    /*******************************************************/
@@ -28,6 +28,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      6.50: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -77,6 +79,7 @@ struct partialMatch
    unsigned int busy        :  1;
    unsigned int rhsMemory   :  1;
    unsigned int deleting    :  1;
+   unsigned int goalMarker  :  1;
    unsigned short bcount;
    unsigned long hashValue;
    void *owner;
