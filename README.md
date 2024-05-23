@@ -188,6 +188,31 @@ Protocol is optional and can typically be left blank.
 Use this to "empty" the buffer of data received from the client.
 **WARNING: If this is run on a blocking request, you may block indefinitely**.
 
+#### `(errno)` and `(errno-sym)`
+
+Returns `errno`, a global variable set when errors occur with some socket functions.
+For example, if you try to bind twice on a socket:
+
+```
+$ ./clips                                                                                                  
+         CLIPS (Forge Alpha 5/12/24)                                                                                                   
+CLIPS> (errno)                                                                                                                                                                                                                                                                
+0                                                                                                                                                                                                                                                                             
+CLIPS> (errno-sym)                                                                                                                     
+CLIPS> (create-socket AF_INET SOCK_STREAM)                                                                                                                                                                                                                                    
+3                                                                                                                                                                                                                                                                             
+CLIPS> (bind-socket 3 127.0.0.1 8889)                                                                                                                                                                                                                                         
+127.0.0.1:8889                                                                                                                                                                                                                                                                
+CLIPS> (bind-socket 3 127.0.0.1 8887)                                                                                                                                                                                                                                         
+Could not bind 127.0.0.1                                                                                                                                                                                                                                                      
+perror: Invalid argument                                                                                                                                                                                                                                                      
+FALSE                                                                                                                                                                                                                                                                         
+CLIPS> (errno)                                                                                                                                                                                                                                                                
+22                                                                                                                                                                                                                                                                            
+CLIPS> (errno-sym)                                                                                                                                                                                                                                                            
+EINVAL
+```
+
 #### `(fcntl-add-status-flags ?socketfdOrLogicalName $?flags)`
 #### `(fcntl-remove-status-flags ?socketfdOrLogicalName $?flags)`
 
