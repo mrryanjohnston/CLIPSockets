@@ -62,9 +62,10 @@ This library adds functions that let you create network servers
 and clients. That is: you can make CLIPS applications that
 *receive* network requests and *make* network requests.
 
-It does *not* currently support DNS resolution: you'll need to know
-the IP/PORT combination or location of unix socket
-instead of the URL you use to get to a site in your browser for now.
+This library also supports DNS resolution. To discover IP addresses
+for a given url, use `(resolve-domain-name ryjo.codes)` function.
+*Hint*: Use `(intersection$ (resolve-domain-name ryjo.codes))`
+if you see duplicate IP addresses returned.
 
 ## Long-Term Goals
 
@@ -140,6 +141,11 @@ you'll see a slightly different message.
 ## Notes for Developers
 
 ### API
+
+#### `(resolve-domain-name ?domainName)`
+
+Looks up IP addresses given a domain name.
+Only tested with IPv4 and IPv6.
 
 #### `(accept ?socketfdOrLogicalName)`
 
