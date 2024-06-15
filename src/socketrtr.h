@@ -52,6 +52,7 @@ struct connectionRouter
    void                           SetFullyBufferedFunction(Environment *, UDFContext *, UDFValue *);
    void                           SetNotBufferedFunction(Environment *, UDFContext *, UDFValue *);
    void                           SetLineBufferedFunction(Environment *, UDFContext *, UDFValue *);
+   void                           ResolveDomainNameFunction(Environment *, UDFContext *, UDFValue *);
    struct socketRouter            *LogicalNameToSocketRouter(Environment *,const char *);
    struct socketRouter            *FileDescriptorToSocketRouter(Environment *,int);
 

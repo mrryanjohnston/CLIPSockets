@@ -19,7 +19,8 @@
 /*                                                                     */
 /**********************************************************************/
 
-#define _POSIX_C_SOURCE 1
+#define _POSIX_C_SOURCE 200112L
+#define NI_MAXHOST      1025
 
 #include <errno.h>
 #include <fcntl.h>
@@ -28,6 +29,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <unistd.h>
+#include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -1636,13 +1638,55 @@ void FcntlRemoveStatusFlagsFunction(
 	if (GenFcntl(theEnv, sockfd, F_SETFL, flags) == -1) {
 		WriteString(theEnv,STDERR,"Could not set flags for sockfd '");
 		WriteInteger(theEnv,STDERR,sockfd);
-		WriteString(theEnv,STDERR,"'.");
+		WriteString(theEnv,STDERR,"'.\n");
 		perror("fcntl");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
 	returnValue->lexemeValue = TrueSymbol(theEnv);
 
+}
+
+/*********************************/
+/* ResolveDomainNameFunction:    */
+/* Resolve a domain name         */
+/* to a multifield of addresses. */
+/*********************************/
+void ResolveDomainNameFunction(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *returnValue)
+{
+    UDFValue theArg;
+    UDFNextArgument(context,LEXEME_BITS,&theArg);
+    struct addrinfo hints, *result;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC; // Allow IPv4 or IPv6
+    hints.ai_flags = AI_ALL; // AI_V4MAPPED | AI_ADDRCONFIG;
+
+    int ret = getaddrinfo(theArg.lexemeValue->contents, NULL, &hints, &result);
+    if (ret != 0) {
+	WriteString(theEnv,STDERR,"Could not resolve domain name '");
+	WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
+	WriteString(theEnv,STDERR,"': ");
+	WriteString(theEnv,STDERR,gai_strerror(ret));
+	WriteString(theEnv,STDERR,".\n");
+	returnValue->lexemeValue = FalseSymbol(theEnv);
+	return;
+    }
+
+    struct addrinfo *res = result;
+    MultifieldBuilder *mb = CreateMultifieldBuilder(theEnv, 0);
+    while (res) {
+	    char host[NI_MAXHOST];
+	    getnameinfo(res->ai_addr, res->ai_addrlen, host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
+	    MBAppendSymbol(mb, host);
+	    res = res->ai_next;
+    }
+
+    freeaddrinfo(result);
+    returnValue->multifieldValue = MBCreate(mb);
+    MBDispose(mb);
 }
 
 /************************************************/

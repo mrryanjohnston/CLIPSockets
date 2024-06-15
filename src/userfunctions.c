@@ -499,6 +499,7 @@ void UserFunctions(
 	  AddUDF(env,"set-timeout","l",2,2,";lsy;l",SetTimeoutFunction,"SetTimeoutFunction",NULL);
 	  AddUDF(env,"setsockopt","l",4,4,";lsy;sy;sy;l",SetsockoptFunction,"SetsockoptFunction",NULL);
 	  AddUDF(env,"shutdown-connection","l",1,1,"lsy",ShutdownConnectionFunction,"ShutdownConnectionFunction",NULL);
+	  AddUDF(env,"resolve-domain-name","bm",1,1,"sy",ResolveDomainNameFunction,"ResolveDomainNameFunction",NULL);
 
 	  AddUDF(env,"errno","l",0,0,NULL,ErrnoFunction,"ErrnoFunction",NULL);
 	  AddUDF(env,"errno-sym","yv",0,0,NULL,ErrnoSymFunction,"ErrnoSymFunction",NULL);
