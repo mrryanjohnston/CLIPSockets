@@ -1172,6 +1172,7 @@ void AcceptFunction(
 		return;
 	}
 
+	client_addr_len = sizeof(client_addr);
 	logicalNameStringBuilder = CreateStringBuilder(theEnv, 0);
 
 	/*====================================*/
