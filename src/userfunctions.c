@@ -47,7 +47,11 @@
 /* OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.          */
 /*                                                                         */
 /***************************************************************************/
+#define _POSIX_C_SOURCE 200112L
+
 #include <errno.h>
+#include <math.h>
+#include <time.h>
 
 #include "clips.h"
 #include "socketrtr.h"
@@ -467,6 +471,36 @@ void ErrnoFunction(
 {
 	returnValue->integerValue = CreateInteger(theEnv, errno);
 }
+void SleepFunction(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *returnValue)
+{
+	double seconds;
+	int res;
+	struct timespec ts;
+	UDFValue theArg;
+
+	UDFNextArgument(context,FLOAT_BIT,&theArg);
+	seconds = theArg.floatValue->contents;
+
+	if (seconds < 0)
+	{
+		WriteString(theEnv,STDERR,"sleep: seconds must be greater than 0\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
+
+	ts.tv_sec = floor(seconds);
+	ts.tv_nsec = (seconds - ts.tv_sec) * 1000000;
+
+	do {
+		res = nanosleep(&ts, &ts);
+	} while (res && errno == EINTR);
+
+	returnValue->integerValue = CreateInteger(theEnv, res);
+}
+
 /*********************************************************/
 /* UserFunctions: Informs the expert system environment  */
 /*   of any user defined functions. In the default case, */
@@ -503,4 +537,6 @@ void UserFunctions(
 
 	  AddUDF(env,"errno","l",0,0,NULL,ErrnoFunction,"ErrnoFunction",NULL);
 	  AddUDF(env,"errno-sym","yv",0,0,NULL,ErrnoSymFunction,"ErrnoSymFunction",NULL);
+
+	  AddUDF(env,"sleep","bl",1,1,"l",SleepFunction,"SleepFunction",NULL);
   }

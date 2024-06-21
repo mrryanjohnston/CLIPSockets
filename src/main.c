@@ -78,6 +78,8 @@ int main(
 
 #if UNIX_V || LINUX || DARWIN || UNIX_7 || WIN_GCC || WIN_MVC
    signal(SIGINT,CatchCtrlC);
+   // ignore sigpipe entirely
+   signal(SIGPIPE, SIG_IGN);
 #endif
 
    RerouteStdin(mainEnv,argc,argv);

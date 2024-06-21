@@ -1,7 +1,6 @@
 (deftemplate socket
 	(slot fd)
 	(slot current-time (default-dynamic (time)))
-	(slot next-client-fd (default nil))
 	(slot bound (default nil))
 	(slot listening (default nil))
 	(slot client-waiting (default nil))
@@ -19,7 +18,7 @@
 	(slot max-life-time (default 5))
 	(slot max-message-length (default 512))
 	(slot timeouts (default 0))
-	(multislot last-ascii-codes (type INTEGER) (default 10))
+	(slot max-timeouts (default 500))
 	(multislot raw-ascii-codes (type INTEGER)))
 
 (defrule always =>
@@ -64,6 +63,7 @@
 		(clients-connected 0)
 		(current-time ?currentTime))
 	=>
+	(facts)
 	;(println "[SERVER] Waiting for connection... (ctrl+z and kill to exit)")
 	; setting this to 0 sets this back to waiting indefinitely
 	(set-timeout ?socketfd 0)
@@ -204,6 +204,7 @@
 		(delayed-until-increment ?delayedUntilIncrement)
 		(ready-to-read FALSE)
 		(timeouts ?timeouts)
+		(max-timeouts ?maxTimeouts&:(< ?timeouts ?maxTimeouts))
 		(max-life-time ?maxLifeTime)
 		(created-at ?createdAt&:(<= (- ?currentTime ?createdAt) ?maxLifeTime)))
 	(not (client (socketfd ?socketfd) (delayed-until ?d&:(> ?delayedUntil ?d))))
@@ -281,13 +282,21 @@
 		(current-time ?time)))
 
 (defrule got-eof-from-client-before-getting-line-feed
-	?f <- (socket (fd ?sfd) (clients-connected ?clientsConnected))
+	?f <- (socket
+		(fd ?sfd)
+		(current-time ?currentTime)
+		(clients-connected ?clientsConnected))
 	?c <- (client
 		(socketfd ?sfd)
 		(name ?name) 
 		(timeouts ?timeouts)
 		(delayed-until-increment ?delayedUntilIncrement)
-		(raw-ascii-codes $?rawAsciiCodes -1))
+		(max-life-time ?maxLifeTime)
+		(max-timeouts ?maxTimeouts&:(< ?timeouts ?maxTimeouts))
+		(created-at ?createdAt&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
+		(raw-ascii-codes
+			$?rawAsciiCodes&:(eq ?rawAsciiCodes (create$))|:(<> 10 (nth$ (length$ ?rawAsciiCodes) ?rawAsciiCodes))
+			-1))
 	=>
 	(bind ?time (time))
 	;(println "[SERVER] Client " ?name " failed to send an END_OF_MESSAGE character (newline) before " ?timeout "ms")
@@ -308,10 +317,9 @@
 	?c <- (client
 		(socketfd ?sfd)
 		(name ?name)
-		(last-ascii-codes $?lastAsciiCodes)
 		(raw-ascii-codes
 			$?rawAsciiCodes
-			$?rawLastAsciiCodes&:(eq ?rawLastAsciiCodes ?lastAsciiCodes)))
+			10))
 	=>
 	;(println "[SERVER] Writing to client " ?name "...")
 	(bind ?message "")
@@ -340,13 +348,15 @@
 	?c <- (client
 		(name ?name)
 		(socketfd ?socketfd)
+		(timeouts ?timeouts)
 		(max-life-time ?maxLifeTime)
-		(created-at ?createdAt
-				&:(> (- ?currentTime ?createdAt) ?maxLifeTime)))
+		(max-timeouts ?maxTimeouts)
+		(created-at ?createdAt))
+	(test (or (>= ?timeouts ?maxTimeouts) (> (- ?currentTime ?createdAt) ?maxLifeTime)))
 =>
-	;(println "[SERVER] Client " ?name " took too long. Closing...")
+	(println "[SERVER] Client " ?name " took too long. Closing...")
 	(printout ?name "You took too long to send anything. Bye :(" crlf)
-	;(println "[SERVER] Cleaning up client connection " ?name "...")
+	(println "[SERVER] Cleaning up client connection " ?name "...")
 	(flush-connection ?name)
 	(empty-connection ?name)
 	(shutdown-connection ?name)
@@ -423,25 +433,17 @@
 		(created-at ?createdAt
 			&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
 		(max-message-length ?maxMessageLength)
-		(last-ascii-codes $?lastAsciiCodes)
 		(raw-ascii-codes
 			$?rawAsciiCodes
-			&:(> (length$ ?rawAsciiCodes) 0)
-			&:(>= (nth$ (length$ ?rawAsciiCodes) ?rawAsciiCodes) 0)
-			&:(<= (nth$ (length$ ?rawAsciiCodes) ?rawAsciiCodes) 127)
-			&:(neq ?lastAsciiCodes
-				(create$
-					(subseq$
-						?rawAsciiCodes
-						(- (length$ ?rawAsciiCodes) (length$ ?lastAsciiCodes))
-						(length$ ?rawAsciiCodes)))
-					)))
+				&:(>= (length$ ?rawAsciiCodes) 0)
+				&:(< (length$ ?rawAsciiCodes) 511)
+			?last
+				&~10
+				&:(>= ?last 0)
+				&:(<= ?last 127)))
 	(not (client
 		(socketfd ?socketfd)
 		(delayed-until ?d&:(> ?delayedUntil ?d))))
-	(test (<
-		(length$ ?rawAsciiCodes)
-		?maxMessageLength))
 	(test (or
 		(eq ?waiting FALSE)
 		(and
@@ -451,7 +453,7 @@
 	(modify ?f
 		(current-time (time)))
 	(modify ?c
-		(raw-ascii-codes ?rawAsciiCodes
+		(raw-ascii-codes ?rawAsciiCodes ?last
 			(get-char ?name))))
 
 (defrule message-too-long
@@ -475,15 +477,10 @@
 		(created-at ?createdAt
 			&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
 		(max-message-length ?maxMessageLength)
-		(last-ascii-codes $?lastAsciiCodes)
 		(raw-ascii-codes
 			$?rawAsciiCodes
-			; wasn't the end of the message
-			$?rawLastAsciiCodes
-				&:(neq ?rawLastAsciiCodes ?lastAsciiCodes)
-				&:(=
-					(+ (length$ ?rawLastAsciiCodes) (length$ ?rawAsciiCodes))
-					?maxMessageLength)))
+				&:(= (length$ ?rawAsciiCodes) 511)
+			~10))
 	(not (client
 		(socketfd ?socketfd)
 		(delayed-until ?d&:(> ?delayedUntil ?d))))

@@ -1,4 +1,6 @@
+;(watch all)
 (load examples/server-complex.clp)
 (reset)
 (run)
+(facts)
 (exit)
