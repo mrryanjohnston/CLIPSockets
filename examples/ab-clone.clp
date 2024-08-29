@@ -1,8 +1,8 @@
 (deffacts defaults
-	;(ip 127.0.0.1)
-	(ip 0.0.0.0)
-	;(port 8888)
-	(port 8000)
+	(ip 127.0.0.1)
+	;(ip 0.0.0.0)
+	(port 8888)
+	;(port 8000)
 	(max-simultaneous-requests 50)
 	(current-time (time))
 	(unstarted-requests 1234)

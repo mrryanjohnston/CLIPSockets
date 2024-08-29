@@ -49,7 +49,10 @@
 /***************************************************************************/
 #define _POSIX_C_SOURCE 200112L
 
+#define _DEFAULT_SOURCE
+#include <dirent.h>
 #include <errno.h>
+#include <magic.h>
 #include <math.h>
 #include <time.h>
 
@@ -501,6 +504,55 @@ void SleepFunction(
 	returnValue->integerValue = CreateInteger(theEnv, res);
 }
 
+void ScandirFunction(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *returnValue)
+{
+	struct dirent **namelist;
+	int n;
+	UDFValue theArg;
+	MultifieldBuilder *mb = CreateMultifieldBuilder(theEnv, 0);
+
+	UDFNextArgument(context,LEXEME_BITS,&theArg);
+
+	n = scandir(theArg.lexemeValue->contents, &namelist, NULL, alphasort);
+	if (n < 0)
+	{
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+	}
+	else
+	{
+		while (n--) {
+			MBAppendSymbol(mb, namelist[n]->d_name);
+			free(namelist[n]);
+		}
+		free(namelist);
+		returnValue->multifieldValue = MBCreate(mb);
+		MBDispose(mb);
+	}
+}
+
+void MimetypeFunction(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *returnValue)
+{
+	const char *mime;
+	magic_t magic;
+	UDFValue theArg;
+
+	UDFNextArgument(context,LEXEME_BITS,&theArg);
+
+	magic = magic_open(MAGIC_MIME_TYPE); 
+	magic_load(magic, NULL);
+	mime = magic_file(magic, theArg.lexemeValue->contents);
+
+	returnValue->lexemeValue = CreateSymbol(theEnv, mime);
+
+	magic_close(magic);
+}
+
 /*********************************************************/
 /* UserFunctions: Informs the expert system environment  */
 /*   of any user defined functions. In the default case, */
@@ -538,5 +590,7 @@ void UserFunctions(
 	  AddUDF(env,"errno","l",0,0,NULL,ErrnoFunction,"ErrnoFunction",NULL);
 	  AddUDF(env,"errno-sym","yv",0,0,NULL,ErrnoSymFunction,"ErrnoSymFunction",NULL);
 
+	  AddUDF(env,"mimetype","by",1,1,"sy",MimetypeFunction,"MimetypeFunction",NULL);
+	  AddUDF(env,"scandir","bm",1,1,"sy",ScandirFunction,"ScandirFunction",NULL);
 	  AddUDF(env,"sleep","bl",1,1,"l",SleepFunction,"SleepFunction",NULL);
   }

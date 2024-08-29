@@ -69,7 +69,7 @@ debug : clips
 
 release : CC = gcc
 release : CFLAGS = -std=c99 -O3 -fno-strict-aliasing
-release : LDLIBS = -lm -lc
+release : LDLIBS = -lm -lc -lmagic
 release : clips
 
 debug_cpp : CC = g++

@@ -14,7 +14,7 @@
 	(slot ready-to-write (default nil))
 	(slot created-at)
 	(slot delayed-until (default nil))
-	(slot delayed-until-increment (default 0.01))
+	(slot delayed-until-increment (default 0.001))
 	(slot max-life-time (default 5))
 	(slot max-message-length (default 512))
 	(slot timeouts (default 0))
@@ -63,14 +63,18 @@
 		(clients-connected 0)
 		(current-time ?currentTime))
 	=>
-	(facts)
 	;(println "[SERVER] Waiting for connection... (ctrl+z and kill to exit)")
 	; setting this to 0 sets this back to waiting indefinitely
 	(set-timeout ?socketfd 0)
 	(bind ?clientfd (accept ?socketfd))
 	(bind ?time (time))
+
+	(fcntl-add-status-flags ?clientfd O_NONBLOCK)
+	(setsockopt ?clientfd IPPROTO_TCP TCP_NODELAY 1)
+
 	(assert (client
 	 	(socketfd ?socketfd)
+		(name (get-socket-logical-name ?clientfd))
 		(created-at ?time)
 		(delayed-until ?time)
 		(fd ?clientfd)))
@@ -89,13 +93,19 @@
 		(max-clients ?maxClients&:(< ?clientsConnected ?maxClients)))
 	=>
 	;(println "[SERVER] Accepting pending client...")
+	(set-timeout ?fd 1)
+	(bind ?clientfd (accept ?fd))
 	(bind ?time (time))
+
+	(fcntl-add-status-flags ?clientfd O_NONBLOCK)
+	(setsockopt ?clientfd IPPROTO_TCP TCP_NODELAY 1)
+
 	(assert (client
 		(socketfd ?fd)
+		(name (get-socket-logical-name ?clientfd))
 		(created-at ?time)
 		(delayed-until ?time)
-		(fd
-			(accept ?fd))))
+		(fd ?clientfd)))
 	(modify ?f
 		(current-time ?time)
 		(client-waiting nil)
@@ -120,33 +130,14 @@
 	=>
 	;(println "[SERVER] set the timeout to the difference between delayedUntil and current time...")
 	(bind ?waiting (poll ?socketfd
-		(integer (* 100
-			(- ?delayedUntil ?currentTime)))
+		(integer (round (* 1000
+			(- ?delayedUntil ?currentTime))))
 		POLLIN))
 	(bind ?time (time))
 	(modify ?f
 		(current-time ?time)
 		(client-waiting ?waiting))
 )
-
-(defrule get-client-name
-	?f <- (socket
-		(fd ?socketfd)
-		(current-time ?currentTime)
-		(clients-connected ?clientsConnected))
-	?c <- (client
-		(fd ?clientfd&~FALSE)
-		(socketfd ?socketfd)
-		(name nil)
-		(delayed-until ?delayedUntil&:(< ?delayedUntil ?currentTime)))
-	=>
-	;(println "[SERVER] Client accepted!")
-
-	(fcntl-add-status-flags ?clientfd O_NONBLOCK)
-	(setsockopt ?clientfd IPPROTO_TCP TCP_NODELAY 1)
-	(modify ?c
-		(name (get-socket-logical-name ?clientfd)))
-	(modify ?f (current-time (time))))
 
 (defrule could-not-accept-client
 	?f <- (socket
@@ -257,7 +248,7 @@
 	?c <- (client
 		(fd ?clientfd)
 		(socketfd ?socketfd)
-		(delayed-until ?delayedUntil&:(<= ?delayedUntil ?currentTime))
+		(delayed-until ?delayedUntil&:(< ?delayedUntil ?currentTime))
 		(delayed-until-increment ?delayedUntilIncrement)
 		(name ?name&~nil)
 		(ready-to-read TRUE)
