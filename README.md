@@ -81,6 +81,14 @@ The project can be built from the root directory with `make`:
 make
 ```
 
+Note that this requires image magick header files on your system.
+If you do not want it or otherwise do not need to use the `(mimetype` function
+in your clips code, you can run:
+
+```
+make NO_IMAGE_MAGICK
+```
+
 This will create the binary `clips` file in the root directory.
 Use this to run the example server and client network applications
 provided by the files in the `examples` directory.
