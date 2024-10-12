@@ -60,6 +60,11 @@ OBJS = agenda.o analysis.o argacces.o bload.o bmathfun.o bsave.o \
  	tmpltpsr.o tmpltrhs.o tmpltutl.o userdata.o userfunctions.o \
  	utility.o watch.o
 
+NO_IMAGE_MAGICK: CC = gcc
+NO_IMAGE_MAGICK: CFLAGS = -DNO_IMAGE_MAGICK -std=c99 -O3 -fno-strict-aliasing
+NO_IMAGE_MAGICK: LDLIBS = -lm -lc
+NO_IMAGE_MAGICK: clips
+
 all: release
 
 debug : CC = gcc

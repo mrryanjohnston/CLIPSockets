@@ -52,7 +52,11 @@
 #define _DEFAULT_SOURCE
 #include <dirent.h>
 #include <errno.h>
+
+#ifndef NO_IMAGE_MAGICK
 #include <magic.h>
+#endif
+
 #include <math.h>
 #include <time.h>
 
@@ -533,6 +537,7 @@ void ScandirFunction(
 	}
 }
 
+#ifndef NO_IMAGE_MAGICK
 void MimetypeFunction(
 		Environment *theEnv,
 		UDFContext *context,
@@ -552,6 +557,7 @@ void MimetypeFunction(
 
 	magic_close(magic);
 }
+#endif
 
 /*********************************************************/
 /* UserFunctions: Informs the expert system environment  */
@@ -590,7 +596,9 @@ void UserFunctions(
 	  AddUDF(env,"errno","l",0,0,NULL,ErrnoFunction,"ErrnoFunction",NULL);
 	  AddUDF(env,"errno-sym","yv",0,0,NULL,ErrnoSymFunction,"ErrnoSymFunction",NULL);
 
+#ifndef NO_IMAGE_MAGICK
 	  AddUDF(env,"mimetype","by",1,1,"sy",MimetypeFunction,"MimetypeFunction",NULL);
+#endif
 	  AddUDF(env,"scandir","bm",1,1,"sy",ScandirFunction,"ScandirFunction",NULL);
 	  AddUDF(env,"sleep","bl",1,1,"l",SleepFunction,"SleepFunction",NULL);
   }
