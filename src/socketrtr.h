@@ -58,5 +58,7 @@ struct connectionRouter
 
    bool                           FindSocket(Environment *,const char *,void *);
    void                           CloseAllSockets(Environment *);
+   void                           RecvfromFunction(Environment *, UDFContext *, UDFValue *);
+   void                           SendtoFunction(Environment *, UDFContext *, UDFValue *);
 
 #endif /* _H_socketrtr */

@@ -316,6 +316,100 @@ Possible values of `?optionalHow`:
 * `SHUT_WR`: further transmissions will be disallowed
 * `SHUT_RDWR`: further receptions and transmissions will be disallowed
 
+#### `(recvfrom ?socketfdOrLogicalName <?flags> <?maxlen>)`
+
+Receives a single datagram from a socket.
+This is primarily for UDP sockets (`SOCK_DGRAM`) but will also work with other datagram-style sockets like `AF_UNIX`.
+
+Arguments:
+
+`?socketfdOrLogicalName`: The socket to read from.
+
+`?flags` (optional): Either a single symbol, integer, or a multifield of symbols
+specifying flags for the underlying recvfrom call. Supported symbols:
+
+- `MSG_PEEK`
+- `MSG_OOB`
+- `MSG_WAITALL`
+
+`?maxlen` (optional): Maximum number of bytes to read (defaults to 65535).
+Must be greater than 0 and no more than 65536.
+
+Return Value:
+
+A multifield with up to 6 elements, depending on the socket family:
+
+- Address Family (ex `AF_INET`)
+- Address / Path (ex `127.0.0.1` or `/tmp/foo`)
+- Port (or 0 for UNIX) (ex `9999`)
+- Bytes received (ex `12`)
+- Data received (ex "Hello world")
+
+Example:
+
+```clips
+; Simple UDP receive
+(bind ?mf (recvfrom ?sock))
+(printout t "Got " (nth$ 4 ?mf) " bytes: " (nth$ 5 ?mf) crlf)
+
+; With flags
+(bind ?mf (recvfrom ?sock (create$ MSG_PEEK MSG_WAITALL) 512))
+```
+
+#### `(sendto ?socketfdOrLogicalName ?family ?address <?port> ?data <?flags>)`
+
+Sends a single datagram to a destination.
+This is primarily for UDP sockets (`SOCK_DGRAM`).
+
+Arguments:
+
+`?socketfdOrLogicalName`:  The socket to send from.
+
+`?family`: The address family of the destination:
+
+- `AF_UNIX`: UNIX domain sockets
+- `AF_INET`: IPv4
+- `AF_INET6`: IPv6
+
+`?address`: Destination address:
+
+    - Path string for AF_UNIX
+    - IP address string for AF_INET/AF_INET6
+
+`?port`: Destination port (required for `AF_INET`/`AF_INET6`, ignored for `AF_UNIX`).
+
+`?data`: The string data to send. Can be empty ("") for signaling or keepalive packets.
+
+`?flags` (optional): Either a single symbol, integer, or a multifield of symbols
+specifying flags for the underlying sendto call. Supported symbols:
+
+- `MSG_CONFIRM`
+- `MSG_DONTROUTE`
+- `MSG_DONTWAIT`
+- `MSG_EOR`
+- `MSG_MORE`
+- `MSG_NOSIGNAL`
+- `MSG_OOB`
+
+Return Value:
+
+Returns the number of bytes successfully sent as an integer,
+or `FALSE` if an error occurred.
+Use (`errno`) and (`errno-sym`) to get details.
+
+Examples:
+
+```clips
+; Send a message to a UNIX domain socket
+(sendto ?sock AF_UNIX "/tmp/socket" "hello")
+
+; Send a UDP datagram to IPv4 address
+(sendto ?sock AF_INET "127.0.0.1" 9999 "ping")
+
+; Send with multiple flags
+(sendto ?sock AF_INET "192.168.1.100" 12345 "payload" (create$ MSG_NOSIGNAL MSG_DONTWAIT))
+```
+
 ### Debugging
 
 In order to watch all activity on your computer's port 8888

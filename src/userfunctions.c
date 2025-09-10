@@ -601,4 +601,7 @@ void UserFunctions(
 #endif
 	  AddUDF(env,"scandir","bm",1,1,"sy",ScandirFunction,"ScandirFunction",NULL);
 	  AddUDF(env,"sleep","bl",1,1,"l",SleepFunction,"SleepFunction",NULL);
+
+	  AddUDF(env,"rcvfrom","mv",1,3,";lsy;lmsy;l",RecvfromFunction,"RecvfromFunction",NULL);
+	  AddUDF(env,"sendto","l",3,5,";l;sy;lmsy;l;lmsy",SendtoFunction,"SendtoFunction",NULL);
   }

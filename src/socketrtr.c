@@ -924,7 +924,7 @@ void PollFunction(
 	int sockfd, timeout;
 	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		WriteString(theEnv,STDERR,"get-timeout: could not find router for socket file descriptor\n");
+		WriteString(theEnv,STDERR,"poll: could not find router for socket file descriptor\n");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
@@ -1711,4 +1711,330 @@ void CloseAllSockets(Environment *theEnv)
 	}
 
 	SocketRouterData(theEnv)->ListOfSocketRouters = NULL;
+}
+
+/************************************************/
+/* RecvfromFunction: recvfrom on a socket       */
+/* Returns a multifield:                        */
+/*   (address:port family bytes buffer peerlen) */
+/* Optional args (in this order):               */
+/*   flags (multifield of symbols OR integer)   */
+/*   maxlen (integer)                           */
+/************************************************/
+void RecvfromFunction(
+                Environment *theEnv,
+                UDFContext *context,
+                UDFValue *returnValue)
+{
+        struct socketRouter *sptr = NULL;
+        UDFValue theArg;
+        struct sockaddr_storage peer;
+        socklen_t peer_len = sizeof(peer);
+        ssize_t nread;
+        int fd;
+        long maxlen = 65535;
+        char buf[65536 + 1];
+        int flags = 0;
+
+        if (NULL == (sptr = GetSocketRouterFromArgument(theEnv, context, &theArg)))
+        {
+                WriteString(theEnv,STDERR,"recvfrom: argument was not recognized as a socket file descriptor\n");
+                return;
+        }
+
+        if (UDFHasNextArgument(context))
+        {
+                UDFNextArgument(context, INTEGER_BIT|LEXEME_BITS|MULTIFIELD_BIT, &theArg);
+
+                if (theArg.header->type == MULTIFIELD_TYPE)
+                {
+                        for (size_t i = 0; i < theArg.multifieldValue->length; i++)
+                        {
+                                CLIPSValue *cv = &theArg.multifieldValue->contents[i];
+                                if (cv->header->type == SYMBOL_TYPE)
+                                {
+                                        const char *sym = cv->lexemeValue->contents;
+                                        if      (strcmp(sym,"MSG_PEEK")    == 0) flags |= MSG_PEEK;
+                                        else if (strcmp(sym,"MSG_OOB")     == 0) flags |= MSG_OOB;
+                                        else if (strcmp(sym,"MSG_WAITALL") == 0) flags |= MSG_WAITALL;
+                                }
+                        }
+                }
+                else if(theArg.header->type == INTEGER_TYPE)
+                {
+                        flags = (int) theArg.integerValue->contents; /* treat as flags */
+                }
+		else
+		{
+			if      (strcmp(theArg.lexemeValue->contents,"MSG_PEEK")    == 0) flags = MSG_PEEK;
+			else if (strcmp(theArg.lexemeValue->contents,"MSG_OOB")     == 0) flags = MSG_OOB;
+			else if (strcmp(theArg.lexemeValue->contents,"MSG_WAITALL") == 0) flags = MSG_WAITALL;
+		}
+        }
+
+        if (UDFHasNextArgument(context))
+        {
+                UDFNextArgument(context, INTEGER_BIT, &theArg);
+                if (theArg.integerValue->contents > 0 && theArg.integerValue->contents <= 65536)
+                        maxlen = (long) theArg.integerValue->contents;
+        }
+
+        fd = fileno(sptr->stream);
+        memset(&peer, 0, sizeof(peer));
+        nread = recvfrom(fd, buf, (size_t)maxlen, flags, (struct sockaddr *)&peer, &peer_len);
+        if (nread < 0)
+        {
+                WriteString(theEnv,STDERR,"recvfrom failed on '");
+                WriteString(theEnv,STDERR,sptr->logicalName);
+                WriteString(theEnv,STDERR,"'\n");
+                perror("perror");
+                returnValue->lexemeValue = FalseSymbol(theEnv);
+                return;
+        }
+
+        MultifieldBuilder *mb = CreateMultifieldBuilder(theEnv, 6L);
+
+        switch (peer.ss_family)
+        {
+                case AF_INET:
+                {
+                        struct sockaddr_in *sa = (struct sockaddr_in *)&peer;
+                        char ip[INET_ADDRSTRLEN];
+                        inet_ntop(AF_INET, &sa->sin_addr, ip, sizeof(ip));
+                        int port = ntohs(sa->sin_port);
+			MBAppendSymbol(mb, "AF_INET");
+			MBAppendSymbol(mb, ip);
+			MBAppendInteger(mb, port);
+                        break;
+                }
+                case AF_INET6:
+                {
+                        struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)&peer;
+                        char ip6[INET6_ADDRSTRLEN];
+                        inet_ntop(AF_INET6, &sa6->sin6_addr, ip6, sizeof(ip6));
+                        int port6 = ntohs(sa6->sin6_port);
+			MBAppendSymbol(mb, "AF_INET6");
+			MBAppendSymbol(mb, ip6);
+			MBAppendInteger(mb, port6);
+                        break;
+                }
+                case AF_UNIX:
+                {
+                        struct sockaddr_un *sun = (struct sockaddr_un *)&peer;
+			MBAppendSymbol(mb, "AF_UNIX");
+			MBAppendSymbol(mb, sun->sun_path);
+                        break;
+                }
+                default:
+                {
+			MBAppendSymbol(mb, "AF_UNSPEC");
+                        break;
+                }
+        }
+
+        if (nread >= (ssize_t)sizeof(buf)) nread = (ssize_t)sizeof(buf) - 1;
+        if (nread < 0) nread = 0;
+        buf[nread] = '\0';
+
+        MBAppendInteger(mb, (long long)nread);
+        MBAppendString(mb, buf);
+
+        returnValue->multifieldValue = MBCreate(mb);
+
+	MBDispose(mb);
+}
+
+/**********************************************/
+/* SendtoFunction: sendto on a socket         */
+/* Usage:                                     */
+/*   (sendto <socket> AF_UNIX  <path>           <data> [flags]) */
+/*   (sendto <socket> AF_INET  <ip> <port-int>  <data> [flags]) */
+/*   (sendto <socket> AF_INET6 <ip> <port-int>  <data> [flags]) */
+/* Returns: bytes sent (integer) or FALSE on error               */
+/**********************************************/
+void SendtoFunction(
+                Environment *theEnv,
+                UDFContext *context,
+                UDFValue *returnValue)
+{
+        struct socketRouter *sptr = NULL;
+        UDFValue theArg;
+        int fd, flags = 0;
+        const char *family = NULL;
+
+        if (NULL == (sptr = GetSocketRouterFromArgument(theEnv, context, &theArg)))
+        {
+                WriteString(theEnv,STDERR,"sendto: argument was not recognized as a socket file descriptor\n");
+                returnValue->lexemeValue = FalseSymbol(theEnv);
+                return;
+        }
+
+        /* family: AF_UNIX | AF_INET | AF_INET6 */
+        if (! UDFHasNextArgument(context)) { returnValue->lexemeValue = FalseSymbol(theEnv); return; }
+        UDFNextArgument(context, LEXEME_BITS, &theArg);
+        family = theArg.lexemeValue->contents;
+
+        /* Common locals for destination */
+        struct sockaddr_storage dst;
+        socklen_t dst_len = 0;
+        memset(&dst, 0, sizeof(dst));
+
+        /* Data to send (as string/symbol lexeme) */
+        const char *data = NULL;
+        size_t data_len = 0;
+
+        /* Parse by family */
+        if (strcmp(family,"AF_UNIX") == 0)
+        {
+                /* path */
+                if (! UDFHasNextArgument(context)) { returnValue->lexemeValue = FalseSymbol(theEnv); return; }
+                UDFNextArgument(context, LEXEME_BITS, &theArg);
+                const char *path = theArg.lexemeValue->contents;
+
+                /* data */
+                if (! UDFHasNextArgument(context)) { returnValue->lexemeValue = FalseSymbol(theEnv); return; }
+                UDFNextArgument(context, LEXEME_BITS, &theArg);
+                data = theArg.lexemeValue->contents;
+                data_len = strlen(data);
+
+                struct sockaddr_un *sun = (struct sockaddr_un *)&dst;
+                sun->sun_family = AF_UNIX;
+
+                /* Copy path (truncates if too long for safety) */
+                size_t maxlen = sizeof(sun->sun_path) - 1;
+                strncpy(sun->sun_path, path, maxlen);
+                sun->sun_path[maxlen] = '\0';
+
+                /* Compute sockaddr length (portable form) */
+                dst_len = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + strlen(sun->sun_path) + 1);
+        }
+        else if (strcmp(family,"AF_INET") == 0)
+        {
+                /* ip */
+                if (! UDFHasNextArgument(context)) { returnValue->lexemeValue = FalseSymbol(theEnv); return; }
+                UDFNextArgument(context, LEXEME_BITS, &theArg);
+                const char *ip = theArg.lexemeValue->contents;
+
+                /* port */
+                if (! UDFHasNextArgument(context)) { returnValue->lexemeValue = FalseSymbol(theEnv); return; }
+                UDFNextArgument(context, INTEGER_BIT, &theArg);
+                int port = (int) theArg.integerValue->contents;
+
+                /* data */
+                if (! UDFHasNextArgument(context)) { returnValue->lexemeValue = FalseSymbol(theEnv); return; }
+                UDFNextArgument(context, LEXEME_BITS, &theArg);
+                data = theArg.lexemeValue->contents;
+                data_len = strlen(data);
+
+                struct sockaddr_in *sa = (struct sockaddr_in *)&dst;
+                sa->sin_family = AF_INET;
+                sa->sin_port = htons((uint16_t)port);
+                if (inet_pton(AF_INET, ip, &sa->sin_addr) != 1)
+                {
+                        WriteString(theEnv,STDERR,"sendto: invalid AF_INET address\n");
+                        returnValue->lexemeValue = FalseSymbol(theEnv);
+                        return;
+                }
+                dst_len = (socklen_t)sizeof(struct sockaddr_in);
+        }
+        else if (strcmp(family,"AF_INET6") == 0)
+        {
+                /* ip6 */
+                if (! UDFHasNextArgument(context)) { returnValue->lexemeValue = FalseSymbol(theEnv); return; }
+                UDFNextArgument(context, LEXEME_BITS, &theArg);
+                const char *ip6 = theArg.lexemeValue->contents;
+
+                /* port */
+                if (! UDFHasNextArgument(context)) { returnValue->lexemeValue = FalseSymbol(theEnv); return; }
+                UDFNextArgument(context, INTEGER_BIT, &theArg);
+                int port6 = (int) theArg.integerValue->contents;
+
+                /* data */
+                if (! UDFHasNextArgument(context)) { returnValue->lexemeValue = FalseSymbol(theEnv); return; }
+                UDFNextArgument(context, LEXEME_BITS, &theArg);
+                data = theArg.lexemeValue->contents;
+                data_len = strlen(data);
+
+                struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)&dst;
+                sa6->sin6_family = AF_INET6;
+                sa6->sin6_port = htons((uint16_t)port6);
+                sa6->sin6_flowinfo = 0;
+                sa6->sin6_scope_id = 0;
+                if (inet_pton(AF_INET6, ip6, &sa6->sin6_addr) != 1)
+                {
+                        WriteString(theEnv,STDERR,"sendto: invalid AF_INET6 address\n");
+                        returnValue->lexemeValue = FalseSymbol(theEnv);
+                        return;
+                }
+                dst_len = (socklen_t)sizeof(struct sockaddr_in6);
+        }
+        else
+        {
+            WriteString(theEnv,STDERR,"sendto: unsupported family (use AF_UNIX | AF_INET | AF_INET6)\n");
+            returnValue->lexemeValue = FalseSymbol(theEnv);
+            return;
+        }
+
+        /* Optional flags (multifield of symbols, single symbol, or integer) */
+        if (UDFHasNextArgument(context))
+        {
+                UDFNextArgument(context, INTEGER_BIT|LEXEME_BITS|MULTIFIELD_BIT, &theArg);
+
+                if (theArg.header->type == MULTIFIELD_TYPE)
+                {
+                        for (size_t i = 0; i < theArg.multifieldValue->length; i++)
+                        {
+                                CLIPSValue *cv = &theArg.multifieldValue->contents[i];
+                                if (cv->header->type == SYMBOL_TYPE)
+                                {
+                                        const char *sym = cv->lexemeValue->contents;
+                                        if      (strcmp(sym,"MSG_CONFIRM")  == 0) flags |= MSG_CONFIRM;
+                                        else if (strcmp(sym,"MSG_DONTROUTE")== 0) flags |= MSG_DONTROUTE;
+                                        else if (strcmp(sym,"MSG_DONTWAIT") == 0) flags |= MSG_DONTWAIT;
+                                        else if (strcmp(sym,"MSG_EOR")      == 0) flags |= MSG_EOR;
+#ifdef MSG_MORE
+                                        else if (strcmp(sym,"MSG_MORE")     == 0) flags |= MSG_MORE;
+#endif
+#ifdef MSG_NOSIGNAL
+                                        else if (strcmp(sym,"MSG_NOSIGNAL") == 0) flags |= MSG_NOSIGNAL;
+#endif
+                                        else if (strcmp(sym,"MSG_OOB")      == 0) flags |= MSG_OOB;
+                                }
+                        }
+                }
+                else if (theArg.header->type == INTEGER_TYPE)
+                {
+                        flags = (int) theArg.integerValue->contents;
+                }
+                else /* single symbol */
+                {
+                        const char *sym = theArg.lexemeValue->contents;
+                        if      (strcmp(sym,"MSG_CONFIRM")  == 0) flags = MSG_CONFIRM;
+                        else if (strcmp(sym,"MSG_DONTROUTE")== 0) flags = MSG_DONTROUTE;
+                        else if (strcmp(sym,"MSG_DONTWAIT") == 0) flags = MSG_DONTWAIT;
+                        else if (strcmp(sym,"MSG_EOR")      == 0) flags = MSG_EOR;
+#ifdef MSG_MORE
+                        else if (strcmp(sym,"MSG_MORE")     == 0) flags = MSG_MORE;
+#endif
+#ifdef MSG_NOSIGNAL
+                        else if (strcmp(sym,"MSG_NOSIGNAL") == 0) flags = MSG_NOSIGNAL;
+#endif
+                        else if (strcmp(sym,"MSG_OOB")      == 0) flags = MSG_OOB;
+                }
+        }
+
+        fd = fileno(sptr->stream);
+
+        ssize_t nsent = sendto(fd, data, data_len, flags, (struct sockaddr *)&dst, dst_len);
+        if (nsent < 0)
+        {
+                WriteString(theEnv,STDERR,"sendto failed on '");
+                WriteString(theEnv,STDERR,sptr->logicalName);
+                WriteString(theEnv,STDERR,"'\n");
+                perror("perror");
+                returnValue->lexemeValue = FalseSymbol(theEnv);
+                return;
+        }
+
+        returnValue->integerValue = CreateInteger(theEnv, (long long)nsent);
 }
