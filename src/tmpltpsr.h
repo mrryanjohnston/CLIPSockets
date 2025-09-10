@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  08/08/24            */
    /*                                                     */
    /*            DEFTEMPLATE PARSER HEADER FILE           */
    /*******************************************************/
@@ -39,6 +39,10 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      7.00: Support for certainty factors.                 */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_tmpltpsr
@@ -52,6 +56,14 @@
 
    bool                           ParseDeftemplate(Environment *,const char *);
    void                           InstallDeftemplate(Environment *,Deftemplate *);
+
+#if CERTAINTY_FACTORS
+#define TEMPLATE_CFD_STRING "CFD"
+#define TEMPLATE_CF_STRING "CF"
+#endif
+
+#define TEMPLATE_ND_STRING "ND"
+#define TEMPLATE_NAME_STRING "name"
 
 #endif /* _H_tmpltpsr */
 

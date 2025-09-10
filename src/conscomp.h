@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  01/29/25            */
    /*                                                     */
    /*           CONSTRUCT COMPILER HEADER FILE            */
    /*******************************************************/
@@ -103,6 +103,7 @@ struct constructCompilerData
    const char *FilePrefix;
    const char *PathName;
    char *FileNameBuffer;
+   size_t BufferSize;
    bool ExpressionHeader;
    unsigned long ExpressionCount;
    unsigned ExpressionVersion;

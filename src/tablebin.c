@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  02/06/24             */
+   /*            CLIPS Version 7.00  11/19/24             */
    /*                                                     */
    /*             DEFTABLE BSAVE/BLOAD MODULE             */
    /*******************************************************/
@@ -437,7 +437,7 @@ static void UpdateDeftable(
    struct expr *rc;
    unsigned short index = 0;
    struct rcHashTableEntry **theHT;
-   size_t htSize;
+   unsigned long htSize;
    unsigned int r;
 
    bdp = (struct bsaveDeftable *) buf;

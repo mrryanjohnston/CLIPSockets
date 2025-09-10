@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  11/01/16             */
+   /*            CLIPS Version 7.00  08/08/24             */
    /*                                                     */
    /*         IMPLICIT SYSTEM METHODS PARSING MODULE      */
    /*******************************************************/
@@ -43,6 +43,8 @@
 /*            data structures.                               */
 /*                                                           */
 /*            UDF redesign.                                  */
+/*                                                           */
+/*      7.00: Generic function support for deftemplates.     */
 /*                                                           */
 /*************************************************************/
 
@@ -224,7 +226,7 @@ static void FormMethodsFromRestrictions(
       if (RestrictionExists(rstring,min+i+1) ||
           ((min + i) == max))
         {
-         FindMethodByRestrictions(gfunc,plist,min + i,NULL,&mposn);
+         FindMethodByRestrictions(theEnv,gfunc,plist,min + i,NULL,&mposn);
          meth = AddMethod(theEnv,gfunc,NULL,mposn,0,plist,min + i,0,NULL,
                           PackExpression(theEnv,actions),NULL,true);
          meth->system = 1;
@@ -265,7 +267,7 @@ static void FormMethodsFromRestrictions(
         plist = tmp;
       else
         bot->nextArg = tmp;
-      FindMethodByRestrictions(gfunc,plist,min + i + 1,TrueSymbol(theEnv),&mposn);
+      FindMethodByRestrictions(theEnv,gfunc,plist,min + i + 1,TrueSymbol(theEnv),&mposn);
       meth = AddMethod(theEnv,gfunc,NULL,mposn,0,plist,min + i + 1,0,TrueSymbol(theEnv),
                        PackExpression(theEnv,actions),NULL,false);
       meth->system = 1;
@@ -287,7 +289,7 @@ static void FormMethodsFromRestrictions(
          svBot->nextArg = NULL;
          DeleteTempRestricts(theEnv,bot);
         }
-      FindMethodByRestrictions(gfunc,plist,min,NULL,&mposn);
+      FindMethodByRestrictions(theEnv,gfunc,plist,min,NULL,&mposn);
       meth = AddMethod(theEnv,gfunc,NULL,mposn,0,plist,min,0,NULL,
                        PackExpression(theEnv,actions),NULL,true);
       meth->system = 1;
@@ -417,11 +419,11 @@ static Expression *GenTypeExpression(
 
 #if OBJECT_SYSTEM
    if (primitiveCode != -1)
-     tmp = GenConstant(theEnv,0,DefclassData(theEnv)->PrimitiveClassMap[primitiveCode]);
+     tmp = GenConstant(theEnv,DEFCLASS_PTR,DefclassData(theEnv)->PrimitiveClassMap[primitiveCode]);
    else
-     tmp = GenConstant(theEnv,0,LookupDefclassByMdlOrScope(theEnv,COOLName));
+     tmp = GenConstant(theEnv,DEFCLASS_PTR,LookupDefclassByMdlOrScope(theEnv,COOLName));
 #else
-   tmp = GenConstant(theEnv,0,CreateInteger(theEnv,nonCOOLCode));
+   tmp = GenConstant(theEnv,INTEGER_TYPE,CreateInteger(theEnv,nonCOOLCode));
 #endif
    tmp->nextArg = top;
    return(tmp);

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/03/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -57,6 +57,9 @@
 /*            Generic error message no longer printed when    */
 /*            an alternate variable handling function         */
 /*            generates an error.                             */
+/*                                                            */
+/*      7.00: Support for ?var:slot references to facts in    */
+/*            methods and rule actions.                       */
 /*                                                            */
 /**************************************************************/
 
@@ -118,8 +121,6 @@ typedef struct
 
 #if (! BLOAD_ONLY) && (! RUN_TIME)
    static unsigned int            FindProcParameter(CLIPSLexeme *,Expression *,CLIPSLexeme *);
-   static bool                    ReplaceProcBinds(Environment *,Expression *,
-                                                   int (*)(Environment *,Expression *,void *),void *);
    static Expression             *CompactActions(Environment *,Expression *);
 #endif
 
@@ -1372,7 +1373,7 @@ static unsigned int FindProcParameter(
                   special binds and remove the names from the parsed
                   bind list)
  *************************************************************************/
-static bool ReplaceProcBinds(
+bool ReplaceProcBinds(
   Environment *theEnv,
   Expression *actions,
   int (*altbindfunc)(Environment *,Expression *,void *),
@@ -1439,6 +1440,37 @@ static Expression *CompactActions(
    return(actions);
   }
 
+/****************************************************************************
+  NAME         : BindSlotReferenceDefault
+  DESCRIPTION  : Check for ?var:slot references in the bind function and
+                 generates an error if found.
+  INPUTS       : 1) Variable expression
+                 2) The class for the message-handler being parsed
+  RETURNS      : 0 if not recognized, 1 if so, -1 on errors
+  SIDE EFFECTS : Handler body "bind" call replaced with  direct slot access
+                   function
+  NOTES        : Objects are allowed to directly access their own slots
+                 without sending a message to themselves.  Since the object
+                 is "within the boundary of its internals", this does not
+                 violate the encapsulation principle of OOP.
+ ****************************************************************************/
+int BindSlotReferenceDefault(
+  Environment *theEnv,
+  Expression *bindExp,
+  void *userBuffer)
+  {
+   const char *bindName;
+   bindName = bindExp->argList->lexemeValue->contents;
+     
+   if (strchr(bindName,':') != NULL)
+     {
+      BindVarSlotErrorMessage(theEnv,bindName);
+      return -1;
+     }
+
+   return 0;
+  }
+  
 #endif
 
 #if (! DEFFUNCTION_CONSTRUCT) || (! DEFGENERIC_CONSTRUCT)

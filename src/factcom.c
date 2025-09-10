@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/22/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*                FACT COMMANDS MODULE                 */
    /*******************************************************/
@@ -92,6 +92,8 @@
 /*                                                           */
 /*            Construct hashing for quick lookup.            */
 /*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -150,7 +152,7 @@ void FactCommandDefinitions(
    AddUDF(theEnv,"get-fact-duplication","b",0,0,NULL,GetFactDuplicationCommand,"GetFactDuplicationCommand", NULL);
    AddUDF(theEnv,"set-fact-duplication","b",1,1,NULL,SetFactDuplicationCommand,"SetFactDuplicationCommand", NULL);
 
-   AddUDF(theEnv,"fact-index","l",1,1,"f",FactIndexFunction,"FactIndexFunction",NULL);
+   AddUDF(theEnv,"fact-index","l",1,1,"fy",FactIndexFunction,"FactIndexFunction",NULL);
 
    FuncSeqOvlFlags(theEnv,"assert",false,false);
 #else
@@ -188,10 +190,9 @@ void AssertCommand(
    theExpression = GetFirstArgument();
    theDeftemplate = (Deftemplate *) theExpression->value;
 
-   /*=======================================*/
-   /* Create the fact and store the name of */
-   /* the deftemplate as the 1st field.     */
-   /*=======================================*/
+   /*==================*/
+   /* Create the fact. */
+   /*==================*/
 
    if (theDeftemplate->implied == false)
      {
@@ -274,12 +275,26 @@ void AssertCommand(
 
    theFact = Assert(newFact);
 
-   /*========================================*/
-   /* The asserted fact is the return value. */
-   /*========================================*/
+   /*=====================================================*/
+   /* If a fact is named, the name is returned, otherwise */
+   /* the asserted fact is the return value. If the fact  */
+   /* wasn't asserted, the symbol FALSE is returned.      */
+   /*=====================================================*/
 
    if (theFact != NULL)
-     { returnValue->factValue = theFact; }
+     {
+      if (theFact->whichDeftemplate->named)
+        {
+         unsigned short nameSlot = 0;
+      
+         if (theFact->whichDeftemplate->cfd)
+           { nameSlot++; }
+        
+         returnValue->lexemeValue = theFact->theProposition.contents[nameSlot].lexemeValue;
+        }
+      else
+        { returnValue->factValue = theFact; }
+     }
    else
      { returnValue->lexemeValue = FalseSymbol(theEnv); }
 
@@ -355,8 +370,39 @@ void RetractCommand(
          else
            {
             char tempBuffer[20];
-            gensnprintf(tempBuffer,sizeof(tempBuffer),"f-%lld",factIndex);
+            snprintf(tempBuffer,sizeof(tempBuffer),"f-%lld",factIndex);
             CantFindItemErrorMessage(theEnv,"fact",tempBuffer,false);
+            SetEvaluationError(theEnv,true);
+            return;
+           }
+        }
+
+      /*==================================*/
+      /* Otherwise if the argument is a   */
+      /* fact-name,then look up the fact. */
+      /*==================================*/
+
+      else if ((CVIsType(&theArg,SYMBOL_BIT)) &&
+               (theArg.lexemeValue->contents[0] == '@'))
+        {
+         /*===============================================*/
+         /* See if a fact with the specified name exists. */
+         /*===============================================*/
+
+         ptr = LookupFact(theEnv,theArg.lexemeValue);
+         
+         /*=====================================*/
+         /* If the fact exists then retract it, */
+         /* otherwise print an error message.   */
+         /*=====================================*/
+         
+         if (ptr != NULL)
+           { Retract(ptr); }
+         else
+           {
+            CantFindItemErrorMessage(theEnv,"fact",theArg.lexemeValue->contents,false);
+            SetEvaluationError(theEnv,true);
+            return;
            }
         }
 
@@ -365,8 +411,8 @@ void RetractCommand(
       /* symbol *, then all facts are retracted.    */
       /*============================================*/
 
-      else if ((CVIsType(&theArg,SYMBOL_BIT)) ?
-               (strcmp(theArg.lexemeValue->contents,"*") == 0) : false)
+      else if ((CVIsType(&theArg,SYMBOL_BIT)) &&
+               (strcmp(theArg.lexemeValue->contents,"*") == 0))
         {
          RetractAllFacts(theEnv);
          return;
@@ -381,6 +427,7 @@ void RetractCommand(
         {
          UDFInvalidArgumentMessage(context,"fact-address, fact-index, or the symbol *");
          SetEvaluationError(theEnv,true);
+         return;
         }
      }
   }
@@ -439,14 +486,38 @@ void FactIndexFunction(
   UDFValue *returnValue)
   {
    UDFValue theArg;
+   Fact *theFact;
 
-   /*======================================*/
-   /* The argument must be a fact address. */
-   /*======================================*/
+   /*================================================*/
+   /* The argument must be a fact address or symbol. */
+   /*================================================*/
 
-   if (! UDFFirstArgument(context,FACT_ADDRESS_BIT,&theArg))
+   if (! UDFFirstArgument(context,FACT_ADDRESS_BIT | SYMBOL_BIT,&theArg))
      { return; }
 
+   /*=========================================================*/
+   /* If the symbol is a fact-name, find the associated fact. */
+   /*=========================================================*/
+   
+   if (theArg.header->type == SYMBOL_TYPE)
+     {
+      if (theArg.lexemeValue->contents[0] == '@')
+        {
+         theFact = LookupFact(theEnv,theArg.lexemeValue);
+         if (theFact == NULL)
+           {
+            CantFindItemErrorMessage(theEnv,"fact",theArg.lexemeValue->contents,false);
+            return;
+           }
+         theArg.factValue = theFact;
+        }
+      else
+        {
+         UDFInvalidArgumentMessage(context,"fact-address or fact-name");
+         return;
+        }
+     }
+     
    /*================================================*/
    /* Return the fact index associated with the fact */
    /* address. If the fact has been retracted, then  */

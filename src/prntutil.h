@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  01/29/18            */
+   /*             CLIPS Version 7.00  07/25/24            */
    /*                                                     */
    /*              PRINT UTILITY HEADER FILE              */
    /*******************************************************/
@@ -62,6 +62,11 @@
 /*                                                           */
 /*            Removed DATA_OBJECT_ARRAY primitive type.      */
 /*                                                           */
+/*      7.00: Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_prntutil
@@ -111,11 +116,13 @@ struct printUtilityData
    void                           FactRetractedErrorMessage(Environment *,Fact *);
    void                           FactVarSlotErrorMessage1(Environment *,Fact *,const char *);
    void                           FactVarSlotErrorMessage2(Environment *,Fact *,const char *);
+   void                           FactVarSlotErrorMessage3(Environment *,const char *);
+   void                           FactVarSlotErrorMessage4(Environment *,const char *,const char *);
    void                           InvalidVarSlotErrorMessage(Environment *,const char *);
    void                           InstanceVarSlotErrorMessage1(Environment *,Instance *,const char *);
    void                           InstanceVarSlotErrorMessage2(Environment *,Instance *,const char *);
    void                           ArgumentOverUnderflowErrorMessage(Environment *,const char *,bool);
-
+   void                           BindVarSlotErrorMessage(Environment *,const char *);
 #endif /* _H_prntutil */
 
 

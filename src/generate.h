@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  08/24/24            */
    /*                                                     */
    /*                GENERATE HEADER FILE                 */
    /*******************************************************/
@@ -48,7 +48,7 @@
 #include "reorder.h"
 
    void                           FieldConversion(Environment *,struct lhsParseNode *,struct lhsParseNode *,struct nandFrame *);
-   struct expr                   *GetvarReplace(Environment *,struct lhsParseNode *,bool,struct nandFrame *);
+   struct expr                   *GetvarReplace(Environment *,struct lhsParseNode *,bool,bool,struct nandFrame *);
    void                           AddNandUnification(Environment *,struct lhsParseNode *,struct nandFrame *);
 
 #endif /* _H_generate */

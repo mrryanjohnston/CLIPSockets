@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  12/31/23            */
+   /*             CLIPS Version 7.00  07/25/24            */
    /*                                                     */
    /*                ENTITIES HEADER FILE                 */
    /*******************************************************/
@@ -19,6 +19,8 @@
 /*      6.40: Created to store key data structures.          */
 /*                                                           */
 /*      7.00: Support for non-reactive fact patterns.        */
+/*                                                           */
+/*            Hash value stored with lexemes.                */
 /*                                                           */
 /*************************************************************/
 
@@ -91,6 +93,7 @@ struct clipsLexeme
    unsigned int neededSymbol : 1;
    unsigned int bucket : 29;
    const char *contents;
+   size_t hv;
   };
 
 /**************/
@@ -269,11 +272,9 @@ struct patternEntity
   {
    TypeHeader header;
    struct patternEntityRecord *theInfo;
-   void *dependents;
+   struct dependency *dependents;
    unsigned busyCount;
    unsigned long long timeTag;
   };
 
 #endif /* _H_entities */
-
-

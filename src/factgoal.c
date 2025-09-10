@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  12/24/23            */
+   /*             CLIPS Version 7.00  11/19/24            */
    /*                                                     */
    /*                   FACT GOAL MODULE                  */
    /*******************************************************/
@@ -65,7 +65,7 @@
    static void                    InferValueFromPatternNetworkEq(Environment *,Expression *,struct extractedInfo **,Expression **,
                                                                  unsigned short,struct joinNode *,
                                                                  struct partialMatch *,unsigned short *);
-   static void                    AddToInfoArray(struct extractedInfo **,struct extractedInfo *,unsigned int);
+   static void                    AddToInfoArray(Environment *,struct extractedInfo **,struct extractedInfo *,unsigned int);
    static struct extractedInfo   *FindExtractedInfo(struct extractedInfo **,unsigned short,unsigned short);
    static bool                    UnboundReferences(Expression *,struct extractedInfo **);
    static void                    InferWildcardPositions(Environment *,struct extractedInfo **,Expression **,unsigned short);
@@ -95,7 +95,7 @@ void AttachGoal(
      { return; }
 
    theGoal = GenerateGoal(theEnv,join,deriveBinds);
-   
+
    if (theGoal == NULL)
      { return; }
      
@@ -123,7 +123,7 @@ void UpdateGoalSupport(
       ExitRouter(theEnv,EXIT_FAILURE);
      }
    
-   theGoal = goalParent->marker;
+   theGoal = (Fact *) goalParent->marker;
    
    if (theGoal == NULL)
      {
@@ -367,13 +367,13 @@ Fact *GenerateGoal(
         
    if (numberOfSlots != 0)
      {
-      lengthArray = genalloc(theEnv,sizeof(Expression *) * numberOfSlots);
+      lengthArray = (Expression **) genalloc(theEnv,sizeof(Expression *) * numberOfSlots);
       memset(lengthArray,0,sizeof(Expression *) * numberOfSlots);
-      cardinalityArray = genalloc(theEnv,sizeof(bool) * numberOfSlots);
+      cardinalityArray = (bool *) genalloc(theEnv,sizeof(bool) * numberOfSlots);
       memset(cardinalityArray,0,sizeof(bool) * numberOfSlots);
-      fieldCountArray = genalloc(theEnv,sizeof(unsigned short) * numberOfSlots);
+      fieldCountArray = (unsigned short *) genalloc(theEnv,sizeof(unsigned short) * numberOfSlots);
       memset(fieldCountArray,0,sizeof(unsigned short) * numberOfSlots);
-      infoArray = genalloc(theEnv,sizeof(struct extractedInfo *) * numberOfSlots);
+      infoArray = (struct extractedInfo **) genalloc(theEnv,sizeof(struct extractedInfo *) * numberOfSlots);
       memset(infoArray,0,sizeof(struct extractedInfo *) * numberOfSlots);
      }
    else
@@ -597,9 +597,9 @@ static void FindConstantLengthAndMultifieldNodes(
    if (theExpression->value == ExpressionData(theEnv)->PTR_AND)
      { theExpression = theExpression->argList; }
 
-   /*==================================*/
-   /*   */
-   /*==================================*/
+   /*==========================================*/
+   /* Iterate through all of the expressions.  */
+   /*==========================================*/
    
    while (theExpression != NULL)
      {
@@ -801,9 +801,20 @@ static unsigned short ComputeNumberOfFields(
    struct extractedInfo *infoPtr;
    unsigned short explicitMultifields = 0;
    
+   /*=================================================*/
+   /* If the length value represents the exact count, */
+   /* then the minLength is the same as the maxLength */
+   /* so the number of fields is the minLength.       */
+   /*=================================================*/
+   
    if (exactly)
      { return minLength; }
      
+   /*==================================*/
+   /* Determine the number of explicit */
+   /* multifields in the slot pattern. */
+   /*==================================*/
+   
    for (infoPtr = infoArray[whichSlot];
         infoPtr != NULL;
         infoPtr = infoPtr->next)
@@ -812,7 +823,7 @@ static unsigned short ComputeNumberOfFields(
         { explicitMultifields++; }
      }
      
-   if (explicitMultifields > 1)
+   if (explicitMultifields >= 1)
      { return minLength + explicitMultifields; }
      
    return minLength + 1;
@@ -852,7 +863,7 @@ static void InferValuesFromJoinNetworkComparisons(
 
             theInfo = CreateExtractionInfo(theEnv,0,false,false,false,lhsFact->theProposition.contents[hack->slot2].value);
 
-            AddToInfoArray(infoArray,theInfo,hack->slot1);
+            AddToInfoArray(theEnv,infoArray,theInfo,hack->slot1);
            }
         }
       else if (theExpression->type == FACT_JN_CMP2)
@@ -893,7 +904,7 @@ static void InferValuesFromJoinNetworkComparisons(
                  { theInfo->theValue.value = segment->contents[segment->length - (hack->offset2 + 1)].value; }
               }
 
-            AddToInfoArray(infoArray,theInfo,hack->slot1);
+            AddToInfoArray(theEnv,infoArray,theInfo,hack->slot1);
            }
         }
 
@@ -1030,7 +1041,7 @@ static void InferValueFromJoinNetworkEq(
       theInfo->field = theField;
       theInfo->fromLeft = fromLeft;
       theInfo->fromRight = fromRight;
-      AddToInfoArray(infoArray,theInfo,theSlot);
+      AddToInfoArray(theEnv,infoArray,theInfo,theSlot);
      }
      
    UDFToCLIPSValue(theEnv,&theResult,&theInfo->theValue);
@@ -1094,7 +1105,7 @@ static void InferValuesFromPatternNetworkComparisons(
                 if (infoArray[hack->field2] != NULL)
                   {
                    theInfo = CreateExtractionInfo(theEnv,0,false,false,false,infoArray[hack->field2]->theValue.value);
-                   AddToInfoArray(infoArray,theInfo,hack->field1);
+                   AddToInfoArray(theEnv,infoArray,theInfo,hack->field1);
                   }
                }
             }
@@ -1153,6 +1164,27 @@ static void InferValueFromPatternNetworkEq(
          hack = (const struct factGetVarPN1Call *) ((CLIPSBitMap *) secondArg->value)->contents;
          sourceSlot = hack->whichSlot;
          sourceField = hack->whichField;
+         for (theInfo = infoArray[sourceSlot];
+              theInfo != NULL;
+              theInfo = theInfo->next)
+           {
+            if (theInfo->field == sourceField)
+              {
+               found = true;
+               retrievedValue.value = theInfo->theValue.value;
+               break;
+              }
+           }
+        }
+        break;
+        
+      case FACT_PN_VAR2:
+        {
+         const struct factGetVarPN2Call *hack;
+         
+         hack = (const struct factGetVarPN2Call *) ((CLIPSBitMap *) secondArg->value)->contents;
+         sourceSlot = hack->whichSlot;
+         sourceField = 0;
          for (theInfo = infoArray[sourceSlot];
               theInfo != NULL;
               theInfo = theInfo->next)
@@ -1246,7 +1278,18 @@ static void InferValueFromPatternNetworkEq(
            { newInfo->multifield = true; }
          else
            { newInfo->multifield = false; }
-         AddToInfoArray(infoArray,newInfo,hack->whichSlot);
+         AddToInfoArray(theEnv,infoArray,newInfo,hack->whichSlot);
+        }
+        break;
+        
+      case FACT_PN_VAR2:
+        {
+         const struct factGetVarPN2Call *hack;
+         
+         hack = (const struct factGetVarPN2Call *) ((CLIPSBitMap *) firstArg->value)->contents;
+         
+         newInfo = CreateExtractionInfo(theEnv,0,false,false,false,retrievedValue.value);
+         AddToInfoArray(theEnv,infoArray,newInfo,hack->whichSlot);
         }
         break;
 
@@ -1261,7 +1304,7 @@ static void InferValueFromPatternNetworkEq(
            { isMultifield = false; }
            
          newInfo = CreateExtractionInfo(theEnv,theField,isMultifield,hack->fromBeginning,hack->fromEnd,retrievedValue.value);
-         AddToInfoArray(infoArray,newInfo,hack->whichSlot);
+         AddToInfoArray(theEnv,infoArray,newInfo,hack->whichSlot);
         }
         break;
      }
@@ -1271,6 +1314,7 @@ static void InferValueFromPatternNetworkEq(
 /* AddToInfoArray */
 /******************/
 static void AddToInfoArray(
+  Environment *theEnv,
   struct extractedInfo **infoArray,
   struct extractedInfo *theInfo,
   unsigned int whichSlot)
@@ -1282,12 +1326,20 @@ static void AddToInfoArray(
         infoPtr != NULL;
         infoPtr = infoPtr->next)
      {
-      if (infoPtr->field >= theInfo->field)
+      if (infoPtr->field == theInfo->field)
+        {
+         if (infoPtr->theValue.header->type == VOID_TYPE)
+           { infoPtr->theValue = theInfo->theValue; }
+           
+         rtn_struct(theEnv,extractedInfo,theInfo);
+         return;
+        }
+      else if (infoPtr->field > theInfo->field)
         { break; }
         
       lastPtr = infoPtr;
      }
-     
+
    if (lastPtr == NULL)
      {
       theInfo->next = infoArray[whichSlot];
@@ -1344,11 +1396,6 @@ static bool UnboundReferences(
              hack = (const struct factGetVarJN1Call *) ((CLIPSBitMap *) theExpression->value)->contents;
              if (hack->rhs)
                {
-                for (theInfo = infoArray[hack->whichSlot]; theInfo != NULL; theInfo = theInfo->next)
-                  {
-                  
-                  }
-
                 return true;
                }
             }
@@ -1361,11 +1408,6 @@ static bool UnboundReferences(
              hack = (const struct factGetVarJN2Call *) ((CLIPSBitMap *) theExpression->value)->contents;
              if (hack->rhs)
                {
-                for (theInfo = infoArray[hack->whichSlot]; theInfo != NULL; theInfo = theInfo->next)
-                  {
-                  
-                  }
-
                 return true;
                }
             }

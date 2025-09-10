@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  12/24/23             */
+   /*            CLIPS Version 7.00  01/28/25             */
    /*                                                     */
    /*               SYSTEM DEPENDENT MODULE               */
    /*******************************************************/
@@ -128,6 +128,8 @@
 /*                                                           */
 /*      7.00: On macOS, changed calls of srand and rand to   */
 /*            srandom and random.                            */
+/*                                                           */
+/*            Removed gensnprintf and gensprintf functions.  */
 /*                                                           */
 /*************************************************************/
 
@@ -355,47 +357,6 @@ char *genstrncat(
   size_t n)
   {
    return strncat(dest,src,n);
-  }
-
-/*****************************************/
-/* gensprintf: Generic sprintf function. */
-/*****************************************/
-int gensprintf(
-  char *buffer,
-  const char *restrictStr,
-  ...)
-  {
-   va_list args;
-   int rv;
-
-   va_start(args,restrictStr);
-
-   rv = vsprintf(buffer,restrictStr,args);
-
-   va_end(args);
-
-   return rv;
-  }
-
-/*******************************************/
-/* gensnprintf: Generic snprintf function. */
-/*******************************************/
-int gensnprintf(
-  char *buffer,
-  size_t bufferSize,
-  const char *restrictStr,
-  ...)
-  {
-   va_list args;
-   int rv;
-
-   va_start(args,restrictStr);
-
-   rv = vsnprintf(buffer,bufferSize,restrictStr,args);
-
-   va_end(args);
-
-   return rv;
   }
 
 /******************************************************/

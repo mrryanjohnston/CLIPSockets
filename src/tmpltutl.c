@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/22/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*            DEFTEMPLATE UTILITIES MODULE             */
    /*******************************************************/
@@ -68,6 +68,10 @@
 /*            Support for non-reactive fact patterns.        */
 /*                                                           */
 /*            Construct hashing for quick lookup.            */
+/*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
+/*            Support for named facts.                       */
 /*                                                           */
 /*************************************************************/
 
@@ -252,7 +256,7 @@ void CheckTemplateFact(
       rv = ConstraintCheckDataObject(theEnv,&theData,slotPtr->constraints);
       if (rv != NO_VIOLATION)
         {
-         gensnprintf(thePlace,sizeof(thePlace),"fact f-%lld",theFact->factIndex);
+         snprintf(thePlace,sizeof(thePlace),"fact f-%lld",theFact->factIndex);
 
          PrintErrorID(theEnv,"CSTRNCHK",1,true);
          WriteString(theEnv,STDERR,"Slot value ");
@@ -621,6 +625,8 @@ Deftemplate *CreateImpliedDeftemplate(
    newDeftemplate->implied = setFlag;
    newDeftemplate->numberOfSlots = 0;
    newDeftemplate->inScope = 1;
+   newDeftemplate->cfd = 0;
+   newDeftemplate->named = 0;
    newDeftemplate->patternNetwork = NULL;
    newDeftemplate->goalNetwork = NULL;
    newDeftemplate->factList = NULL;

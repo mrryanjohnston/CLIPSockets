@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/16/25             */
    /*                                                     */
    /*                 DEFFUNCTION MODULE                  */
    /*******************************************************/
@@ -65,6 +65,9 @@
 /*                                                           */
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
+/*                                                           */
+/*      6.43: Fixed NULL pointer reference issue in          */
+/*            GetNextConstructItem calls.                    */
 /*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
@@ -290,6 +293,9 @@ static void DeallocateDeffunctionData(
       theModuleItem = (struct deffunctionModuleData *)
                       GetModuleItem(theEnv,theModule,
                                     DeffunctionData(theEnv)->DeffunctionModuleIndex);
+
+      ClearDefmoduleHashMap(theEnv,&theModuleItem->header);
+
       rtn_struct(theEnv,deffunctionModuleData,theModuleItem);
      }
 #else
@@ -466,8 +472,15 @@ Deffunction *GetNextDeffunction(
   Environment *theEnv,
   Deffunction *theDeffunction)
   {
+   ConstructHeader *theHeader;
+   
+   if (theDeffunction == NULL)
+     { theHeader = NULL; }
+   else
+     { theHeader = &theDeffunction->header; }
+
    return (Deffunction *)
-          GetNextConstructItem(theEnv,&theDeffunction->header,
+          GetNextConstructItem(theEnv,theHeader,
                                DeffunctionData(theEnv)->DeffunctionModuleIndex);
   }
 

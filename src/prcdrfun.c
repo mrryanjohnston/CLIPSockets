@@ -104,6 +104,7 @@ void ProceduralFunctionDefinitions(
    AddUDF(theEnv,"break","v",0,0,NULL,BreakFunction,"BreakFunction",NULL);
    AddUDF(theEnv,"switch","*",0,UNBOUNDED,NULL,SwitchFunction,"SwitchFunction",NULL);
    AddUDF(theEnv,"iif","*",3,3,NULL,IifFunction,"IifFunction",NULL);
+   AddUDF(theEnv,"try","*",0,UNBOUNDED,NULL,TryFunction,"TryFunction",NULL);
 #endif
 
    ProceduralFunctionParsers(theEnv);
@@ -115,6 +116,7 @@ void ProceduralFunctionDefinitions(
    FuncSeqOvlFlags(theEnv,"loop-for-count",false,false);
    FuncSeqOvlFlags(theEnv,"return",false,false);
    FuncSeqOvlFlags(theEnv,"switch",false,false);
+   FuncSeqOvlFlags(theEnv,"try",false,false);
 #endif
 
    AddResetFunction(theEnv,"bind",FlushBindList,0,NULL);
@@ -675,7 +677,60 @@ void SwitchFunction(
      }
   }
 
+/***********************************/
+/* TryFunction: H/L access routine */
+/*   for the try function.         */
+/***********************************/
+void TryFunction(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   struct expr *argPtr;
 
+   /*===========================*/
+   /* Evaluate the try actions. */
+   /*===========================*/
+   
+   argPtr = EvaluationData(theEnv)->CurrentExpression->argList;
 
+   if (argPtr == NULL)
+     {
+      returnValue->value = FalseSymbol(theEnv);
+      return;
+     }
+   
+   EvaluateExpression(theEnv,argPtr,returnValue);
 
+   /*=====================================*/
+   /* Return FALSE to indicate no errors. */
+   /*=====================================*/
+   
+   if (! GetEvaluationError(theEnv))
+     {
+      returnValue->value = FalseSymbol(theEnv);
+      return;
+     }
+     
+   /*===================*/
+   /* Clear the errors. */
+   /*===================*/
 
+   SetEvaluationError(theEnv,false);
+   SetHaltExecution(theEnv,false);
+   
+   /*=============================*/
+   /* Evaluate the catch actions. */
+   /*=============================*/
+
+   argPtr = EvaluationData(theEnv)->CurrentExpression->argList->nextArg;
+   EvaluateExpression(theEnv,argPtr,returnValue);
+
+   /*============================================*/
+   /* Return TRUE to indicate there were errors. */
+   /*============================================*/
+   
+   returnValue->value = TrueSymbol(theEnv);
+
+   return;
+  }

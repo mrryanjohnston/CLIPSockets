@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.50  10/13/23             */
+   /*            CLIPS Version 7.00  08/30/24             */
    /*                                                     */
    /*          FACT RETE ACCESS FUNCTIONS MODULE          */
    /*******************************************************/
@@ -40,7 +40,7 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -192,12 +192,33 @@ bool FactPNGetVar2(
    Fact *factPtr;
    const struct factGetVarPN2Call *hack;
    CLIPSValue *fieldPtr;
+   struct extractedInfo *theInfo;
 
    /*==========================================*/
    /* Retrieve the arguments for the function. */
    /*==========================================*/
 
    hack = (const struct factGetVarPN2Call *) ((CLIPSBitMap *) theValue)->contents;
+   
+   /*====================================*/
+   /* Special code for handling variable */
+   /* access while generating a goal.    */
+   /*====================================*/
+   
+   if (FactData(theEnv)->goalInfoArray != NULL)
+     {
+      theInfo = FactData(theEnv)->goalInfoArray[hack->whichSlot];
+      
+      if (theInfo != NULL)
+        {
+         CLIPSToUDFValue(&theInfo->theValue,returnValue);
+
+         if (returnValue->value == FalseSymbol(theEnv))
+           { return false; }
+   
+         return true;
+        }
+     }
 
    /*==============================*/
    /* Get the pointer to the fact. */
@@ -241,10 +262,10 @@ bool FactPNGetVar3(
 
    hack = (const struct factGetVarPN3Call *) ((CLIPSBitMap *) theValue)->contents;
 
-   /*===========================================*/
-   /* Special code for handling variable access */
-   /* while generating a goal.                  */
-   /*===========================================*/
+   /*====================================*/
+   /* Special code for handling variable */
+   /* access while generating a goal.    */
+   /*====================================*/
    
    if (FactData(theEnv)->goalInfoArray != NULL)
      {

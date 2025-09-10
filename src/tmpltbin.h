@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  01/07/24            */
+   /*             CLIPS Version 7.00  07/25/24            */
    /*                                                     */
    /*         DEFTEMPLATE BSAVE/BLOAD HEADER FILE         */
    /*******************************************************/
@@ -36,6 +36,10 @@
 /*            Deftemplate inheritance.                       */
 /*                                                           */
 /*            Support for non-reactive fact patterns.        */
+/*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
+/*            Support for named facts.                       */
 /*                                                           */
 /*************************************************************/
 
@@ -74,7 +78,9 @@ struct bsaveDeftemplate
    unsigned long sibling;
    unsigned long slotList;
    unsigned int implied : 1;
-   unsigned int numberOfSlots : 15;
+   unsigned int cfd : 1;
+   unsigned int named : 1;
+   unsigned short numberOfSlots;
    unsigned long patternNetwork;
    unsigned long goalNetwork;
   };

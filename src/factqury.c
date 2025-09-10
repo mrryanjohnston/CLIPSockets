@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  01/09/23             */
+   /*            CLIPS Version 7.00  06/26/24             */
    /*                                                     */
    /*                  FACT QUERY MODULE                  */
    /*******************************************************/
@@ -64,6 +64,8 @@
 /*                                                           */
 /*      6.41: Changed the name of fact query structures to   */
 /*            be distinct from instance structures.          */
+/*                                                           */
+/*      7.00: Deftemplate inheritance.                       */
 /*                                                           */
 /*************************************************************/
 
@@ -867,12 +869,12 @@ static FACT_QUERY_TEMPLATE *FormChain(
 
    if (val->header->type == SYMBOL_TYPE)
      {
-      /*============================================*/
-      /* Allow instance-set query restrictions to   */
-      /* have module specifier as part of the class */
-      /* name, but search imported defclasses too   */
-      /* if a module specifier is not given.        */
-      /*============================================*/
+      /*===========================================*/
+      /* Allow fact-set query restrictions to have */
+      /* module specifier as part of the template  */
+      /* name, but search imported templates too   */
+      /* if a module specifier is not given.       */
+      /*===========================================*/
 
       templatePtr = (Deftemplate *)
                        FindImportedConstruct(theEnv,"deftemplate",NULL,val->lexemeValue->contents,
@@ -1089,6 +1091,17 @@ static bool TestForFirstFactInTemplate(
      return(((EvaluationData(theEnv)->HaltExecution == true) || (FactQueryData(theEnv)->AbortQuery == true))
              ? false : true);
 
+   for (templatePtr = templatePtr->child;
+        templatePtr != NULL;
+        templatePtr = templatePtr->sibling)
+     {
+      if (TestForFirstFactInTemplate(theEnv,templatePtr,qchain,indx))
+        { return true; }
+        
+      if ((EvaluationData(theEnv)->HaltExecution == true) || (FactQueryData(theEnv)->AbortQuery == true))
+        { return false; }
+     }
+
    return false;
   }
 
@@ -1212,6 +1225,27 @@ static void TestEntireTemplate(
    
    GCBlockEnd(theEnv,&gcb);
    CallPeriodicTasks(theEnv);
+   
+   /*=============================================*/
+   /* Return if the query was terminated/aborted. */
+   /*=============================================*/
+   
+   if (theFact != NULL)
+     { return; }
+     
+   /*=============================================*/
+   /* Iterate over the facts of the subtemplates. */
+   /*=============================================*/
+   
+   for (templatePtr = templatePtr->child;
+        templatePtr != NULL;
+        templatePtr = templatePtr->sibling)
+     {
+      TestEntireTemplate(theEnv,templatePtr,qchain,indx);
+      
+      if ((EvaluationData(theEnv)->HaltExecution == true) || (FactQueryData(theEnv)->AbortQuery == true))
+        { return; }
+     }
   }
 
 /***************************************************************************

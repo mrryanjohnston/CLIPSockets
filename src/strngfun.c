@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  04/12/24             */
+   /*            CLIPS Version 7.00  02/05/25             */
    /*                                                     */
    /*            STRING_TYPE FUNCTIONS MODULE             */
    /*******************************************************/
@@ -192,6 +192,7 @@ static void StrOrSymCatFunction(
    size_t total;
    size_t j;
    char *theString;
+   size_t spaceLeft, amount;
    CLIPSLexeme **arrayOfStrings;
    CLIPSLexeme *hashPtr;
    Environment *theEnv = context->environment;
@@ -276,12 +277,16 @@ static void StrOrSymCatFunction(
    /*=========================================================*/
 
    theString = (char *) gm2(theEnv,(sizeof(char) * total));
+   
+   spaceLeft = sizeof(char) * total;
 
    j = 0;
    for (i = 0 ; i < numArgs ; i++)
      {
-      gensprintf(&theString[j],"%s",arrayOfStrings[i]->contents);
-      j += strlen(arrayOfStrings[i]->contents);
+      snprintf(&theString[j],spaceLeft,"%s",arrayOfStrings[i]->contents);
+      amount = strlen(arrayOfStrings[i]->contents);
+      j += amount;
+      spaceLeft -= amount;
      }
 
    /*=========================================*/
@@ -736,7 +741,7 @@ void StrReplaceFunction(
   {
    UDFValue initial, find, replace;
    size_t findLength, replaceLength;
-   size_t returnLength;
+   size_t returnLength, remaining;
    const char *traverse, *found;
    const char *initialString, *findString, *replaceString;
    char *returnString, *target;
@@ -787,7 +792,7 @@ void StrReplaceFunction(
         }
      }
    
-   returnString = (char *) gm2(theEnv,(sizeof(char) * returnLength));
+   returnString = (char *) gm2(theEnv,returnLength);
 
    /*================================*/
    /* Copy values to the new string. */
@@ -795,15 +800,53 @@ void StrReplaceFunction(
 
    traverse = initialString;
    target = returnString;
+   target[0] = EOS;
+   remaining = returnLength - 1;
+
    while ((found = strstr(traverse,findString)) != NULL)
      {
-      strncpy(target,traverse,found - traverse);
-      target += (found - traverse);
-      strcpy(target,replaceString);
+      size_t copyAmount = (size_t) (found - traverse);
+
+      /*===========================================*/
+      /* Copy the portion before the found string. */
+      /*===========================================*/
+
+      genstrncat(target,traverse,copyAmount);
+
+      /*=====================*/
+      /* Advance the target. */
+      /*=====================*/
+
+      remaining -= copyAmount;
+      target += copyAmount;
+
+      /*==============================*/
+      /* Copy the replacement string. */
+      /*==============================*/
+
+      genstrncat(target,replaceString,replaceLength);
+
+      /*=====================*/
+      /* Advance the target. */
+      /*=====================*/
+
+      remaining -= replaceLength;
       target += replaceLength;
+
+      /*=====================*/
+      /* Advance the source. */
+      /*=====================*/
+
       traverse = found + findLength;
      }
-   strcpy(target,traverse);
+
+   /*===============================*/
+   /* Copy any remaining characters */
+   /* past the last replacement.    */
+   /*===============================*/
+   
+   if (remaining != 0)
+     { genstrncat(target,traverse,remaining); }
    
    /*==========================*/
    /* Create the return value. */
@@ -816,7 +859,7 @@ void StrReplaceFunction(
    else
      { returnValue->value = CreateInstanceName(theEnv,returnString); }
 
-   rm(theEnv,returnString,sizeof(char) * returnLength);
+   rm(theEnv,returnString,returnLength);
   }
 
 /**************************************/
@@ -884,7 +927,7 @@ EvalError Eval(
    /*======================================================*/
 
    depth++;
-   gensnprintf(logicalNameBuffer,sizeof(logicalNameBuffer),"Eval-%d",depth);
+   snprintf(logicalNameBuffer,sizeof(logicalNameBuffer),"Eval-%d",depth);
    if (OpenStringSource(theEnv,logicalNameBuffer,theString,0) == 0)
      {
       SystemError(theEnv,"STRNGFUN",1);

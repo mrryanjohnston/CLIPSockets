@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/25/24             */
    /*                                                     */
    /*           DEFTEMPLATE BSAVE/BLOAD MODULE            */
    /*******************************************************/
@@ -41,6 +41,10 @@
 /*            Support for non-reactive fact patterns.        */
 /*                                                           */
 /*            Construct hashing for quick lookup.            */
+/*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
+/*            Support for named facts.                       */
 /*                                                           */
 /*************************************************************/
 
@@ -292,6 +296,8 @@ static void BsaveBinaryItem(
          tempDeftemplate.child = BsaveDeftemplateIndex(theDeftemplate->child);
          tempDeftemplate.sibling = BsaveDeftemplateIndex(theDeftemplate->sibling);
          tempDeftemplate.implied = theDeftemplate->implied;
+         tempDeftemplate.cfd = theDeftemplate->cfd;
+         tempDeftemplate.named = theDeftemplate->named;
          tempDeftemplate.numberOfSlots = theDeftemplate->numberOfSlots;
          tempDeftemplate.patternNetwork = BsaveFactPatternIndex(theDeftemplate->patternNetwork);
          tempDeftemplate.goalNetwork = BsaveFactPatternIndex(theDeftemplate->goalNetwork);
@@ -528,6 +534,8 @@ static void UpdateDeftemplate(
    theDeftemplate->watchGoals = FactData(theEnv)->WatchGoals;
 #endif
    theDeftemplate->inScope = false;
+   theDeftemplate->cfd = bdtPtr->cfd;
+   theDeftemplate->named = bdtPtr->named;
    theDeftemplate->numberOfSlots = bdtPtr->numberOfSlots;
    theDeftemplate->factList = NULL;
    theDeftemplate->lastFact = NULL;

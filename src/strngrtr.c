@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  02/05/25             */
    /*                                                     */
    /*              STRING_TYPE I/O ROUTER MODULE               */
    /*******************************************************/
@@ -142,6 +142,7 @@ static void WriteStringCallback(
   void *context)
   {
    struct stringRouter *head;
+   size_t length;
 
    head = FindStringRouter(theEnv,logicalName);
    if (head == NULL)
@@ -153,14 +154,16 @@ static void WriteStringCallback(
 
    if (head->readWriteType != WRITE_STRING) return;
 
-   if (head->maximumPosition == 0) return;
+   length = strlen(str);
+   
+   if ((length + head->currentPosition + 1) > head->maximumPosition)
+     { return; }
 
-   if ((head->currentPosition + 1) >= head->maximumPosition) return;
+   head->writeString[head->currentPosition] = EOS;
+   genstrncat(&head->writeString[head->currentPosition],
+              str,length+1);
 
-   genstrncpy(&head->writeString[head->currentPosition],
-              str,(STD_SIZE) (head->maximumPosition - head->currentPosition) - 1);
-
-   head->currentPosition += strlen(str);
+   head->currentPosition += length;
   }
 
 /********************************************************/

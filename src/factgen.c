@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.50  10/08/23             */
+   /*            CLIPS Version 7.00  02/05/25             */
    /*                                                     */
    /*          FACT RETE FUNCTION GENERATION MODULE       */
    /*******************************************************/
@@ -37,7 +37,10 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
 /*                                                           */
 /*************************************************************/
 
@@ -59,6 +62,7 @@
 #include "network.h"
 #include "pattern.h"
 #include "prcdrpsr.h"
+#include "prntutil.h"
 #include "reteutil.h"
 #include "router.h"
 #include "scanner.h"
@@ -67,6 +71,10 @@
 #include "tmpltfun.h"
 #include "tmpltlhs.h"
 #include "tmpltutl.h"
+
+#if DEFGENERIC_CONSTRUCT
+#include "genrcfun.h"
+#endif
 
 #include "factgen.h"
 
@@ -91,6 +99,8 @@ struct factgenData
 
 #define FactgenData(theEnv) ((struct factgenData *) GetEnvironmentData(theEnv,FACTGEN_DATA))
 
+#define SLOT_REF ':'
+
 /***************************************/
 /* LOCAL INTERNAL FUNCTION DEFINITIONS */
 /***************************************/
@@ -102,6 +112,9 @@ struct factgenData
    static void                      *FactGetVarPN1(Environment *,struct lhsParseNode *);
    static void                      *FactGetVarPN2(Environment *,struct lhsParseNode *);
    static void                      *FactGetVarPN3(Environment *,struct lhsParseNode *);
+   static CLIPSLexeme               *ExtractSlotName(Environment *,size_t,const char *);
+   static CLIPSLexeme               *ExtractVariableName(Environment *,size_t,const char *);
+   static void                       ReplaceVarSlotReference(Environment *,Expression *,CLIPSLexeme *,CLIPSLexeme *,CLIPSLexeme *);
 #endif
 
 /*******************************************************************/
@@ -570,6 +583,17 @@ void FactReplaceGetfield(
   struct expr *theItem,
   struct lhsParseNode *theNode)
   {
+   /*===========================================*/
+   /* Generate call to retrieve a fact address. */
+   /*===========================================*/
+  
+   if (theNode->slotNumber == UNSPECIFIED_SLOT)
+     {
+      theItem->type = FACT_PN_VAR1;
+      theItem->value = FactGetVarPN1(theEnv,theNode);
+      return;
+     }
+
    /*====================================================*/
    /* Generate call to retrieve single field slot value. */
    /*====================================================*/
@@ -1311,6 +1335,426 @@ struct expr *FactJNVariableComparison(
 
    return(top);
   }
+
+/**************************************************************/
+/* ExtractSlotName: Given the position of the : separator and */
+/*   a variable/slot name joined using the separator, returns */
+/*   a symbol reference to the slot name (or NULL if a slot   */
+/*   name cannot be extracted).                               */
+/**************************************************************/
+static CLIPSLexeme *ExtractSlotName(
+  Environment *theEnv,
+  size_t thePosition,
+  const char *theString)
+  {
+   size_t theLength, bufferSize;
+   char *newString;
+   CLIPSLexeme *returnValue;
+
+   /*=====================================*/
+   /* Determine the length of the string. */
+   /*=====================================*/
+
+   theLength = strlen(theString);
+
+   /*================================================*/
+   /* Return NULL if the : is at the very end of the */
+   /* string (and thus there is no slot name).       */
+   /*================================================*/
+
+   if (theLength == (thePosition + 1)) return NULL;
+
+   /*===================================*/
+   /* Allocate a temporary string large */
+   /* enough to hold the slot name.     */
+   /*===================================*/
+
+   bufferSize = theLength - thePosition;
+   newString = (char *) gm2(theEnv,bufferSize);
+
+   /*=============================================*/
+   /* Copy the slot name portion of the           */
+   /* variable/slot name to the temporary string. */
+   /*=============================================*/
+
+   newString[0] = EOS;
+   genstrncat(newString,&theString[thePosition+1],bufferSize-1);
+
+   /*========================================*/
+   /* Add the slot name to the symbol table. */
+   /*========================================*/
+
+   returnValue = CreateSymbol(theEnv,newString);
+
+   /*=============================================*/
+   /* Return the storage of the temporary string. */
+   /*=============================================*/
+
+   rm(theEnv,newString,bufferSize);
+
+   /*===========================================*/
+   /* Return a pointer to the slot name symbol. */
+   /*===========================================*/
+
+   return returnValue;
+  }
+
+/******************************************************************/
+/* ExtractVariableName: Given the position of the : separator and */
+/*   a variable/slot name joined using the separator, returns a   */
+/*   symbol reference to the variable name (or NULL if a variable */
+/*   name cannot be extracted).                                   */
+/******************************************************************/
+static CLIPSLexeme *ExtractVariableName(
+  Environment *theEnv,
+  size_t thePosition,
+  const char *theString)
+  {
+   char *newString;
+   CLIPSLexeme *returnValue;
+
+   /*============================================*/
+   /* Return NULL if the : is in a position such */
+   /* that a variable name can't be extracted.   */
+   /*============================================*/
+
+   if (thePosition == 0) return NULL;
+
+   /*==========================================*/
+   /* Allocate storage for a temporary string. */
+   /*==========================================*/
+
+   newString = (char *) gm2(theEnv,thePosition+1);
+
+   /*======================================================*/
+   /* Copy the entire module/construct name to the string. */
+   /*======================================================*/
+
+   newString[0] = EOS;
+   genstrncat(newString,theString,thePosition);
+
+   /*====================================================*/
+   /* Add the variable name (the truncated variable/slot */
+   /* name) to the symbol table.                         */
+   /*====================================================*/
+
+   returnValue = CreateSymbol(theEnv,newString);
+
+   /*=============================================*/
+   /* Return the storage of the temporary string. */
+   /*=============================================*/
+
+   rm(theEnv,newString,thePosition+1);
+
+   /*===============================================*/
+   /* Return a pointer to the variable name symbol. */
+   /*===============================================*/
+
+   return returnValue;
+  }
+
+/****************************/
+/* ReplaceVarSlotReference: */
+/****************************/
+static void ReplaceVarSlotReference(
+  Environment *theEnv,
+  Expression *theExpr,
+  CLIPSLexeme *variableName,
+  CLIPSLexeme *slotName,
+  CLIPSLexeme *varSlotName)
+  {
+   theExpr->argList = GenConstant(theEnv,SF_VARIABLE,variableName);
+   theExpr->argList->nextArg = GenConstant(theEnv,SYMBOL_TYPE,slotName);
+   theExpr->argList->nextArg->nextArg = GenConstant(theEnv,SYMBOL_TYPE,varSlotName);
+
+   theExpr->type = FCALL;
+   theExpr->value = FindFunction(theEnv,"(slot-value)");
+  }
+
+/*************************/
+/* FactSlotReferenceVar: */
+/*************************/
+int FactSlotReferenceVar(
+  Environment *theEnv,
+  Expression *varexp,
+  void *userBuffer)
+  {
+   const char *fullVar;
+   const char *result;
+   size_t position;
+   CLIPSLexeme *slotName, *variableName;
+
+   /*==============================================*/
+   /* Reference should be a single field variable. */
+   /*==============================================*/
+
+   if (varexp->type != SF_VARIABLE)
+     { return 0; }
+
+   fullVar = varexp->lexemeValue->contents;
+
+   result = strchr(fullVar,SLOT_REF);
+   if (result == NULL)
+     { return 0; }
+
+   position = (size_t) (result - fullVar);
+
+   slotName = ExtractSlotName(theEnv,position,fullVar);
+
+   if (slotName == NULL)
+     { return -1; }
+
+   variableName = ExtractVariableName(theEnv,position,fullVar);
+
+   if (variableName == NULL)
+     { return -1;}
+
+   ReplaceVarSlotReference(theEnv,varexp,variableName,slotName,varexp->lexemeValue);
+
+   return 1;
+  }
+
+/*****************************/
+/* RuleFactSlotReferenceVar: */
+/*****************************/
+int RuleFactSlotReferenceVar(
+  Environment *theEnv,
+  Expression *varexp,
+  struct lhsParseNode *theLHS)
+  {
+   const char *fullVar;
+   const char *result;
+   size_t position;
+   CLIPSLexeme *slotName, *variableName;
+   CLIPSLexeme *templateName;
+   struct deftemplate *theDeftemplate;
+
+   /*==============================================*/
+   /* Reference should be a single field variable. */
+   /*==============================================*/
+
+   if (varexp->type != SF_VARIABLE)
+     { return(0); }
+
+   fullVar = varexp->lexemeValue->contents;
+
+   result = strchr(fullVar,SLOT_REF);
+   if (result == NULL)
+     { return 0; }
+
+   position = (size_t) (result - fullVar);
+
+   slotName = ExtractSlotName(theEnv,position,fullVar);
+
+   if (slotName == NULL)
+     { return -1; }
+
+   variableName = ExtractVariableName(theEnv,position,fullVar);
+
+   if (variableName == NULL)
+     { return -1;}
+
+   /*======================================================*/
+   /* Find the deftemplate type bound to the fact address. */
+   /*======================================================*/
+
+   templateName = FindTemplateForFactAddress(variableName,theLHS);
+   if (templateName == NULL)
+     { theDeftemplate = NULL; }
+   else
+     {
+      theDeftemplate = (Deftemplate *)
+                       LookupConstruct(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,
+                                       templateName->contents,false);
+     }
+
+   if ((theDeftemplate == NULL) || (theDeftemplate->implied))
+     {
+      PrintErrorID(theEnv,"FACTGEN",4,true);
+      WriteString(theEnv,STDERR,"The variable:slot reference ?");
+      WriteString(theEnv,STDERR,fullVar);
+      WriteString(theEnv,STDERR," is invalid because the variable ?");
+      WriteString(theEnv,STDERR,variableName->contents);
+      WriteString(theEnv,STDERR," must be bound to a deftemplate pattern.");   
+      return -1;
+     }
+
+   /*====================================================*/
+   /* Verify the slot name is valid for the deftemplate. */
+   /*====================================================*/
+
+   if (FindSlot(theDeftemplate,slotName,NULL) == NULL)
+     {
+      PrintErrorID(theEnv,"FACTGEN",5,true);
+      WriteString(theEnv,STDERR,"The variable:slot reference ?");
+      WriteString(theEnv,STDERR,fullVar);
+      WriteString(theEnv,STDERR," is invalid because the deftemplate '");
+      WriteString(theEnv,STDERR,theDeftemplate->header.name->contents);
+      WriteString(theEnv,STDERR,"' does not contain the specified slot.\n");
+      return -1;
+     }
+
+   /*==================================================================*/
+   /* Replace the ?var:slot reference with a slot-value function call. */
+   /*==================================================================*/
+
+   ReplaceVarSlotReference(theEnv,varexp,variableName,slotName,(CLIPSLexeme *) varexp->value);
+
+   return 1;
+  }
+
+/**************************************************/
+/* FindTemplateForFactAddress: Searches for the   */
+/*   deftemplate name associated with the pattern */
+/*   to which a fact address has been bound.      */
+/**************************************************/
+CLIPSLexeme *FindTemplateForFactAddress(
+  CLIPSLexeme *factAddress,
+  struct lhsParseNode *theLHS)
+  {
+   struct lhsParseNode *thePattern = NULL;
+
+   /*===============================================*/
+   /* Look through the LHS patterns for the pattern */
+   /* which is bound to the fact address used by    */
+   /* the modify/duplicate function.                */
+   /*===============================================*/
+
+   while (theLHS != NULL)
+     {
+      if (theLHS->value == (void *) factAddress)
+        {
+         thePattern = theLHS;
+         theLHS = NULL;
+        }
+      else
+        { theLHS = theLHS->bottom; }
+     }
+
+   if (thePattern == NULL) return NULL;
+
+   /*=====================================*/
+   /* Verify that just a symbol is stored */
+   /* as the first field of the pattern.  */
+   /*=====================================*/
+
+   thePattern = thePattern->right;
+   if ((thePattern->pnType != SF_WILDCARD_NODE) || (thePattern->bottom == NULL))
+     { return NULL; }
+
+   thePattern = thePattern->bottom;
+   if ((thePattern->pnType != SYMBOL_NODE) ||
+            (thePattern->right != NULL) ||
+            (thePattern->bottom != NULL))
+    { return NULL; }
+
+   /*==============================*/
+   /* Return the deftemplate name. */
+   /*==============================*/
+
+   return thePattern->lexemeValue;
+  }
+
+#if DEFGENERIC_CONSTRUCT
+
+/*******************************/
+/* MethodFactSlotReferenceVar: */
+/*******************************/
+int MethodFactSlotReferenceVar(
+  Environment *theEnv,
+  Expression *varexp,
+  struct expr *theParams) 
+  {
+   const char *fullVar;
+   const char *result;
+   size_t position;
+   CLIPSLexeme *slotName, *variableName;
+   Expression *param;
+   RESTRICTION *theRestriction;
+   Deftemplate *theDeftemplate;
+   bool foundDeftemplate = false, foundParam = false;
+   
+   /*==============================================*/
+   /* Reference should be a single field variable. */
+   /*==============================================*/
+
+   if (varexp->type != SF_VARIABLE)
+     { return(0); }
+
+   fullVar = varexp->lexemeValue->contents;
+
+   result = strchr(fullVar,SLOT_REF);
+   if (result == NULL)
+     { return 0; }
+
+   position = (size_t) (result - fullVar);
+
+   slotName = ExtractSlotName(theEnv,position,fullVar);
+
+   if (slotName == NULL)
+     { return -1; }
+
+   variableName = ExtractVariableName(theEnv,position,fullVar);
+
+   if (variableName == NULL)
+     { return -1;}
+     
+   /*===================================================*/
+   /* Search for the deftemplate in the parameter list. */
+   /*===================================================*/
+   
+   for (param = theParams ; param != NULL ; param = param->nextArg)
+     {
+      if (param->lexemeValue != variableName)
+        { continue; }
+      foundParam = true;
+      theRestriction = (RESTRICTION *) param->argList;
+      
+      for (int t = 0; t < theRestriction->tcnt; t++)
+        {
+         if (theRestriction->types[t].type != DEFTEMPLATE_PTR) continue;
+         theDeftemplate = theRestriction->types[t].theTemplate;
+         foundDeftemplate = true;
+         if (theDeftemplate->implied) continue;
+         if (FindSlot(theDeftemplate,slotName,NULL) == NULL) continue;
+         ReplaceVarSlotReference(theEnv,varexp,variableName,slotName,(CLIPSLexeme *) varexp->value);
+         return 1;
+        }
+     }
+
+   if (! foundParam)
+     {
+      PrintErrorID(theEnv,"FACTGEN",1,true);
+      WriteString(theEnv,STDERR,"The variable:slot reference ?");
+      WriteString(theEnv,STDERR,fullVar);
+      WriteString(theEnv,STDERR," is invalid because the variable ?");
+      WriteString(theEnv,STDERR,variableName->contents);
+      WriteString(theEnv,STDERR," must be a method parameter.\n");
+      return -1;
+     }
+
+   if (! foundDeftemplate)
+     {
+      PrintErrorID(theEnv,"FACTGEN",2,true);
+      WriteString(theEnv,STDERR,"The variable:slot reference ?");
+      WriteString(theEnv,STDERR,fullVar);
+      WriteString(theEnv,STDERR," is invalid because the method parameter ?");
+      WriteString(theEnv,STDERR,variableName->contents);
+      WriteString(theEnv,STDERR," does not have a deftemplate type.\n");
+      return -1;
+     }
+
+   PrintErrorID(theEnv,"FACTGEN",3,true);
+   WriteString(theEnv,STDERR,"The variable:slot reference ?");
+   WriteString(theEnv,STDERR,fullVar);
+   WriteString(theEnv,STDERR," is invalid because the parameter restriction for ?");
+   WriteString(theEnv,STDERR,variableName->contents);
+   WriteString(theEnv,STDERR," does not contain any deftemplate with the specified slot.\n");
+   
+   return -1;
+  }
+  
+#endif /* DEFGENERIC_CONSTRUCT */
 
 #endif /* (! RUN_TIME) && (! BLOAD_ONLY) */
 

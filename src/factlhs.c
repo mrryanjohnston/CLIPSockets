@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.50  10/13/23             */
+   /*            CLIPS Version 7.00  10/13/23             */
    /*                                                     */
    /*           FACT LHS PATTERN PARSING MODULE           */
    /*******************************************************/
@@ -38,7 +38,7 @@
 /*                                                           */
 /*            Removed initial-fact support.                  */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 

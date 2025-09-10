@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  01/23/24            */
+   /*             CLIPS Version 7.00  09/18/24            */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -55,6 +55,8 @@
 /*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
+/*            Deftemplate support in methods.                */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_genrcfun
@@ -65,6 +67,7 @@
 
 typedef struct defgenericModule DEFGENERIC_MODULE;
 typedef struct restriction RESTRICTION;
+typedef struct restrictionType RESTRICTION_TYPE;
 typedef struct defmethod Defmethod;
 typedef struct defgeneric Defgeneric;
 
@@ -78,6 +81,10 @@ typedef struct defgeneric Defgeneric;
 #include "moduldef.h"
 #include "symbol.h"
 
+#if DEFTEMPLATE_CONSTRUCT
+#include "tmpltdef.h"
+#endif
+
 #define METHOD_NOT_FOUND USHRT_MAX
 #define RESTRICTIONS_UNBOUNDED USHRT_MAX
 
@@ -86,9 +93,27 @@ struct defgenericModule
    struct defmoduleItemHeaderHM header;
   };
 
+
+struct restrictionType
+  {
+   unsigned short type;
+   union
+     {
+      void *thePointer;
+#if OBJECT_SYSTEM
+      Defclass *theClass;
+#else
+      CLIPSInteger *theInteger;
+#endif
+#if DEFTEMPLATE_CONSTRUCT
+      Deftemplate *theTemplate;
+#endif
+     };
+  };
+  
 struct restriction
   {
-   void **types;
+   struct restrictionType *types;
    Expression *query;
    unsigned short tcnt;
   };

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  03/02/24             */
+   /*            CLIPS Version 7.00  06/01/25             */
    /*                                                     */
    /*                 FACT MANAGER MODULE                 */
    /*******************************************************/
@@ -135,6 +135,10 @@
 /*                                                           */
 /*            Support for non-reactive fact patterns.        */
 /*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -183,6 +187,7 @@
    static void                    DeallocateFactData(Environment *);
    static bool                    RetractCallback(Fact *,Environment *);
    static Fact                   *FMModifyDriver(FactModifier *theFM,bool);
+   static void                    AddFactToLists(Environment *,Fact *,size_t,long long,Fact *,Fact *);
   
 /**************************************************************/
 /* InitializeFacts: Initializes the fact data representation. */
@@ -212,8 +217,12 @@ void InitializeFacts(
       };
 
    Fact dummyFact = { { { { FACT_ADDRESS_TYPE } , NULL, NULL, 0, 0L } },
+#if CERTAINTY_FACTORS
+                      NULL, NULL, -1L, 0, 1, 0, 0, 0, NO_CF_BASE,
+#else
                       NULL, NULL, -1L, 0, 1, 0, 0, 0,
-                      NULL, NULL, NULL, NULL, NULL, 
+#endif
+                      NULL, NULL, NULL, NULL, NULL,
                       { {MULTIFIELD_TYPE } , 1, 0UL, NULL, { { { NULL } } } } };
 
    AllocateEnvironmentData(theEnv,FACTS_DATA,sizeof(struct factsData),DeallocateFactData);
@@ -302,6 +311,7 @@ static void DeallocateFactData(
    Fact *tmpFactPtr, *nextFactPtr;
    unsigned long i;
    struct patternMatch *theMatch, *tmpMatch;
+   struct namedFactHashTableEntry *tmpNFEPtr, *nextNFEPtr;
 
    for (i = 0; i < FactData(theEnv)->FactHashTableSize; i++)
      {
@@ -356,6 +366,28 @@ static void DeallocateFactData(
       tmpFactPtr = nextFactPtr;
      }
 
+   /*===================================*/
+   /* Delete the named fact hash table. */
+   /*===================================*/
+   
+   for (i = 0; i < FactData(theEnv)->namedFactHashTableSize; i++)
+     {
+      tmpNFEPtr = FactData(theEnv)->namedFactHashTable[i];
+
+      while (tmpNFEPtr != NULL)
+        {
+         nextNFEPtr = tmpNFEPtr->next;
+         rtn_struct(theEnv,namedFactHashTableEntry,tmpNFEPtr);
+         tmpNFEPtr = nextNFEPtr;
+        }
+     }
+
+   if (FactData(theEnv)->namedFactHashTableSize != 0)
+     {
+      rm(theEnv,FactData(theEnv)->namedFactHashTable,
+          sizeof(struct namedFactHashTableEntry *) * FactData(theEnv)->namedFactHashTableSize);
+     }
+
    DeallocateCallListWithArg(theEnv,FactData(theEnv)->ListOfAssertFunctions);
    DeallocateCallListWithArg(theEnv,FactData(theEnv)->ListOfRetractFunctions);
    DeallocateModifyCallList(theEnv,FactData(theEnv)->ListOfModifyFunctions);
@@ -374,9 +406,9 @@ void PrintFactWithIdentifier(
    char printSpace[20];
 
    if (factPtr->goal)
-      { gensnprintf(printSpace,sizeof(printSpace),"g-%-5lld ",factPtr->factIndex); }
+      { snprintf(printSpace,sizeof(printSpace),"g-%-5lld ",factPtr->factIndex); }
    else
-      { gensnprintf(printSpace,sizeof(printSpace),"f-%-5lld ",factPtr->factIndex); }
+      { snprintf(printSpace,sizeof(printSpace),"f-%-5lld ",factPtr->factIndex); }
    WriteString(theEnv,logicalName,printSpace);
    PrintFact(theEnv,logicalName,factPtr,false,false,changeMap);
   }
@@ -392,9 +424,9 @@ void PrintFactIdentifier(
    char printSpace[20];
 
    if (factPtr->goal)
-     { gensnprintf(printSpace,sizeof(printSpace),"g-%lld",factPtr->factIndex); }
+     { snprintf(printSpace,sizeof(printSpace),"g-%lld",factPtr->factIndex); }
    else
-     { gensnprintf(printSpace,sizeof(printSpace),"f-%lld",factPtr->factIndex); }
+     { snprintf(printSpace,sizeof(printSpace),"f-%lld",factPtr->factIndex); }
    WriteString(theEnv,logicalName,printSpace);
   }
 
@@ -600,7 +632,7 @@ RetractError RetractDriver(
    if (EngineData(theEnv)->JoinOperationInProgress)
      {
       PrintErrorID(theEnv,"FACTMNGR",1,true);
-      WriteString(theEnv,STDERR,"Facts may not be retracted during pattern-matching.\n");
+      WriteString(theEnv,STDERR,"Facts may not be retracted during pattern matching.\n");
       SetEvaluationError(theEnv,true);
       FactData(theEnv)->retractError = RE_COULD_NOT_RETRACT_ERROR;
       return RE_COULD_NOT_RETRACT_ERROR;
@@ -680,6 +712,23 @@ RetractError RetractDriver(
 
    RemoveEntityDependencies(theEnv,(struct patternEntity *) theFact);
 
+   /*==========================================*/
+   /* Remove a named fact from the hash table. */
+   /*==========================================*/
+   
+   if (theFact->whichDeftemplate->named)
+     {
+      unsigned short nameSlot = 0;
+      CLIPSLexeme *theName;
+      
+      if (theFact->whichDeftemplate->cfd)
+        { nameSlot++; }
+        
+      theName = theFact->theProposition.contents[nameSlot].lexemeValue;
+      
+      RemoveNamedFactFromHashMap(theEnv,theName);
+     }
+     
    /*===========================================*/
    /* Remove the fact from the fact hash table. */
    /*===========================================*/
@@ -907,9 +956,12 @@ Fact *AssertDriver(
    CLIPSValue *theField;
    Fact *duplicate;
    struct callFunctionItemWithArg *theAssertFunction;
+   CLIPSLexeme *factName = NULL;
+   bool error = false;
    Environment *theEnv = theFact->whichDeftemplate->header.env;
-   Deftemplate *theDeftemplate;
-
+#if CERTAINTY_FACTORS
+   short cf, rc, rt, logicalCF;
+#endif
    FactData(theEnv)->assertError = AE_NO_ERROR;
    
    /*==================================================*/
@@ -938,7 +990,7 @@ Fact *AssertDriver(
       FactData(theEnv)->assertError = AE_COULD_NOT_ASSERT_ERROR;
       ReturnFact(theEnv,theFact);
       PrintErrorID(theEnv,"FACTMNGR",2,true);
-      WriteString(theEnv,STDERR,"Facts may not be asserted during pattern-matching.\n");
+      WriteString(theEnv,STDERR,"Facts may not be asserted during pattern matching.\n");
       return NULL;
      }
 
@@ -955,12 +1007,78 @@ Fact *AssertDriver(
         { theField[i].value = CreateSymbol(theEnv,"nil"); }
      }
 
+   /*==========================================*/
+   /* Check the value of the certainty factor. */
+   /*==========================================*/
+   
+   if (! CheckFactCertaintyFactor(theEnv,theFact))
+     {
+      FactData(theEnv)->assertError = AE_INVALID_CERTAINTY_FACTOR_ERROR;
+      ReturnFact(theEnv,theFact);
+      return NULL;
+     }
+
+   /*================================================*/
+   /* Update the certainty factor based on the tally */
+   /* for the facts in the condition of the rules.   */
+   /*================================================*/
+      
+#if CERTAINTY_FACTORS
+   if (theFact->whichDeftemplate->cfd)
+     {
+      cf = GetFactCertaintyFactor(theFact);
+      if (EngineData(theEnv)->ExecutingRule != NULL)
+        {
+         if (! EngineData(theEnv)->cfUpdateInProgress)
+           {
+            rc = EngineData(theEnv)->ExecutingRule->certainty;
+            rt = EngineData(theEnv)->certaintyTally;
+            cf = cf * rc * rt / 10000;
+           }
+         theFact->theProposition.contents[0].value = CreateInteger(theEnv,cf);
+        }
+     }
+   else
+     { cf = NON_CF_FACT; }
+#endif
+
+   /*==========================*/
+   /* The name slot of a named */
+   /* fact must be a symbol.   */
+   /*==========================*/
+   
+   if (theFact->whichDeftemplate->named)
+     {
+      unsigned short nameSlot = 0;
+      
+      if (theFact->whichDeftemplate->cfd)
+        { nameSlot++; }
+        
+      if (theFact->theProposition.contents[nameSlot].header->type != SYMBOL_TYPE)
+        {
+         InvalidFactNameError(theEnv);
+         SetEvaluationError(theEnv,true);
+         ReturnFact(theEnv,theFact);
+         return NULL;
+        }
+
+      factName = theFact->theProposition.contents[nameSlot].lexemeValue;
+     }
+        
    /*========================================================*/
    /* If fact assertions are being checked for duplications, */
    /* then search the fact list for a duplicate fact.        */
    /*========================================================*/
 
-   hashValue = HandleFactDuplication(theEnv,theFact,&duplicate,reuseIndex);
+#if CERTAINTY_FACTORS
+   hashValue = HandleFactDuplication(theEnv,theFact,&duplicate,reuseIndex,(short) cf,factName,&error);
+#else
+   hashValue = HandleFactDuplication(theEnv,theFact,&duplicate,reuseIndex,0,error);
+#endif
+
+   if (error)
+     { return NULL; }
+     
    if (duplicate != NULL)
      { return duplicate; }
 
@@ -969,7 +1087,18 @@ Fact *AssertDriver(
    /* fact and the partial match which is its logical support. */
    /*==========================================================*/
 
-   if (AddLogicalDependencies(theEnv,(struct patternEntity *) theFact,false) == false)
+#if CERTAINTY_FACTORS
+   if (EngineData(theEnv)->cfUpdateInProgress)
+     { logicalCF = EngineData(theEnv)->certaintyAddition; }
+   else
+     { logicalCF = cf; }
+#endif
+     
+#if CERTAINTY_FACTORS
+   if (AddLogicalDependencies(theEnv,(struct patternEntity *) theFact,false,logicalCF) == false)
+#else
+   if (AddLogicalDependencies(theEnv,(struct patternEntity *) theFact,false,0) == false)
+#endif
      {
       if (reuseIndex == 0)
         { ReturnFact(theEnv,theFact); }
@@ -980,6 +1109,133 @@ Fact *AssertDriver(
       return NULL;
      }
 
+   AddFactToLists(theEnv,theFact,hashValue,reuseIndex,factListPosition,templatePosition);
+
+   /*==========================================*/
+   /* Execute the list of functions that are   */
+   /* to be called before each fact assertion. */
+   /*==========================================*/
+
+   for (theAssertFunction = FactData(theEnv)->ListOfAssertFunctions;
+        theAssertFunction != NULL;
+        theAssertFunction = theAssertFunction->next)
+     { (*theAssertFunction->func)(theEnv,theFact,theAssertFunction->context); }
+
+   /*==========================*/
+   /* Print assert output if   */
+   /* facts are being watched. */
+   /*==========================*/
+
+#if DEBUGGING_FUNCTIONS
+   if (theFact->whichDeftemplate->watchFacts &&
+       (! ConstructData(theEnv)->ClearReadyInProgress) &&
+       (! ConstructData(theEnv)->ClearInProgress))
+     {
+      WriteString(theEnv,STDOUT,"==> ");
+      PrintFactWithIdentifier(theEnv,STDOUT,theFact,changeMap);
+      WriteString(theEnv,STDOUT,"\n");
+     }
+#endif
+
+   /*==================================*/
+   /* Set the change flag to indicate  */
+   /* the fact-list has been modified. */
+   /*==================================*/
+
+   FactData(theEnv)->ChangeToFactList = true;
+
+   /*==========================================*/
+   /* Check for constraint errors in the fact. */
+   /*==========================================*/
+
+   CheckTemplateFact(theEnv,theFact);
+
+   /*=================================================*/
+   /* A fact with a certainty factor less than 0.2 is */
+   /* not propagated through the pattern network.     */
+   /*=================================================*/
+
+#if CERTAINTY_FACTORS
+   if (cf < CERTAINTY_THRESHOLD)
+     { return theFact; }
+#endif
+
+   PropagateFactToTemplates(theEnv,theFact,changeMap,applyReactivity);
+
+   return theFact;
+  }
+
+/*****************************/
+/* PropagateFactToTemplates: */
+/*****************************/
+void PropagateFactToTemplates(
+  Environment *theEnv,
+  Fact *theFact,
+  CLIPSBitMap *changeMap,
+  bool applyReactivity)
+  {
+   Deftemplate *theDeftemplate;
+
+   /*===================================================*/
+   /* Reset the evaluation error flag since expressions */
+   /* will be evaluated as part of the assert .         */
+   /*===================================================*/
+
+   SetEvaluationError(theEnv,false);
+
+   /*=============================================*/
+   /* Pattern match the fact using the associated */
+   /* deftemplate's pattern network.              */
+   /*=============================================*/
+
+   EngineData(theEnv)->JoinOperationInProgress = true;
+   for (theDeftemplate = theFact->whichDeftemplate;
+        theDeftemplate != NULL;
+        theDeftemplate = theDeftemplate->parent)
+     { FactPatternMatch(theEnv,theFact,theDeftemplate->patternNetwork,0,0,NULL,NULL,changeMap,applyReactivity); }
+   EngineData(theEnv)->JoinOperationInProgress = false;
+
+   /*================================================*/
+   /* Remove any goals that are no longer supported. */
+   /*================================================*/
+   
+   ProcessGoalQueue(theEnv);
+
+   /*===================================================*/
+   /* Retract other facts that were logically dependent */
+   /* on the non-existence of the fact just asserted.   */
+   /*===================================================*/
+
+   ForceLogicalRetractions(theEnv);
+
+   /*=========================================*/
+   /* Free partial matches that were released */
+   /* by the assertion of the fact.           */
+   /*=========================================*/
+
+   if (EngineData(theEnv)->ExecutingRule == NULL) FlushGarbagePartialMatches(theEnv);
+
+   /*===============================*/
+   /* Return a pointer to the fact. */
+   /*===============================*/
+
+   if (EvaluationData(theEnv)->EvaluationError)
+     { FactData(theEnv)->assertError = AE_RULE_NETWORK_ERROR; }
+  }
+
+/*******************/
+/* AddFactToLists: */
+/*******************/
+void AddFactToLists(
+  Environment *theEnv,
+  Fact *theFact,
+  size_t hashValue,
+  long long reuseIndex,
+  Fact *factListPosition,
+  Fact *templatePosition)
+  {
+   size_t i;
+
    /*======================================*/
    /* Add the fact to the fact hash table. */
    /*======================================*/
@@ -989,7 +1245,7 @@ Fact *AssertDriver(
    /*================================*/
    /* Add the fact to the fact list. */
    /*================================*/
-
+   
    if (reuseIndex == 0)
      { factListPosition = FactData(theEnv)->LastFact; }
 
@@ -1061,97 +1317,8 @@ Fact *AssertDriver(
      {
       Multifield *theSegment = &theFact->theProposition;
       for (i = 0 ; i < theSegment->length ; i++)
-        {
-         AtomInstall(theEnv,theSegment->contents[i].header->type,theSegment->contents[i].value);
-        }
+        { AtomInstall(theEnv,theSegment->contents[i].header->type,theSegment->contents[i].value); }
      }
-
-   /*==========================================*/
-   /* Execute the list of functions that are   */
-   /* to be called before each fact assertion. */
-   /*==========================================*/
-
-   for (theAssertFunction = FactData(theEnv)->ListOfAssertFunctions;
-        theAssertFunction != NULL;
-        theAssertFunction = theAssertFunction->next)
-     { (*theAssertFunction->func)(theEnv,theFact,theAssertFunction->context); }
-
-   /*==========================*/
-   /* Print assert output if   */
-   /* facts are being watched. */
-   /*==========================*/
-
-#if DEBUGGING_FUNCTIONS
-   if (theFact->whichDeftemplate->watchFacts &&
-       (! ConstructData(theEnv)->ClearReadyInProgress) &&
-       (! ConstructData(theEnv)->ClearInProgress))
-     {
-      WriteString(theEnv,STDOUT,"==> ");
-      PrintFactWithIdentifier(theEnv,STDOUT,theFact,changeMap);
-      WriteString(theEnv,STDOUT,"\n");
-     }
-#endif
-
-   /*==================================*/
-   /* Set the change flag to indicate  */
-   /* the fact-list has been modified. */
-   /*==================================*/
-
-   FactData(theEnv)->ChangeToFactList = true;
-
-   /*==========================================*/
-   /* Check for constraint errors in the fact. */
-   /*==========================================*/
-
-   CheckTemplateFact(theEnv,theFact);
-
-   /*===================================================*/
-   /* Reset the evaluation error flag since expressions */
-   /* will be evaluated as part of the assert .         */
-   /*===================================================*/
-
-   SetEvaluationError(theEnv,false);
-
-   /*=============================================*/
-   /* Pattern match the fact using the associated */
-   /* deftemplate's pattern network.              */
-   /*=============================================*/
-
-   EngineData(theEnv)->JoinOperationInProgress = true;
-   for (theDeftemplate = theFact->whichDeftemplate;
-        theDeftemplate != NULL;
-        theDeftemplate = theDeftemplate->parent)
-     { FactPatternMatch(theEnv,theFact,theDeftemplate->patternNetwork,0,0,NULL,NULL,changeMap,applyReactivity); }
-   EngineData(theEnv)->JoinOperationInProgress = false;
-
-   /*================================================*/
-   /* Remove any goals that are no longer supported. */
-   /*================================================*/
-   
-   ProcessGoalQueue(theEnv);
-
-   /*===================================================*/
-   /* Retract other facts that were logically dependent */
-   /* on the non-existence of the fact just asserted.   */
-   /*===================================================*/
-
-   ForceLogicalRetractions(theEnv);
-
-   /*=========================================*/
-   /* Free partial matches that were released */
-   /* by the assertion of the fact.           */
-   /*=========================================*/
-
-   if (EngineData(theEnv)->ExecutingRule == NULL) FlushGarbagePartialMatches(theEnv);
-
-   /*===============================*/
-   /* Return a pointer to the fact. */
-   /*===============================*/
-
-   if (EvaluationData(theEnv)->EvaluationError)
-     { FactData(theEnv)->assertError = AE_RULE_NETWORK_ERROR; }
-
-   return theFact;
   }
 
 /*****************************************************/
@@ -1641,7 +1808,9 @@ Fact *CreateFactBySize(
    theFact->nextTemplateFact = NULL;
    theFact->list = NULL;
    theFact->basisSlots = NULL;
-
+#if CERTAINTY_FACTORS
+   theFact->cfBase = NO_CF_BASE;
+#endif
    theFact->theProposition.length = size;
    theFact->theProposition.busyCount = 0;
 
@@ -2012,6 +2181,10 @@ Fact *AssertString(
       case AE_RULE_NETWORK_ERROR:
         FactData(theEnv)->assertStringError = ASE_RULE_NETWORK_ERROR;
         break;
+        
+      case AE_INVALID_CERTAINTY_FACTOR_ERROR:
+        FactData(theEnv)->assertStringError = ASE_INVALID_CERTAINTY_FACTOR_ERROR;
+        break;
       
       case AE_NULL_POINTER_ERROR:
       case AE_RETRACTED_ERROR:
@@ -2021,6 +2194,81 @@ Fact *AssertString(
      }
    
    return rv;
+  }
+
+/***************************************/
+/* GetFactCertaityFactor: Returns the  */
+/*   certainty factor for a fact.      */
+/***************************************/
+short GetFactCertaintyFactor(
+  Fact *theFact)
+  {
+   /*=============================================*/
+   /* If the fact doesn't have a certainty factor */
+   /* slot, then its certainty factor is 1.0      */
+   /*=============================================*/
+   
+   if (! theFact->whichDeftemplate->cfd)
+     { return 100; }
+     
+   /*=======================================*/
+   /* Goals have a certainty factor of 1.0. */
+   /*=======================================*/
+   
+   if (theFact->goal)
+     { return 100; }
+     
+   /*==============================*/
+   /* Return the certainty factor. */
+   /*==============================*/
+   
+   return (short) theFact->theProposition.contents[0].integerValue->contents;
+  }
+  
+/********************************************/
+/* CheckFactCertaityFactor: Checks that the */
+/*   certainty value for a fact is valid.   */
+/********************************************/
+bool CheckFactCertaintyFactor(
+  Environment *theEnv,
+  Fact *theFact)
+  {
+   long long theValue;
+   
+   /*=====================================*/
+   /* Facts without certainty factors and */
+   /* goals do not need to be checked.    */
+   /*=====================================*/
+   
+   if ((! theFact->whichDeftemplate->cfd) || theFact->goal)
+     { return true; }
+
+   /*==========================================*/
+   /* The certainty factor must be an integer. */
+   /*==========================================*/
+   
+   if (theFact->theProposition.contents[0].header->type == INTEGER_TYPE)
+     { theValue = theFact->theProposition.contents[0].integerValue->contents; }
+   else
+     {
+      PrintErrorID(theEnv,"FACTMNGR",4,true);
+      WriteString(theEnv,STDERR,"The certainty factor for a fact must be an integer.\n");
+      SetEvaluationError(theEnv,true);
+      return false;
+     }
+     
+   /*====================================================*/
+   /* The certainty factor must be between -100 and 100. */
+   /*====================================================*/
+   
+   if ((theValue < -100) || (theValue > 100))
+     {
+      PrintErrorID(theEnv,"FACTMNGR",4,true);
+      WriteString(theEnv,STDERR,"The certainty factor for a fact must be in the range of -100 to 100.\n");
+      return false;
+     }
+     
+   return true;
   }
 
 /******************************************************/
@@ -2068,6 +2316,7 @@ static void ResetFacts(
 
    FactData(theEnv)->NextFactIndex = 1L;
    FactData(theEnv)->NextGoalIndex = 1L;
+   FactData(theEnv)->CollisionIndex = 1L;
 
    /*======================================*/
    /* Remove all facts from the fact list. */
@@ -2101,6 +2350,7 @@ static bool ClearFactsReady(
 
    FactData(theEnv)->NextFactIndex = 1L;
    FactData(theEnv)->NextGoalIndex = 1L;
+   FactData(theEnv)->CollisionIndex = 1L;
 
    /*======================================*/
    /* Remove all facts from the fact list. */
@@ -2795,6 +3045,10 @@ Fact *FBAssert(
       
       case AE_RULE_NETWORK_ERROR:
         FactData(theEnv)->factBuilderError = FBE_RULE_NETWORK_ERROR;
+        break;
+      
+      case AE_INVALID_CERTAINTY_FACTOR_ERROR:
+        FactData(theEnv)->factBuilderError = FBE_INVALID_CERTAINTY_FACTOR_ERROR;
         break;
      }
    
@@ -3826,26 +4080,6 @@ RetractError RetractGoal(
 
    RemoveHashedFact(theEnv,theGoal);
 
-   /*=========================================*/
-   /* Remove the fact from its template list. */
-   /*=========================================*/
-/*
-   if (theFact == theTemplate->lastFact)
-     { theTemplate->lastFact = theFact->previousTemplateFact; }
-
-   if (theFact->previousTemplateFact == NULL)
-     {
-      theTemplate->factList = theTemplate->factList->nextTemplateFact;
-      if (theTemplate->factList != NULL)
-        { theTemplate->factList->previousTemplateFact = NULL; }
-     }
-   else
-     {
-      theFact->previousTemplateFact->nextTemplateFact = theFact->nextTemplateFact;
-      if (theFact->nextTemplateFact != NULL)
-        { theFact->nextTemplateFact->previousTemplateFact = theFact->previousTemplateFact; }
-     }
-*/
    /*=====================================*/
    /* Remove the goal from the goal list. */
    /*=====================================*/
@@ -3925,5 +4159,38 @@ RetractError RetractGoal(
    FactData(theEnv)->retractError = RE_NO_ERROR;
    return RE_NO_ERROR;
   }
-  
+
+/******************************************************/
+/* GetGoalListChanged: Returns the flag indicating    */
+/*   whether a change to the goal-list has been made. */
+/******************************************************/
+bool GetGoalListChanged(
+  Environment *theEnv)
+  {
+   return(FactData(theEnv)->ChangeToGoalList);
+  }
+
+/********************************************************/
+/* SetGoalListChanged: Sets the flag indicating whether */
+/*   a change to the goal-list has been made.           */
+/********************************************************/
+void SetGoalListChanged(
+  Environment *theEnv,
+  bool value)
+  {
+   FactData(theEnv)->ChangeToGoalList = value;
+  }
+
+/******************************************************/
+/* InvalidFactNameError: Prints the error message for */
+/*   an invalid fact name which must be a symbol      */
+/*   beginning with the @ character.                  */
+/******************************************************/
+void InvalidFactNameError(
+   Environment *theEnv)
+   {
+    PrintErrorID(theEnv,"FACTMNGR",6,true);
+    WriteString(theEnv,STDERR,"The name of a named fact must be a symbol beginning with the '@' character.\n");
+   }
+   
 #endif /* DEFTEMPLATE_CONSTRUCT && DEFRULE_CONSTRUCT */

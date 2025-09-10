@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/16/25             */
    /*                                                     */
    /*                   DEFRULE MODULE                    */
    /*******************************************************/
@@ -63,6 +63,9 @@
 /*            data structures.                               */
 /*                                                           */
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
+/*                                                           */
+/*      6.43: Fixed NULL pointer reference issue in          */
+/*            GetNextConstructItem calls.                    */
 /*                                                           */
 /*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
@@ -217,6 +220,8 @@ static void DeallocateDefruleData(
          theGroup = tmpGroup;
         }
 
+      ClearDefmoduleHashMap(theEnv,&theModuleItem->header);
+
 #if ! RUN_TIME
       rtn_struct(theEnv,defruleModule,theModuleItem);
 #endif
@@ -348,7 +353,14 @@ Defrule *GetNextDefrule(
   Environment *theEnv,
   Defrule *defrulePtr)
   {
-   return (Defrule *) GetNextConstructItem(theEnv,&defrulePtr->header,DefruleData(theEnv)->DefruleModuleIndex);
+   ConstructHeader *theHeader;
+   
+   if (defrulePtr == NULL)
+     { theHeader = NULL; }
+   else
+     { theHeader = &defrulePtr->header; }
+
+   return (Defrule *) GetNextConstructItem(theEnv,theHeader,DefruleData(theEnv)->DefruleModuleIndex);
   }
 
 /******************************************************/

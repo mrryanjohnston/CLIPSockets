@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  01/17/24            */
+   /*             CLIPS Version 7.00  06/11/24            */
    /*                                                     */
    /*                 DEFRULE HEADER FILE                 */
    /*******************************************************/
@@ -68,6 +68,8 @@
 /*                                                           */
 /*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_ruledef
@@ -98,6 +100,7 @@ struct defrule
    unsigned int watchFiring     :  1;
    unsigned int autoFocus       :  1;
    unsigned int executing       :  1;
+   short certainty;
    struct expr *dynamicSalience;
    struct expr *actions;
    struct joinNode *logicalJoin;

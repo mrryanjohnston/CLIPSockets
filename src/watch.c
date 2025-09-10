@@ -55,7 +55,7 @@
 /*      6.42: Getting the "all" watch item didn't return     */
 /*            TRUE when all watch items were watched.        */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 

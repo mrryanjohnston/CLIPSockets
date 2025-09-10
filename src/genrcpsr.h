@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 6.40  08/08/24            */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -51,6 +51,8 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      7.00: Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_genrcpsr
@@ -69,7 +71,7 @@
                                             unsigned short,unsigned short,CLIPSLexeme *,Expression *,char *,bool);
    void                           PackRestrictionTypes(Environment *,RESTRICTION *,Expression *);
    void                           DeleteTempRestricts(Environment *,Expression *);
-   Defmethod                     *FindMethodByRestrictions(Defgeneric *,Expression *,int,
+   Defmethod                     *FindMethodByRestrictions(Environment *,Defgeneric *,Expression *,int,
                                                            CLIPSLexeme *,int *);
 
 #endif /* DEFGENERIC_CONSTRUCT && (! BLOAD_ONLY) && (! RUN_TIME) */

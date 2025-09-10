@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/07/24             */
+   /*            CLIPS Version 7.00  07/25/24             */
    /*                                                     */
    /*          DEFTEMPLATE CONSTRUCTS-TO-C MODULE         */
    /*******************************************************/
@@ -49,6 +49,10 @@
 /*            Deftemplate inheritance.                       */
 /*                                                           */
 /*            Support for non-reactive fact patterns.        */
+/*                                                           */
+/*           Support for certainty factors.                  */
+/*                                                           */
+/*           Support for named facts.                        */
 /*                                                           */
 /*************************************************************/
 
@@ -326,7 +330,7 @@ static void DeftemplateToCode(
    /* Number of Slots, and Busy Count.         */
    /*==========================================*/
 
-   fprintf(theFile,"%d,0,0,0,%d,%ld,",theTemplate->implied,theTemplate->numberOfSlots,theTemplate->busyCount);
+   fprintf(theFile,"%d,0,0,0,%d,%d,%d,%ld,",theTemplate->implied,theTemplate->cfd,theTemplate->named,theTemplate->numberOfSlots,theTemplate->busyCount);
 
    /*==========================*/
    /* Pattern and Goal Network */

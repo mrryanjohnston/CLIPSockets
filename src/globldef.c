@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/16/25             */
    /*                                                     */
    /*                  DEFGLOBAL MODULE                   */
    /*******************************************************/
@@ -64,6 +64,12 @@
 /*            by itself at the command prompt and within     */
 /*            the eval function now consistently returns the */
 /*            value of  the variable.                        */
+/*                                                           */
+/*      6.42: Fixed garbage collection issue with defglobal  */
+/*            assigned its current value.                    */
+/*                                                           */
+/*      6.43: Fixed NULL pointer reference issue in          */
+/*            GetNextConstructItem calls.                    */
 /*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
@@ -196,6 +202,9 @@ static void DeallocateDefglobalData(
       theModuleItem = (struct defglobalModule *)
                       GetModuleItem(theEnv,theModule,
                                     DefglobalData(theEnv)->DefglobalModuleIndex);
+                                    
+      ClearDefmoduleHashMap(theEnv,&theModuleItem->header);
+
       rtn_struct(theEnv,defglobalModule,theModuleItem);
      }
 #else
@@ -334,7 +343,14 @@ Defglobal *GetNextDefglobal(
   Environment *theEnv,
   Defglobal *defglobalPtr)
   {
-   return (Defglobal *) GetNextConstructItem(theEnv,&defglobalPtr->header,DefglobalData(theEnv)->DefglobalModuleIndex);
+   ConstructHeader *theHeader;
+   
+   if (defglobalPtr == NULL)
+     { theHeader = NULL; }
+   else
+     { theHeader = &defglobalPtr->header; }
+
+   return (Defglobal *) GetNextConstructItem(theEnv,theHeader,DefglobalData(theEnv)->DefglobalModuleIndex);
   }
 
 /********************************************************/
@@ -664,6 +680,11 @@ static bool EntityGetDefglobalValue(
    /*=================================*/
 
    CLIPSToUDFValue(&theGlobal->current,vPtr);
+   if (vPtr->header->type == MULTIFIELD_TYPE)
+     {
+      vPtr->multifieldValue = CopyMultifield(theEnv,vPtr->multifieldValue);
+      AddToMultifieldList(theEnv,vPtr->multifieldValue);
+     }
    
    if (vPtr->value == FalseSymbol(theEnv))
      { return false; }
@@ -691,6 +712,8 @@ bool QGetDefglobalUDFValue(
      {
       vPtr->begin = 0;
       vPtr->range = theGlobal->current.multifieldValue->length;
+      vPtr->multifieldValue = CopyMultifield(theEnv,vPtr->multifieldValue);
+      AddToMultifieldList(theEnv,vPtr->multifieldValue);
      }
      
    if (vPtr->value == FalseSymbol(theEnv))

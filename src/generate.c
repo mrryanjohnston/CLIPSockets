@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  10/13/23             */
+   /*            CLIPS Version 7.00  05/29/25             */
    /*                                                     */
    /*                   GENERATE MODULE                   */
    /*******************************************************/
@@ -32,6 +32,11 @@
 /*            the referring variable is always the closest   */
 /*            and unification does not occur within the same */
 /*            non/and group.                                 */
+/*                                                           */
+/*      6.32: Fixed return value constraint crash when used  */
+/*            in pattern constraint with one multifield      */
+/*            variable or wildcard that proceeds the         */
+/*            return value constraint.                       */
 /*                                                           */
 /*      6.40: Pragma once and other inclusion changes.       */
 /*                                                           */
@@ -578,9 +583,9 @@ static struct expr *GenJNColon(
    /*==================================================*/
 
    if (isNand)
-     { conversion = GetvarReplace(theEnv,theField->expression,true,theNandFrames); }
+     { conversion = GetvarReplace(theEnv,theField->expression,true,false,theNandFrames); }
    else
-     { conversion = GetvarReplace(theEnv,theField->expression,false,theNandFrames); }
+     { conversion = GetvarReplace(theEnv,theField->expression,false,false,theNandFrames); }
 
    /*================================================*/
    /* If the predicate constraint is negated by a ~, */
@@ -655,9 +660,9 @@ static struct expr *GenJNEq(
    /*==================================================*/
 
    if (isNand)
-     { conversion = GetvarReplace(theEnv,theField->expression,true,theNandFrames); }
+     { conversion = GetvarReplace(theEnv,theField->expression,true,false,theNandFrames); }
    else
-     { conversion = GetvarReplace(theEnv,theField->expression,false,theNandFrames); }
+     { conversion = GetvarReplace(theEnv,theField->expression,false,true,theNandFrames); }
 
    /*============================================================*/
    /* If the return value constraint is negated by a ~, then use */
@@ -671,10 +676,12 @@ static struct expr *GenJNEq(
    else
      { top = GenConstant(theEnv,FCALL,ExpressionData(theEnv)->PTR_EQ); }
 
+   theField->pnType = SF_WILDCARD_NODE;
    if (isNand)
      { top->argList = (*theField->patternType->genGetJNValueFunction)(theEnv,theField,NESTED_RHS); }
    else
      { top->argList = (*theField->patternType->genGetJNValueFunction)(theEnv,theField,RHS); }
+   theField->pnType = RETURN_VALUE_CONSTRAINT_NODE;
 
    top->argList->nextArg = conversion;
 
@@ -711,7 +718,10 @@ static struct expr *GenPNEq(
    else
      { top = GenConstant(theEnv,FCALL,ExpressionData(theEnv)->PTR_EQ); }
 
+   theField->pnType = SF_WILDCARD_NODE;
    top->argList = (*theField->patternType->genGetPNValueFunction)(theEnv,theField);
+   theField->pnType = RETURN_VALUE_CONSTRAINT_NODE;
+
    top->argList->nextArg = conversion;
 
    return(top);
@@ -782,6 +792,7 @@ struct expr *GetvarReplace(
   Environment *theEnv,
   struct lhsParseNode *nodeList,
   bool isNand,
+  bool coerceLHS,
   struct nandFrame *theNandFrames)
   {
    struct expr *newList;
@@ -802,8 +813,8 @@ struct expr *GetvarReplace(
    newList = get_struct(theEnv,expr);
    newList->type = NodeTypeToType(nodeList);
    newList->value = nodeList->value;
-   newList->nextArg = GetvarReplace(theEnv,nodeList->right,isNand,theNandFrames);
-   newList->argList = GetvarReplace(theEnv,nodeList->bottom,isNand,theNandFrames);
+   newList->nextArg = GetvarReplace(theEnv,nodeList->right,isNand,coerceLHS,theNandFrames);
+   newList->argList = GetvarReplace(theEnv,nodeList->bottom,isNand,coerceLHS,theNandFrames);
 
    /*=========================================================*/
    /* If the present node being examined is either a local or */
@@ -843,8 +854,25 @@ struct expr *GetvarReplace(
            }
          else
            {
+            struct lhsParseNode *useNode = nodeList->referringNode;
+            int side = RHS;
+
+            if (coerceLHS)
+              {
+               while ((useNode != NULL) &&
+                      (nodeList->joinDepth == useNode->joinDepth))
+                 {
+                  useNode = useNode->referringNode;
+                 }
+                 
+               if (useNode == NULL)
+                 { useNode = nodeList->referringNode; }
+               else
+                 { side = LHS; }
+              }
+
             (*nodeList->referringNode->patternType->replaceGetJNValueFunction)
-               (theEnv,newList,nodeList->referringNode,RHS);
+               (theEnv,newList,useNode,side);
            }
         }
      }

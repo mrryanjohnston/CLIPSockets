@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  11/01/16            */
+   /*             CLIPS Version 7.00  06/11/24            */
    /*                                                     */
    /*          LOGICAL DEPENDENCIES HEADER FILE           */
    /*******************************************************/
@@ -37,6 +37,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Support for certainty factors.                 */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_lgcldpnd
@@ -49,12 +51,15 @@ struct dependency
   {
    void *dPtr;
    struct dependency *next;
+#if CERTAINTY_FACTORS
+   short cf;
+#endif
   };
 
 #include "entities.h"
 #include "match.h"
 
-   bool                           AddLogicalDependencies(Environment *,PatternEntity *,bool);
+   bool                           AddLogicalDependencies(Environment *,PatternEntity *,bool,short);
    void                           RemoveEntityDependencies(Environment *,PatternEntity *);
    void                           RemovePMDependencies(Environment *,PartialMatch *);
    void                           DestroyPMDependencies(Environment *,PartialMatch *);

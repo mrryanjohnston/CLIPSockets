@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  12/24/23             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*                 FACT MATCH MODULE                   */
    /*******************************************************/
@@ -54,6 +54,8 @@
 /*            Deftemplate inheritance.                       */
 /*                                                           */
 /*            Support for non-reactive fact patterns.        */
+/*                                                           */
+/*            Support for certainty factors.                 */
 /*                                                           */
 /*************************************************************/
 
@@ -761,12 +763,12 @@ static void PatternNetErrorMessage(
    /*==============================================*/
 
    if (FactData(theEnv)->CurrentPatternFact->whichDeftemplate->implied)
-     { gensnprintf(buffer,sizeof(buffer),"   Problem resides in field #%d\n",patternPtr->whichField); }
+     { snprintf(buffer,sizeof(buffer),"   Problem resides in field #%d\n",patternPtr->whichField); }
    else
      {
       theSlots = FactData(theEnv)->CurrentPatternFact->whichDeftemplate->slotList;
       for (i = 0; i < patternPtr->whichSlot; i++) theSlots = theSlots->next;
-      gensnprintf(buffer,sizeof(buffer),"   Problem resides in slot %s\n",theSlots->slotName->contents);
+      snprintf(buffer,sizeof(buffer),"   Problem resides in slot %s\n",theSlots->slotName->contents);
      }
 
    WriteString(theEnv,STDERR,buffer);
@@ -907,6 +909,12 @@ void FactsIncrementalReset(
         factPtr != NULL;
         factPtr = GetNextFact(theEnv,factPtr))
      {
+#if CERTAINTY_FACTORS
+      if ((factPtr->whichDeftemplate->cfd) &&
+          (factPtr->theProposition.contents[0].integerValue->contents < CERTAINTY_THRESHOLD))
+        { continue; }
+#endif
+
       EngineData(theEnv)->JoinOperationInProgress = true;
       for (theDeftemplate = factPtr->whichDeftemplate;
            theDeftemplate != NULL;

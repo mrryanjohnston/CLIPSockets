@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/16/25             */
    /*                                                     */
    /*                 DEFTEMPLATE MODULE                  */
    /*******************************************************/
@@ -54,6 +54,9 @@
 /*            data structures.                               */
 /*                                                           */
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
+/*                                                           */
+/*      6.43: Fixed NULL pointer reference issue in          */
+/*            GetNextConstructItem calls.                    */
 /*                                                           */
 /*      7.00: Data driven backward chaining.                 */
 /*                                                           */
@@ -183,6 +186,9 @@ static void DeallocateDeftemplateData(
       theModuleItem = (struct deftemplateModule *)
                       GetModuleItem(theEnv,theModule,
                                     DeftemplateData(theEnv)->DeftemplateModuleIndex);
+                                    
+      ClearDefmoduleHashMap(theEnv,&theModuleItem->header);
+
       rtn_struct(theEnv,deftemplateModule,theModuleItem);
      }
 #endif
@@ -313,7 +319,14 @@ Deftemplate *GetNextDeftemplate(
   Environment *theEnv,
   Deftemplate *deftemplatePtr)
   {
-   return (Deftemplate *) GetNextConstructItem(theEnv,&deftemplatePtr->header,DeftemplateData(theEnv)->DeftemplateModuleIndex);
+   ConstructHeader *theHeader;
+   
+   if (deftemplatePtr == NULL)
+     { theHeader = NULL; }
+   else
+     { theHeader = &deftemplatePtr->header; }
+     
+   return (Deftemplate *) GetNextConstructItem(theEnv,theHeader,DeftemplateData(theEnv)->DeftemplateModuleIndex);
   }
 
 /**********************************************************/
@@ -667,6 +680,42 @@ void DeftemplateRunTimeInitialize(
   }
 
 #endif /* RUN_TIME */
+
+/***************************************************/
+/* HasSupertemplate: Determines if one deftemplate */
+/*   is a parent/super template of another.        */
+/***************************************************/
+bool HasSupertemplate(
+  Deftemplate *theTemplate,
+  Deftemplate *potentialParent)
+  {
+   for (theTemplate = theTemplate->parent;
+        theTemplate != NULL;
+        theTemplate = theTemplate->parent)
+     {
+      if (theTemplate == potentialParent)
+        { return true; }
+     }
+
+   return false;
+  }
+
+/*********************************************/
+/* CanMatchGoal: Determines if a deftemplate */
+/*   could match a goal pattern.             */
+/*********************************************/
+bool CanMatchGoal(
+  Deftemplate *theTemplate)
+  {
+   while (theTemplate != NULL)
+     {
+      if (theTemplate->goalNetwork != NULL)
+        { return true; }
+      theTemplate = theTemplate->parent;
+     }
+
+   return false;
+  }
 
 /*##################################*/
 /* Additional Environment Functions */

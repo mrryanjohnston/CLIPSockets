@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/25/24             */
    /*                                                     */
    /*                  DEFMODULE MODULE                   */
    /*******************************************************/
@@ -52,6 +52,8 @@
 /*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -89,8 +91,6 @@
    static void                       ReturnDefmodule(Environment *,Defmodule *,bool);
 #endif
    static void                       DeallocateDefmoduleData(Environment *);
-   static size_t                     DecreaseHashSize(size_t);
-   static size_t                     IncreaseHashSize(size_t);
    static void                       RehashValues(struct itemHashTableEntry **,size_t,struct itemHashTableEntry **,size_t);
    static void                       UpdateHashMapSize(Environment *,struct defmoduleItemHeaderHM *,size_t);
   
@@ -858,68 +858,6 @@ unsigned short GetNumberOfDefmodules(
    return 1;
 #endif
   }
-  
-/***********/
-/* isPrime */
-/***********/
-bool IsPrime(
-  size_t n)
-  {
-   size_t i;
-
-   if (n <= 1)
-     { return false; }
-
-   if (n <= 3)
-     { return true; }
-      
-   if (((n % 2) == 0) ||
-       ((n % 3) == 0))
-     { return false; }
-
-   for (i = 5; i * i <= n; i += 6)
-     {
-      if (((n % i) == 0) ||
-          ((n % (i + 2)) == 0))
-        { return false; }
-     }
-   
-   return true;
-  }
-  
-/********************/
-/* IncreaseHashSize */
-/********************/
-static size_t IncreaseHashSize(
-  size_t currentSize)
-  {
-   if (currentSize == 0)
-     { return CONSTRUCT_INITIAL_HASH_TABLE_SIZE; }
-
-   currentSize = (currentSize * 2) + 1;
-   
-   while (! IsPrime(currentSize))
-     { currentSize++; }
-   
-   return currentSize;
-  }
-
-/*********************/
-/* DecreaseHashSize: */
-/*********************/
-static size_t DecreaseHashSize(
-  size_t currentSize)
-  {
-   if (currentSize == 0)
-     { return 0; }
- 
-   currentSize = currentSize / 2;
-   
-   while (! IsPrime(currentSize))
-     { currentSize++; }
-   
-   return currentSize;
-  }
 
 /**************************/
 /* AddConstructToHashMap: */
@@ -941,7 +879,7 @@ void AddConstructToHashMap(
    
    if (theMH->hashTableSize == 0)
      {
-      theHashTableSize = IncreaseHashSize(theMH->hashTableSize);
+      theHashTableSize = IncreaseHashSize(theMH->hashTableSize,CONSTRUCT_INITIAL_HASH_TABLE_SIZE);
       theMH->hashTableSize = theHashTableSize;
       spaceNeeded = sizeof(struct itemHashTableEntry *) * theHashTableSize;
       theMH->hashTable = (struct itemHashTableEntry **) gm2(theEnv,spaceNeeded);
@@ -973,7 +911,7 @@ void AddConstructToHashMap(
    /* Create a larger hash table. */
    /*=============================*/
    
-   theHashTableSize = IncreaseHashSize(theMH->hashTableSize);
+   theHashTableSize = IncreaseHashSize(theMH->hashTableSize,CONSTRUCT_INITIAL_HASH_TABLE_SIZE);
    UpdateHashMapSize(theEnv,theMH,theHashTableSize);
   }
 

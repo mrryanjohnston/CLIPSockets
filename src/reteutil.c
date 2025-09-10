@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.50  11/03/23             */
+   /*            CLIPS Version 7.00  11/03/23             */
    /*                                                     */
    /*                 RETE UTILITY MODULE                 */
    /*******************************************************/
@@ -59,7 +59,7 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 

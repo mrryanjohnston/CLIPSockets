@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  11/11/22             */
+   /*            CLIPS Version 7.00  08/08/24             */
    /*                                                     */
    /*          DEFTEMPLATE RHS PARSING HEADER FILE        */
    /*******************************************************/
@@ -38,6 +38,8 @@
 /*      6.41: Fixed error message where a space was missing  */
 /*            between tokens.                                */
 /*                                                           */
+/*      7.00: Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -57,6 +59,7 @@
 #include "tmpltdef.h"
 #include "tmpltfun.h"
 #include "tmpltlhs.h"
+#include "tmpltpsr.h"
 #include "tmpltutl.h"
 
 #include "tmpltrhs.h"
@@ -134,6 +137,23 @@ struct expr *ParseAssertTemplate(
 
       if (CheckRHSSlotTypes(theEnv,nextSlot->argList,slotPtr,"assert") == 0)
         {
+         *error = true;
+         ReturnExpression(theEnv,firstSlot);
+         ReturnExpression(theEnv,nextSlot);
+         return NULL;
+        }
+
+      /*=====================================*/
+      /* If the name slot is a symbol, check */
+      /* that it begins with an @ character. */
+      /*=====================================*/
+   
+      if ((theDeftemplate->named) &&
+          (strcmp(slotPtr->slotName->contents,TEMPLATE_NAME_STRING) == 0) &&
+          (nextSlot->argList->type == SYMBOL_TYPE) &&
+          (nextSlot->argList->lexemeValue->contents[0] != '@'))
+        {
+         InvalidFactNameError(theEnv);
          *error = true;
          ReturnExpression(theEnv,firstSlot);
          ReturnExpression(theEnv,nextSlot);

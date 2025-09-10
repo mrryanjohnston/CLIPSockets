@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.50  09/23/23             */
+   /*            CLIPS Version 7.00  06/28/24             */
    /*                                                     */
    /*              INCREMENTAL RESET MODULE               */
    /*******************************************************/
@@ -53,7 +53,7 @@
 /*                                                           */
 /*            Incremental reset is always enabled.           */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -110,8 +110,10 @@ void IncrementalReset(
    /* that can now generate goals because a new goal   */
    /* network has been created for a deftemplate.      */
    /*==================================================*/
-   
+
+#if DEFTEMPLATE_CONSTRUCT
    IncrementalResetAddGoalExpressions(theEnv);
+#endif
 
    /*=====================================================*/
    /* Mark the pattern and join network data structures   */
@@ -174,15 +176,20 @@ void IncrementalReset(
    /*==============================*/
    /*  */
    /*==============================*/
-   
+
+#if DEFTEMPLATE_CONSTRUCT
    IncrementalResetGoals(theEnv);
    ReleaseGoalUpdates(theEnv);
-   
+#endif
+
    /*==============================*/
    /* Process any generated goals. */
    /*==============================*/
-   
+
+#if DEFTEMPLATE_CONSTRUCT
    ProcessGoalQueue(theEnv);
+#endif
+
 #endif
   }
 
@@ -353,11 +360,13 @@ static void CheckForPrimableGoals(
             else
               { listOfMatches = NULL; }
 
+#if DEFTEMPLATE_CONSTRUCT
             if ((listOfMatches == NULL) &&
                 (! joinPtr->leftMemory->beta[0]->goalMarker))
               { AttachGoal(theEnv,joinPtr,NULL,joinPtr->leftMemory->beta[0],true); }
 
             joinPtr->goalMarked = true;
+#endif
            }
         }
      }

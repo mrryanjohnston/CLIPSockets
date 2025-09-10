@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  06/28/24            */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -29,6 +29,8 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      7.00: Generic function support for deftemplates.     */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_genrcbin
@@ -52,7 +54,7 @@ struct defgenericBinaryData
    DEFGENERIC_MODULE *ModuleArray;
    Defmethod *MethodArray;
    RESTRICTION *RestrictionArray;
-   void **TypeArray;
+   RESTRICTION_TYPE *TypeArray;
   };
 
 #define DefgenericBinaryData(theEnv) ((struct defgenericBinaryData *) GetEnvironmentData(theEnv,GENRCBIN_DATA))

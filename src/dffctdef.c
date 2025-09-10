@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/16/25             */
    /*                                                     */
    /*              DEFFACTS DEFINITION MODULE             */
    /*******************************************************/
@@ -45,6 +45,9 @@
 /*            data structures.                               */
 /*                                                           */
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
+/*                                                           */
+/*      6.43: Fixed NULL pointer reference issue in          */
+/*            GetNextConstructItem calls.                    */
 /*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
@@ -141,6 +144,9 @@ static void DeallocateDeffactsData(
       theModuleItem = (struct deffactsModule *)
                       GetModuleItem(theEnv,theModule,
                                     DeffactsData(theEnv)->DeffactsModuleIndex);
+
+      ClearDefmoduleHashMap(theEnv,&theModuleItem->header);
+
       rtn_struct(theEnv,deffactsModule,theModuleItem);
      }
 #else
@@ -346,7 +352,14 @@ Deffacts *GetNextDeffacts(
   Environment *theEnv,
   Deffacts *deffactsPtr)
   {
-   return (Deffacts *) GetNextConstructItem(theEnv,&deffactsPtr->header,DeffactsData(theEnv)->DeffactsModuleIndex);
+   ConstructHeader *theHeader;
+   
+   if (deffactsPtr == NULL)
+     { theHeader = NULL; }
+   else
+     { theHeader = &deffactsPtr->header; }
+
+   return (Deffacts *) GetNextConstructItem(theEnv,theHeader,DeffactsData(theEnv)->DeffactsModuleIndex);
   }
 
 /*******************************************************/

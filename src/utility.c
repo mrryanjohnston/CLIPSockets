@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  03/02/24             */
+   /*            CLIPS Version 7.00  02/05/25             */
    /*                                                     */
    /*                   UTILITY MODULE                    */
    /*******************************************************/
@@ -779,6 +779,7 @@ char *AppendNToString(
   {
    size_t lengthWithEOS;
    size_t newSize;
+   char *dest;
 
    /*====================================*/
    /* Determine the number of characters */
@@ -814,15 +815,16 @@ char *AppendNToString(
    /* string to the expanded string.   */
    /*==================================*/
 
-   genstrncpy(&oldStr[*oldPos],appendStr,length);
+   dest = &oldStr[*oldPos];
+   dest[0] = EOS;
+   genstrncat(&oldStr[*oldPos],appendStr,length);
    *oldPos += (lengthWithEOS - 1);
-   oldStr[*oldPos] = '\0';
 
    /*============================================================*/
    /* Return the expanded string containing the appended string. */
    /*============================================================*/
 
-   return(oldStr);
+   return oldStr;
   }
 
 /*******************************************************/
@@ -1680,4 +1682,67 @@ void FreeReadBuffer(
       UtilityData(theEnv)->CurrentReadBufferSize = 0L;
       UtilityData(theEnv)->CurrentReadBufferOffset = 0L;
      }
+  }
+  
+/***********/
+/* isPrime */
+/***********/
+bool IsPrime(
+  size_t n)
+  {
+   size_t i;
+
+   if (n <= 1)
+     { return false; }
+
+   if (n <= 3)
+     { return true; }
+      
+   if (((n % 2) == 0) ||
+       ((n % 3) == 0))
+     { return false; }
+
+   for (i = 5; i * i <= n; i += 6)
+     {
+      if (((n % i) == 0) ||
+          ((n % (i + 2)) == 0))
+        { return false; }
+     }
+   
+   return true;
+  }
+  
+/********************/
+/* IncreaseHashSize */
+/********************/
+size_t IncreaseHashSize(
+  size_t currentSize,
+  size_t initialSize)
+  {
+   if (currentSize == 0)
+     { return initialSize; }
+
+   currentSize = (currentSize * 2) + 1;
+   
+   while (! IsPrime(currentSize))
+     { currentSize++; }
+   
+   return currentSize;
+  }
+
+/*********************/
+/* DecreaseHashSize: */
+/*********************/
+size_t DecreaseHashSize(
+  size_t currentSize)
+  {
+   if (currentSize == 0)
+     { return 0; }
+ 
+   currentSize = currentSize / 2;
+   
+   while (! IsPrime(currentSize))
+     { currentSize++; }
+   
+   return currentSize;
   }

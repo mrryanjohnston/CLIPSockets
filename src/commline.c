@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  05/03/19             */
+   /*            CLIPS Version 7.00  02/05/25             */
    /*                                                     */
    /*                COMMAND LINE MODULE                  */
    /*******************************************************/
@@ -333,8 +333,9 @@ void SetNCommandString(
                               CommandLineData(theEnv)->MaximumCharacters,
                               CommandLineData(theEnv)->MaximumCharacters + length + 1);
 
-   genstrncpy(CommandLineData(theEnv)->CommandString,str,length);
-   CommandLineData(theEnv)->CommandString[CommandLineData(theEnv)->MaximumCharacters + length] = 0;
+   CommandLineData(theEnv)->CommandString[0] = EOS;
+   genstrncat(CommandLineData(theEnv)->CommandString,str,length);
+
    CommandLineData(theEnv)->MaximumCharacters += (length + 1);
    RouterData(theEnv)->CommandBufferInputCount += length;
   }

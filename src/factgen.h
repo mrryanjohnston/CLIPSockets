@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/30/16            */
+   /*             CLIPS Version 7.00  11/27/24            */
    /*                                                     */
    /*        FACT RETE FUNCTION GENERATION HEADER FILE    */
    /*******************************************************/
@@ -29,6 +29,9 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
 /*                                                           */
 /*************************************************************/
 
@@ -225,5 +228,9 @@ struct factCheckLengthPNCall
    struct expr               *FactGenGetvar(Environment *,struct lhsParseNode *,int);
    struct expr               *FactGenCheckLength(Environment *,struct lhsParseNode *);
    struct expr               *FactGenCheckZeroLength(Environment *,unsigned short);
+   int                        FactSlotReferenceVar(Environment *,Expression *,void *);
+   int                        RuleFactSlotReferenceVar(Environment *,Expression *,struct lhsParseNode *);
+   int                        MethodFactSlotReferenceVar(Environment *,Expression *,Expression *);
+   CLIPSLexeme               *FindTemplateForFactAddress(CLIPSLexeme *,struct lhsParseNode *);
 
 #endif /* _H_factgen */

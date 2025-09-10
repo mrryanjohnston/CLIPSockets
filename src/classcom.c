@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/16/25             */
    /*                                                     */
    /*                  CLASS COMMANDS MODULE              */
    /*******************************************************/
@@ -52,6 +52,9 @@
 /*                                                           */
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
+/*                                                           */
+/*      6.43: Fixed NULL pointer reference issue in          */
+/*            GetNextConstructItem calls.                    */
 /*                                                           */
 /*************************************************************/
 
@@ -353,7 +356,14 @@ Defclass *GetNextDefclass(
   Environment *theEnv,
   Defclass *theDefclass)
   {
-   return (Defclass *) GetNextConstructItem(theEnv,&theDefclass->header,
+   ConstructHeader *theHeader;
+   
+   if (theDefclass == NULL)
+     { theHeader = NULL; }
+   else
+     { theHeader = &theDefclass->header; }
+
+   return (Defclass *) GetNextConstructItem(theEnv,theHeader,
                                             DefclassData(theEnv)->DefclassModuleIndex);
   }
 

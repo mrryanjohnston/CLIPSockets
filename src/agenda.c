@@ -56,7 +56,7 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
-/*      6.41: Used gensnprintf in place of gensprintf and.   */
+/*      6.41: Used gensnprintf in place of gensprintf and    */
 /*            sprintf.                                       */
 /*                                                           */
 /*            Added ExitRouter after SystemError call in     */
@@ -611,7 +611,7 @@ static void PrintActivation(
   {
    char printSpace[20];
 
-   gensnprintf(printSpace,sizeof(printSpace),"%-6d ",theActivation->salience);
+   snprintf(printSpace,sizeof(printSpace),"%-6d ",theActivation->salience);
    WriteString(theEnv,logicalName,printSpace);
    WriteString(theEnv,logicalName,theActivation->theRule->header.name->contents);
    WriteString(theEnv,logicalName,": ");

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  03/20/19             */
+   /*            CLIPS Version 7.00  02/05/25             */
    /*                                                     */
    /*                  I/O ROUTER MODULE                  */
    /*******************************************************/
@@ -723,9 +723,11 @@ void PrintNRouter(
    char *tempStr;
 
    tempStr = (char *) genalloc(theEnv,length+1);
-   genstrncpy(tempStr,str,length);
-   tempStr[length] = 0;
+   tempStr[0] = EOS;
+   genstrncat(tempStr,str,length);
+
    WriteString(theEnv,logicalName,tempStr);
+
    genfree(theEnv,tempStr,length+1);
   }
 

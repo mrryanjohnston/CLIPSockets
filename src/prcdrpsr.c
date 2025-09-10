@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.50  10/13/23             */
+   /*            CLIPS Version 7.00  12/06/24             */
    /*                                                     */
    /*          PROCEDURAL FUNCTIONS PARSER MODULE         */
    /*******************************************************/
@@ -50,6 +50,8 @@
 /*                                                           */
 /*      6.41: Fixed invalid constraint conflict error        */
 /*            with bind function with multiple arguments.    */
+/*                                                           */
+/*      6.42: Added try function.                            */
 /*                                                           */
 /*************************************************************/
 
@@ -104,6 +106,7 @@ struct procedureParserData
    static struct expr            *ReturnParse(Environment *,struct expr *,const char *);
    static struct expr            *BreakParse(Environment *,struct expr *,const char *);
    static struct expr            *SwitchParse(Environment *,struct expr *,const char *);
+   static struct expr            *TryParse(Environment *theEnv,struct expr *,const char *);
 
 /*****************************/
 /* ProceduralFunctionParsers */
@@ -121,6 +124,7 @@ void ProceduralFunctionParsers(
    AddFunctionParser(theEnv,"return",ReturnParse);
    AddFunctionParser(theEnv,"break",BreakParse);
    AddFunctionParser(theEnv,"switch",SwitchParse);
+   AddFunctionParser(theEnv,"try",TryParse);
   }
 
 /*************************************************************/
@@ -916,6 +920,101 @@ SwitchParseError:
    ReturnExpression(theEnv,top);
    DecrementIndentDepth(theEnv,3);
    return NULL;
+  }
+
+/******************************************************/
+/* TryParse: Purpose is to parse the try statement.   */
+/*   The parse of the statement is the return value.  */
+/*   Syntax: (try <action*> [catch <action>*])        */
+/******************************************************/
+static struct expr *TryParse(
+  Environment *theEnv,
+  struct expr *top,
+  const char *infile)
+  {
+   struct token theToken;
+
+   /*==========================*/
+   /* Process the try actions. */
+   /*==========================*/
+
+   IncrementIndentDepth(theEnv,3);
+   PPCRAndIndent(theEnv);
+   
+   if (ExpressionData(theEnv)->svContexts->rtn == true)
+     { ExpressionData(theEnv)->ReturnContext = true; }
+   if (ExpressionData(theEnv)->svContexts->brk == true)
+     { ExpressionData(theEnv)->BreakContext = true; }
+
+   top->argList = GroupActions(theEnv,infile,&theToken,true,"catch",false);
+
+   if (top->argList == NULL)
+     {
+      ReturnExpression(theEnv,top);
+      return NULL;
+     }
+
+   top->argList = RemoveUnneededProgn(theEnv,top->argList);
+
+   /*======================================*/
+   /* A ')' signals a try without a catch. */
+   /*======================================*/
+
+   if (theToken.tknType == RIGHT_PARENTHESIS_TOKEN)
+     {
+      DecrementIndentDepth(theEnv,3);
+      PPBackup(theEnv);
+      PPBackup(theEnv);
+      SavePPBuffer(theEnv,theToken.printForm);
+      return(top);
+     }
+   
+   /*=========================================*/
+   /* Keyword 'else' must follow try actions. */
+   /*=========================================*/
+
+   if ((theToken.tknType != SYMBOL_TOKEN) || (strcmp(theToken.lexemeValue->contents,"catch") != 0))
+     {
+      SyntaxErrorMessage(theEnv,"try function");
+      ReturnExpression(theEnv,top);
+      return NULL;
+     }
+
+   /*============================*/
+   /* Process the catch actions. */
+   /*============================*/
+
+   PPCRAndIndent(theEnv);
+   top->argList->nextArg = GroupActions(theEnv,infile,&theToken,true,NULL,false);
+
+   if (top->argList->nextArg == NULL)
+     {
+      ReturnExpression(theEnv,top);
+      return NULL;
+     }
+
+   top->argList->nextArg = RemoveUnneededProgn(theEnv,top->argList->nextArg);
+   
+   /*======================================================*/
+   /* Check for the closing right parenthesis of the try. */
+   /*======================================================*/
+
+   if (theToken.tknType != RIGHT_PARENTHESIS_TOKEN)
+     {
+      SyntaxErrorMessage(theEnv,"try function");
+      ReturnExpression(theEnv,top);
+      return NULL;
+     }
+
+   /*======================================*/
+   /* A ')' signals a try without a catch. */
+   /*======================================*/
+
+   PPBackup(theEnv);
+   PPBackup(theEnv);
+   SavePPBuffer(theEnv,")");
+   DecrementIndentDepth(theEnv,3);
+   return top;
   }
 
 /**************************/

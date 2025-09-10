@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.42  05/07/24             */
+   /*            CLIPS Version 7.00  11/19/24             */
    /*                                                     */
    /*               TEXT PROCESSING MODULE                */
    /*******************************************************/
@@ -712,7 +712,7 @@ static TextProError ParseLine(
     if (length == 0)
       { return TP_INVALID_DELIMITER_STRING; }
       
-    theString = genalloc(theEnv,length+1);
+    theString = (char *) genalloc(theEnv,length+1);
     theString[0] = '\0';
     strncat(theString,subName,length);
 

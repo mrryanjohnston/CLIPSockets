@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/22/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*               FACT FUNCTIONS MODULE                 */
    /*******************************************************/
@@ -99,7 +99,11 @@
 /*      6.41: Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      6.42: Added fact-index-to-fact function.             */
+/*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
+/*            Support for named facts.                       */
 /*                                                           */
 /*************************************************************/
 
@@ -128,13 +132,15 @@ void FactFunctionDefinitions(
   Environment *theEnv)
   {
 #if ! RUN_TIME
-   AddUDF(theEnv,"fact-existp","b",1,1,"lf",FactExistpFunction,"FactExistpFunction",NULL);
-   AddUDF(theEnv,"fact-relation","y",1,1,"lf",FactRelationFunction,"FactRelationFunction",NULL);
-   AddUDF(theEnv,"fact-slot-value","*",2,2,";lf;y",FactSlotValueFunction,"FactSlotValueFunction",NULL);
-   AddUDF(theEnv,"fact-slot-names","*",1,1,"lf",FactSlotNamesFunction,"FactSlotNamesFunction",NULL);
+   AddUDF(theEnv,"fact-existp","b",1,1,"lfy",FactExistpFunction,"FactExistpFunction",NULL);
+   AddUDF(theEnv,"fact-relation","y",1,1,"lfy",FactRelationFunction,"FactRelationFunction",NULL);
+   AddUDF(theEnv,"fact-slot-value","*",2,2,";lfy;y",FactSlotValueFunction,"FactSlotValueFunction",NULL);
+   AddUDF(theEnv,"fact-slot-names","*",1,1,"lfy",FactSlotNamesFunction,"FactSlotNamesFunction",NULL);
    AddUDF(theEnv,"get-fact-list","m",0,1,"y",GetFactListFunction,"GetFactListFunction",NULL);
-   AddUDF(theEnv,"ppfact","vs",1,3,"*;lf;ldsyn",PPFactFunction,"PPFactFunction",NULL);
+   AddUDF(theEnv,"ppfact","vs",1,3,"*;lfy;ldsyn",PPFactFunction,"PPFactFunction",NULL);
    AddUDF(theEnv,"fact-addressp","b",1,1,NULL,FactAddresspFunction,"FactAddresspFunction",NULL);
+   AddUDF(theEnv,"(genfactname)","y",0,0,NULL,GenFactNameFunction,"GenFactNameFunction",NULL);
+   AddUDF(theEnv,"fact-index-to-fact","bf",1,1,NULL,FactIndexToFactFunction,"FactIndexToFactFunction",NULL);
 #else
 #if MAC_XCD
 #pragma unused(theEnv)
@@ -153,7 +159,7 @@ void FactRelationFunction(
   {
    Fact *theFact;
 
-   theFact = GetFactAddressOrIndexArgument(context,true);
+   theFact = GetFactAddressNameOrIndexArgument(context,true);
 
    if (theFact == NULL)
      {
@@ -195,7 +201,7 @@ void FactExistpFunction(
   {
    Fact *theFact;
 
-   theFact = GetFactAddressOrIndexArgument(context,false);
+   theFact = GetFactAddressNameOrIndexArgument(context,false);
 
    returnValue->lexemeValue = CreateBoolean(theEnv,FactExistp(theFact));
   }
@@ -253,7 +259,7 @@ void FactSlotValueFunction(
    /* Get the reference to the fact. */
    /*================================*/
 
-   theFact = GetFactAddressOrIndexArgument(context,true);
+   theFact = GetFactAddressNameOrIndexArgument(context,true);
    if (theFact == NULL)
      {
       returnValue->lexemeValue = FalseSymbol(theEnv);
@@ -273,6 +279,45 @@ void FactSlotValueFunction(
 
    FactSlotValue(theEnv,theFact,theArg.lexemeValue->contents,&result);
    CLIPSToUDFValue(&result,returnValue);
+  }
+
+/******************************************************************/
+/* GenFactNameFunction: Generates a unique name for a named fact. */
+/******************************************************************/
+void GenFactNameFunction(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   GenFactName(theEnv,returnValue);
+  }
+
+/***************/
+/* GenFactName */
+/***************/
+void GenFactName(
+  Environment *theEnv,
+  UDFValue *returnValue)
+  {
+   char genstring[128];
+   CLIPSLexeme *theSymbol;
+
+   snprintf(genstring,sizeof(genstring),"@f-%lld",FactData(theEnv)->NextFactIndex);
+   theSymbol = FindSymbolHN(theEnv,genstring,SYMBOL_BIT);
+   
+   while ((theSymbol != NULL) &&
+          (LookupFact(theEnv,theSymbol) != NULL))
+     {
+      snprintf(genstring,sizeof(genstring),"@f-%lld-%lld",
+                  FactData(theEnv)->NextFactIndex,FactData(theEnv)->CollisionIndex++);
+      theSymbol = FindSymbolHN(theEnv,genstring,SYMBOL_BIT);
+     }
+
+   /*====================*/
+   /* Return the symbol. */
+   /*====================*/
+
+   returnValue->lexemeValue = CreateSymbol(theEnv,genstring);
   }
 
 /***************************************/
@@ -337,7 +382,7 @@ void FactSlotNamesFunction(
    /* Get the reference to the fact. */
    /*================================*/
 
-   theFact = GetFactAddressOrIndexArgument(context,true);
+   theFact = GetFactAddressNameOrIndexArgument(context,true);
    if (theFact == NULL)
      {
       returnValue->lexemeValue = FalseSymbol(theEnv);
@@ -543,7 +588,7 @@ void PPFactFunction(
    bool ignoreDefaults = false;
    UDFValue theArg;
 
-   theFact = GetFactAddressOrIndexArgument(context,true);
+   theFact = GetFactAddressNameOrIndexArgument(context,true);
    if (theFact == NULL) return;
 
    /*===============================================================*/
@@ -667,7 +712,7 @@ Fact *GetFactAddressOrIndexArgument(
       theFact = FindIndexedFact(theEnv,factIndex);
       if ((theFact == NULL) && noFactError)
         {
-         gensnprintf(tempBuffer,sizeof(tempBuffer),"f-%lld",factIndex);
+         snprintf(tempBuffer,sizeof(tempBuffer),"f-%lld",factIndex);
          CantFindItemErrorMessage(theEnv,"fact",tempBuffer,false);
          return NULL;
         }
@@ -679,6 +724,93 @@ Fact *GetFactAddressOrIndexArgument(
    return NULL;
   }
 
+/****************************************************************/
+/* GetFactAddressNameOrIndexArgument: Retrieves an argument for */
+/*   a function which should be a reference to a valid fact.    */
+/****************************************************************/
+Fact *GetFactAddressNameOrIndexArgument(
+  UDFContext *context,
+  bool noFactError)
+  {
+   UDFValue theArg;
+   long long factIndex;
+   Fact *theFact;
+   Environment *theEnv = context->environment;
+   char tempBuffer[20];
+
+   if (! UDFNextArgument(context,ANY_TYPE_BITS,&theArg))
+     { return NULL; }
+
+   if (theArg.header->type == FACT_ADDRESS_TYPE)
+     {
+      if (theArg.factValue->garbage)
+        {
+         if (noFactError)
+           {
+            FactRetractedErrorMessage(theEnv,theArg.factValue);
+            SetEvaluationError(theEnv,true);
+           }
+         return NULL;
+        }
+      else return theArg.factValue;
+     }
+   else if (theArg.header->type == INTEGER_TYPE)
+     {
+      factIndex = theArg.integerValue->contents;
+      if (factIndex < 0)
+        {
+         UDFInvalidArgumentMessage(context,"fact-address, fact-name, or fact-index");
+         return NULL;
+        }
+
+      theFact = FindIndexedFact(theEnv,factIndex);
+      if ((theFact == NULL) && noFactError)
+        {
+         snprintf(tempBuffer,sizeof(tempBuffer),"f-%lld",factIndex);
+         CantFindItemErrorMessage(theEnv,"fact",tempBuffer,false);
+         return NULL;
+        }
+
+      return theFact;
+     }
+   else if ((theArg.header->type == SYMBOL_TYPE) &&
+            (theArg.lexemeValue->contents[0] == '@'))
+     {
+      theFact = LookupFact(theEnv,theArg.lexemeValue);
+      if ((theFact == NULL) && noFactError)
+        {
+         CantFindItemErrorMessage(theEnv,"fact",theArg.lexemeValue->contents,false);
+         return NULL;
+        }
+
+      return theFact;
+     }
+
+   UDFInvalidArgumentMessage(context,"fact-address, fact-name, or fact-index");
+   return NULL;
+  }
+  
+/*********************************************/
+/* FactIndexToFactFunction: C access routine */
+/*   for the fact-index-to-fact function.    */
+/*********************************************/
+void FactIndexToFactFunction(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   UDFValue theArg;
+   Fact *fact;
+   
+   returnValue->lexemeValue = FalseSymbol(theEnv);
+   
+   if (! UDFFirstArgument(context,INTEGER_BIT,&theArg))
+     { return; }
+      
+   fact = FindIndexedFact(theEnv,theArg.integerValue->contents);
+   
+   if (fact != NULL)
+     { returnValue->factValue = fact; }
+  }
+
 #endif /* DEFTEMPLATE_CONSTRUCT */
-
-

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  02/06/24             */
+   /*            CLIPS Version 7.00  02/05/25             */
    /*                                                     */
    /*                     BSAVE MODULE                    */
    /*******************************************************/
@@ -232,7 +232,8 @@ bool Bsave(
      {
       if (biPtr->bsaveStorageFunction != NULL)
         {
-         genstrncpy(constructBuffer,biPtr->name,CONSTRUCT_HEADER_SIZE);
+         constructBuffer[0] = EOS;
+         genstrncat(constructBuffer,biPtr->name,CONSTRUCT_HEADER_SIZE-1);
          GenWrite(constructBuffer,CONSTRUCT_HEADER_SIZE,fp);
          (*biPtr->bsaveStorageFunction)(theEnv,fp);
         }
@@ -270,7 +271,8 @@ bool Bsave(
      {
       if (biPtr->bsaveFunction != NULL)
         {
-         genstrncpy(constructBuffer,biPtr->name,CONSTRUCT_HEADER_SIZE);
+         constructBuffer[0] = EOS;
+         genstrncat(constructBuffer,biPtr->name,CONSTRUCT_HEADER_SIZE-1);
          GenWrite(constructBuffer,CONSTRUCT_HEADER_SIZE,fp);
          (*biPtr->bsaveFunction)(theEnv,fp);
         }
@@ -540,7 +542,8 @@ static void WriteBinaryFooter(
   {
    char footerBuffer[CONSTRUCT_HEADER_SIZE];
 
-   genstrncpy(footerBuffer,BloadData(theEnv)->BinaryPrefixID,CONSTRUCT_HEADER_SIZE);
+   footerBuffer[0] = EOS;
+   genstrncat(footerBuffer,BloadData(theEnv)->BinaryPrefixID,CONSTRUCT_HEADER_SIZE-1);
    GenWrite(footerBuffer,CONSTRUCT_HEADER_SIZE,fp);
   }
 

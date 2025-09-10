@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  02/06/24            */
+   /*             CLIPS Version 7.00  09/18/24            */
    /*                                                     */
    /*                 SYMBOL HEADER FILE                  */
    /*******************************************************/
@@ -172,7 +172,7 @@ struct symbolData
    CLIPSInteger **IntegerTable;
    CLIPSBitMap **BitMapTable;
    CLIPSExternalAddress **ExternalAddressTable;
-#if BLOAD || BLOAD_ONLY || BLOAD_AND_BSAVE || BLOAD_INSTANCES || BSAVE_INSTANCES
+#if BLOAD || BLOAD_ONLY || BLOAD_AND_BSAVE || BLOAD_INSTANCES || BSAVE_INSTANCES || DEFTEMPLATE_CONSTRUCT
    unsigned long NumberOfSymbols;
    unsigned long NumberOfFloats;
    unsigned long NumberOfIntegers;

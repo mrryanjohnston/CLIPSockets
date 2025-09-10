@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  03/02/24            */
+   /*             CLIPS Version 7.00  07/25/24            */
    /*                                                     */
    /*                 UTILITY HEADER FILE                 */
    /*******************************************************/
@@ -257,7 +257,10 @@ struct utilityData
    void                          *GetPeriodicFunctionContext(Environment *,const char *);
    void                           BufferedRead(Environment *,void *,size_t);
    void                           FreeReadBuffer(Environment *);
-
+   bool                           IsPrime(size_t);
+   size_t                         IncreaseHashSize(size_t,size_t);
+   size_t                         DecreaseHashSize(size_t);
+   
 #endif /* _H_utility */
 
 

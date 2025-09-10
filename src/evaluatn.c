@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  02/06/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*                  EVALUATION MODULE                  */
    /*******************************************************/
@@ -1152,7 +1152,7 @@ static void PrintCAddress(
 
    WriteString(theEnv,logicalName,"<Pointer-C-");
 
-   gensnprintf(buffer,sizeof(buffer),"%p",((CLIPSExternalAddress *) theValue)->contents);
+   snprintf(buffer,sizeof(buffer),"%p",((CLIPSExternalAddress *) theValue)->contents);
    WriteString(theEnv,logicalName,buffer);
    WriteString(theEnv,logicalName,">");
   }

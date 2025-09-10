@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  01/03/24            */
+   /*             CLIPS Version 7.00  11/28/24            */
    /*                                                     */
    /*          DEFTEMPLATE FUNCTION HEADER FILE           */
    /*******************************************************/
@@ -72,6 +72,9 @@
 /*                                                           */
 /*      7.00: Support for non-reactive fact patterns.        */
 /*                                                           */
+/*            Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_tmpltfun
@@ -84,9 +87,7 @@
 #include "factmngr.h"
 #include "symbol.h"
 #include "tmpltdef.h"
-#include "reorder.h"
 
-   bool                           UpdateModifyDuplicate(Environment *,struct expr *,const char *,struct lhsParseNode *);
    struct expr                   *ModifyParse(Environment *,struct expr *,const char *);
    struct expr                   *UpdateParse(Environment *,struct expr *,const char *);
    struct expr                   *DuplicateParse(Environment *,struct expr *,const char *);

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  01/17/24            */
+   /*             CLIPS Version 7.00  06/26/25            */
    /*                                                     */
    /*               DEFTEMPLATE HEADER FILE               */
    /*******************************************************/
@@ -63,6 +63,10 @@
 /*                                                           */
 /*            Construct hashing for quick lookup.            */
 /*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_tmpltdef
@@ -103,6 +107,8 @@ struct deftemplate
    unsigned int watchFacts    : 1;
    unsigned int watchGoals    : 1;
    unsigned int inScope       : 1;
+   unsigned int cfd           : 1;
+   unsigned int named         : 1;
    unsigned short numberOfSlots;
    long busyCount;
    struct factPatternNode *patternNetwork;
@@ -159,6 +165,8 @@ struct deftemplateData
 #if RUN_TIME
    void                           DeftemplateRunTimeInitialize(Environment *);
 #endif
+   bool                           HasSupertemplate(Deftemplate *,Deftemplate *);
+   bool                           CanMatchGoal(Deftemplate *);
    const char                    *DeftemplateModule(Deftemplate *);
    const char                    *DeftemplateName(Deftemplate *);
    const char                    *DeftemplatePPForm(Deftemplate *);

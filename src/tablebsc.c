@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  05/12/24             */
+   /*            CLIPS Version 7.00  03/08/25             */
    /*                                                     */
    /*         DEFTABLE BASIC COMMANDS HEADER FILE         */
    /*******************************************************/
@@ -107,6 +107,8 @@ void DeftableBasicCommands(
 
 #if ! RUN_TIME
    AddUDF(theEnv,"contains-key","b",2,2,";y;synldm",ContainsKeyFunction,"ContainsKeyFunction",NULL);
+   AddUDF(theEnv,"table-columns","m",1,1,"y",TableColumnsFunction,"TableColumnsFunction",NULL);
+   AddUDF(theEnv,"table-row-count","l",1,1,"y",TableRowCountFunction,"TableRowCountFunction",NULL);
    AddUDF(theEnv,"lookup","*",3,3,";y;synldm;y",LookupFunction,"LookupFunction",NULL);
 
    AddUDF(theEnv,"get-deftable-list","m",0,1,"y",GetDeftableListFunction,"GetDeftableListFunction",NULL);
@@ -458,6 +460,82 @@ void ListDeftables(
 
 #endif /* DEBUGGING_FUNCTIONS */
 
+/********************************************/
+/* TableColumnsFunction: H/L access routine */
+/*   for the table-columns function.        */
+/********************************************/
+void TableColumnsFunction(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   UDFValue theArg;
+   Deftable *theDeftable;
+   const char *name;
+   Multifield *theList;
+   unsigned long i;
+   
+   /*==================================*/
+   /* Verify that the deftable exists. */
+   /*==================================*/
+
+   if (! UDFNthArgument(context,1,SYMBOL_BIT,&theArg))
+     { return; }
+
+   name = theArg.lexemeValue->contents;
+
+   theDeftable = FindDeftable(theEnv,name);
+
+   if (theDeftable == NULL)
+     {
+      CantFindItemErrorMessage(theEnv,"deftable",name,true);
+      SetEvaluationError(theEnv,true);
+      return;
+     }
+     
+   returnValue->begin = 0;
+   returnValue->range = theDeftable->columnCount;
+   theList = CreateMultifield(theEnv,theDeftable->columnCount);
+   for (i = 0; i < theDeftable->columnCount; i++)
+     { theList->contents[i].value = theDeftable->columns[i].value; }
+
+   returnValue->value = theList;
+  }
+
+/*********************************************/
+/* TableRowCountFunction: H/L access routine */
+/*   for the table-row-count function.       */
+/*********************************************/
+void TableRowCountFunction(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   UDFValue theArg;
+   Deftable *theDeftable;
+   const char *name;
+   
+   /*==================================*/
+   /* Verify that the deftable exists. */
+   /*==================================*/
+
+   if (! UDFNthArgument(context,1,SYMBOL_BIT,&theArg))
+     { return; }
+
+   name = theArg.lexemeValue->contents;
+
+   theDeftable = FindDeftable(theEnv,name);
+
+   if (theDeftable == NULL)
+     {
+      CantFindItemErrorMessage(theEnv,"deftable",name,true);
+      SetEvaluationError(theEnv,true);
+      return;
+     }
+     
+   returnValue->integerValue = CreateInteger(theEnv,(long long) theDeftable->rowCount);
+  }
+  
 /****************/
 /* QueryAnyRowp */
 /****************/
@@ -576,7 +654,8 @@ static void QueryDriver(
           (rowKey.header->type != STRING_TYPE) &&
           (rowKey.header->type != INSTANCE_NAME_TYPE) &&
           (rowKey.header->type != FLOAT_TYPE) &&
-          (rowKey.header->type != INTEGER_TYPE))
+          (rowKey.header->type != INTEGER_TYPE) &&
+          (rowKey.header->type != MULTIFIELD_TYPE))
         {
          PrintErrorID(theEnv,"DFTBLBSC",3,false);
          WriteString(theEnv,STDERR,"The value ");
@@ -627,15 +706,12 @@ static void CheckAllRows(
   TABLE_QUERY_CORE *core,
   QueryTableType theQueryType)
   {
-   struct expr *rc;
    unsigned int r;
    Deftable *theDeftable;
    UDFValue temp;
 
    theDeftable = core->table;
    
-   rc = theDeftable->rows;
-
    DeftableData(theEnv)->AbortQuery = true;
    for (r = 0; r < theDeftable->rowCount; r++)
      {
@@ -679,8 +755,6 @@ static void CheckAllRows(
            }
         }
 
-      rc += theDeftable->columnCount;
-      
       if ((EvaluationData(theEnv)->HaltExecution == true) ||
           (DeftableData(theEnv)->AbortQuery == true))
         { return; }
@@ -697,15 +771,12 @@ static void CheckOneRow(
   void *theValue,
   const char *functionName)
   {
-   struct expr *rc;
    Deftable *theDeftable;
    UDFValue temp;
    struct rcHashTableEntry *theRow;
 
    theDeftable = core->table;
-   
-   rc = theDeftable->rows;
-   
+      
    theRow = FindTableEntryForRow(theEnv,theDeftable,theType,theValue);
    if (theRow == NULL)
      {
@@ -721,7 +792,9 @@ static void CheckOneRow(
       
    if (temp.value != FalseSymbol(theEnv))
      {
-      EvaluateExpression(theEnv,core->action,&temp);
+      ReleaseUDFV(theEnv,DeftableData(theEnv)->QueryCore->result);
+      EvaluateExpression(theEnv,core->action,DeftableData(theEnv)->QueryCore->result);
+      RetainUDFV(theEnv,DeftableData(theEnv)->QueryCore->result);
       return;
      }
       
@@ -962,7 +1035,7 @@ static Expression *ParseQueryDoFor(
       return NULL;
      }
 
-   if (ReplaceTableVariables(theEnv,top->argList->value,theDeftable,testExp,0))
+   if (ReplaceTableVariables(theEnv,top->argList->lexemeValue,theDeftable,testExp,0))
      {
       ReturnExpression(theEnv,actionExp);
       ReturnExpression(theEnv,testExp);
@@ -970,7 +1043,7 @@ static Expression *ParseQueryDoFor(
       return NULL;
      }
 
-   if (ReplaceTableVariables(theEnv,top->argList->value,theDeftable,actionExp,0))
+   if (ReplaceTableVariables(theEnv,top->argList->lexemeValue,theDeftable,actionExp,0))
      {
       ReturnExpression(theEnv,actionExp);
       ReturnExpression(theEnv,testExp);
@@ -1239,7 +1312,7 @@ static bool ReplaceColumnReference(
   struct functionDefinition *func,
   int ndepth)
   {
-   CLIPSLexeme *columnName;
+   CLIPSLexeme *columnName, *variableColumn;
    struct rcHashTableEntry *colEntry;
    
    columnName = SplitVariable(theEnv,theExp->lexemeValue,tableVariable);
@@ -1260,11 +1333,13 @@ static bool ReplaceColumnReference(
    // TBD Check to see if the table is defined and then
    // TBD Check that the column name exists
    
+   variableColumn = theExp->lexemeValue;
+   
    theExp->type = FCALL;
    theExp->value = func;
    theExp->argList = GenConstant(theEnv,INTEGER_TYPE,CreateInteger(theEnv,ndepth));
    theExp->argList->nextArg = GenConstant(theEnv,SYMBOL_TYPE,columnName);
-   theExp->argList->nextArg->nextArg = GenConstant(theEnv,SYMBOL_TYPE,theExp->lexemeValue);
+   theExp->argList->nextArg->nextArg = GenConstant(theEnv,SYMBOL_TYPE,variableColumn); // TBD Is this arg needed?
    return false;
   }
   
@@ -1279,7 +1354,7 @@ CLIPSLexeme *SplitVariable(
   CLIPSLexeme *rowVariable)
   {
    size_t len;
-   char *pos;
+   const char *pos;
    
    pos = strchr(theVariable->contents,':');
    if (pos == NULL)
@@ -1394,7 +1469,7 @@ void GetQueryRowColumn(
 
    core = FindQueryCore(theEnv,GetFirstArgument()->integerValue->contents);
    theDeftable = core->table;
-   columnName = GetFirstArgument()->nextArg->value;
+   columnName = GetFirstArgument()->nextArg->lexemeValue;
 
    /*=============================*/
    /* Get the column information. */

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  05/11/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*            MISCELLANEOUS FUNCTIONS MODULE           */
    /*******************************************************/
@@ -112,8 +112,18 @@
 /*            Used gensnprintf in place of gensprintf and.   */
 /*            sprintf.                                       */
 /*                                                           */
+/*      6.42: Gensym* modified to check for both symbols and */
+/*            and instance names when a symbol is generated  */
+/*            so that names automatically generated for      */
+/*            instances are unique.                          */
+/*                                                           */
 /*      7.00: Add $ as an abbreviated function name to call  */
 /*            the create$ function.                          */
+/*                                                           */
+/*            Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
+/*                                                           */
+/*            Support for named facts.                       */
 /*                                                           */
 /*************************************************************/
 
@@ -222,6 +232,11 @@ void MiscFunctionDefinitions(
    AddUDF(theEnv,"set-error","v",1,1,NULL,SetErrorFunction,"SetErrorFunction",NULL);
 
    AddUDF(theEnv,"void","v",0,0,NULL,VoidFunction,"VoidFunction",NULL);
+   
+#if DEFTEMPLATE_CONSTRUCT
+   AddUDF(theEnv,"(slot-value)","*",3,3,"y;f",SlotValueFunction,"SlotValueFunction",NULL);
+#endif
+
 #endif
   }
 
@@ -318,7 +333,7 @@ void GensymFunction(
    /* as the postfix.                                */
    /*================================================*/
 
-   gensnprintf(genstring,sizeof(genstring),"gen%lld",MiscFunctionData(theEnv)->GensymNumber);
+   snprintf(genstring,sizeof(genstring),"gen%lld",MiscFunctionData(theEnv)->GensymNumber);
    MiscFunctionData(theEnv)->GensymNumber++;
 
    /*====================*/
@@ -363,10 +378,10 @@ void GensymStar(
 
    do
      {
-      gensnprintf(genstring,sizeof(genstring),"gen%lld",MiscFunctionData(theEnv)->GensymNumber);
+      snprintf(genstring,sizeof(genstring),"gen%lld",MiscFunctionData(theEnv)->GensymNumber);
       MiscFunctionData(theEnv)->GensymNumber++;
      }
-   while (FindSymbolHN(theEnv,genstring,SYMBOL_BIT) != NULL);
+   while (FindSymbolHN(theEnv,genstring,SYMBOL_BIT | INSTANCE_NAME_BIT) != NULL);
 
    /*====================*/
    /* Return the symbol. */
@@ -1801,4 +1816,110 @@ void VoidFunction(
   UDFValue *returnValue)
   {
    returnValue->voidValue = VoidConstant(theEnv);
+  }
+
+/*****************************************/
+/* SlotValueFunction: H/L access routine */
+/*   for the slot-value function.        */
+/*****************************************/
+void SlotValueFunction(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+#if DEFTEMPLATE_CONSTRUCT
+   struct fact *theFact;
+#endif
+   UDFValue factReference;
+   unsigned short position;
+   const char *varSlot;
+   CLIPSLexeme *slotName;
+
+   /*=============================================*/
+   /* Set up the default return value for errors. */
+   /*=============================================*/
+
+   returnValue->value = FalseSymbol(theEnv);
+
+#if DEFTEMPLATE_CONSTRUCT
+
+   /*=========================================*/
+   /* Get the name of the var/slot reference. */
+   /*=========================================*/
+
+   varSlot = GetFirstArgument()->nextArg->nextArg->lexemeValue->contents;
+
+   /*================================*/
+   /* Get the reference to the fact. */
+   /*================================*/
+
+   EvaluateExpression(theEnv,GetFirstArgument(),&factReference);
+   if ((factReference.header->type == SYMBOL_TYPE) &&
+       (factReference.lexemeValue->contents[0] == '@'))
+     {
+      theFact = LookupFact(theEnv,factReference.lexemeValue);
+      if (theFact == NULL)
+        {
+         FactVarSlotErrorMessage4(theEnv,varSlot,factReference.lexemeValue->contents);
+         SetEvaluationError(theEnv,true);
+         return;
+        }
+     }
+   else if (factReference.header->type == FACT_ADDRESS_TYPE)
+     { theFact = factReference.factValue; }
+   else
+     {
+      FactVarSlotErrorMessage3(theEnv,varSlot);
+      SetEvaluationError(theEnv,true);
+      return;
+     }
+
+   if (theFact->garbage)
+     {
+      FactVarSlotErrorMessage1(theEnv,factReference.factValue,varSlot);
+      SetEvaluationError(theEnv,true);
+      return;
+     }
+
+   /*===========================*/
+   /* Get the name of the slot. */
+   /*===========================*/
+
+   slotName = GetFirstArgument()->nextArg->lexemeValue;
+
+   /*=================================================*/
+   /* If the specified slot exists, return the value. */
+   /*=================================================*/
+
+   if (theFact->whichDeftemplate->implied)
+     {
+      if (strcmp(slotName->contents,"implied") == 0)
+        {
+         returnValue->value = theFact->theProposition.contents[0].value;
+         returnValue->begin = 0;
+         returnValue->range = returnValue->multifieldValue->length;
+         return;
+        }
+     }
+   else if (FindSlot(theFact->whichDeftemplate,slotName,&position) != NULL)
+     {
+      returnValue->value = theFact->theProposition.contents[position].value;
+      if (returnValue->header->type == MULTIFIELD_TYPE)
+        {
+         returnValue->begin = 0;
+         returnValue->range = returnValue->multifieldValue->length;
+        }
+      return;
+     }
+
+   /*==========================================*/
+   /* Otherwise the specified slot is invalid. */
+   /*==========================================*/
+
+   PrintErrorID(theEnv,"MISCFUN",7,false);
+   WriteString(theEnv,STDERR,"The variable:slot reference ?");
+   WriteString(theEnv,STDERR,varSlot);
+   WriteString(theEnv,STDERR," can not be resolved because referenced fact does not contain the specified slot\n");
+   SetEvaluationError(theEnv,true);
+#endif
   }

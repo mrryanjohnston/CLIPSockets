@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.50  11/03/23             */
+   /*            CLIPS Version 7.00  06/28/24             */
    /*                                                     */
    /*          DEFRULE BASIC COMMANDS HEADER FILE         */
    /*******************************************************/
@@ -58,7 +58,7 @@
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -265,12 +265,15 @@ static void ResetDefrulesGoals(
       if (theLink->join->firstJoin &&
           GetAlphaMemory(theEnv,(struct patternNodeHeader *) theLink->join->rightSideEntryStructure,0) != NULL)
         { continue; }
-
+        
+#if DEFTEMPLATE_CONSTRUCT
       if (theLink->join->goalExpression != NULL)
-        { AttachGoal(theEnv,theLink->join,NULL,theLink->join->leftMemory->beta[0],false); } 
+        { AttachGoal(theEnv,theLink->join,NULL,theLink->join->leftMemory->beta[0],false); }
+#endif
      }
-     
+#if DEFTEMPLATE_CONSTRUCT
    ProcessGoalQueue(theEnv);
+#endif
   }
   
 #if (! RUN_TIME)

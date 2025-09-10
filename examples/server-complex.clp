@@ -225,6 +225,7 @@
 		(socketfd ?socketfd)
 		(delayed-until ?delayedUntil&:(<= ?delayedUntil ?currentTime))
 		(name ?name&~nil)
+		(ready-to-read TRUE)
 		(ready-to-write nil)
 		(max-life-time ?maxLifeTime)
 		(created-at ?createdAt&:(<= (- ?currentTime ?createdAt) ?maxLifeTime)))
@@ -376,6 +377,7 @@
 			&:(<= ?delayedUntil ?currentTime))
 		(name ?name&~nil)
 		(ready-to-read TRUE)
+		(ready-to-write TRUE)
 		(max-life-time ?maxLifeTime)
 		; it's still alive
 		(created-at ?createdAt
@@ -441,11 +443,11 @@
 			(eq ?waiting TRUE)
 			(= ?clientsConnected ?maxClients))))
 	=>
-	(modify ?f
-		(current-time (time)))
 	(modify ?c
 		(raw-ascii-codes ?rawAsciiCodes ?last
-			(get-char ?name))))
+			(get-char ?name)))
+	(modify ?f
+		(current-time (time))))
 
 (defrule message-too-long
 "We disconnect a client when message is too long"

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  08/16/22             */
+   /*            CLIPS Version 7.00  09/18/24             */
    /*                                                     */
    /*        FACT LOAD/SAVE (ASCII/BINARY) MODULE         */
    /*******************************************************/
@@ -1752,6 +1752,5 @@ static void SaveAtomBinary(
      
    fwrite(&bsa,sizeof(struct bsaveSlotValueAtom),1,bsaveFP);
   }
-
 
 #endif /* DEFTEMPLATE_CONSTRUCT */

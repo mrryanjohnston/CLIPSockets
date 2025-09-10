@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  07/30/16             */
+   /*            CLIPS Version 7.00  06/28/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -38,6 +38,8 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
+/*      7.00: Generic function support for deftemplates.     */
+/*                                                           */
 /*************************************************************/
 
 /* =========================================
@@ -54,6 +56,9 @@
 #include "genrccom.h"
 #if DEFRULE_CONSTRUCT
 #include "network.h"
+#endif
+#if DEFTEMPLATE_CONSTRUCT
+#include "tmpltcmp.h"
 #endif
 #if OBJECT_SYSTEM
 #include "objcmp.h"
@@ -99,7 +104,7 @@
                                                unsigned int,unsigned int,unsigned int);
    static void                    RestrictionToCode(Environment *,FILE *,unsigned int,RESTRICTION *,
                                                     unsigned int,unsigned int);
-   static void                    TypeToCode(Environment *,FILE *,unsigned int,void *,unsigned int);
+   static void                    TypeToCode(Environment *,FILE *,unsigned int,struct restrictionType *,unsigned int);
    static void                    InitDefgenericsCode(Environment *,FILE *,unsigned int,unsigned int);
 
 /* =========================================
@@ -371,7 +376,7 @@ static bool DefgenericsToCode(
                            OpenFileIfNeeded(theEnv,itemFiles[TYPEI],fileName,pathName,fileNameBuffer,fileID,
                                             imageID,&fileCount,
                                             itemArrayVersions[TYPEI],headerFP,
-                                            "void *",TypePrefix(),
+                                            "RESTRICTION_TYPE",TypePrefix(),
                                             itemReopenFlags[TYPEI],&itemCodeFiles[TYPEI]);
                         if (itemFiles[TYPEI] == NULL)
                           goto GenericCodeError;
@@ -380,7 +385,7 @@ static bool DefgenericsToCode(
                            if (k > 0)
                              fprintf(itemFiles[TYPEI],",\n");
                            TypeToCode(theEnv,itemFiles[TYPEI],imageID,
-                                      theRestriction->types[k],maxIndices);
+                                      &theRestriction->types[k],maxIndices);
                           }
                         itemArrayCounts[TYPEI] += theRestriction->tcnt;
                         itemFiles[TYPEI] =
@@ -620,21 +625,34 @@ static void TypeToCode(
   Environment *theEnv,
   FILE *theFile,
   unsigned int imageID,
-  void *theType,
+  struct restrictionType *theType,
   unsigned int maxIndices)
   {
+   fprintf(theFile,"{%d,",theType->type);
+   
+   switch (theType->type)
+     {
 #if OBJECT_SYSTEM
-   fprintf(theFile,"VS ");
-   PrintClassReference(theEnv,theFile,(Defclass *) theType,imageID,maxIndices);
+      case DEFCLASS_PTR:
+        PrintClassReference(theEnv,theFile,theType->theClass,imageID,maxIndices);
+        break;
 #else
-
 #if MAC_XCD
 #pragma unused(imageID)
 #pragma unused(maxIndices)
 #endif
-
-   PrintIntegerReference(theEnv,theFile,(CLIPSInteger *) theType);
+      case INTEGER_TYPE:
+        PrintIntegerReference(theEnv,theFile,theType->theInteger);
+        break;
 #endif
+#if DEFTEMPLATE_CONSTRUCT
+      case DEFTEMPLATE_PTR:
+        DeftemplateCConstructReference(theEnv,theFile,theType->theTemplate,imageID,maxIndices);
+        break;
+#endif
+     }
+
+   fprintf(theFile,"}");
   }
 
 #endif

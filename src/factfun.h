@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  05/29/19            */
+   /*             CLIPS Version 7.00  01/08/25            */
    /*                                                     */
    /*              FACT FUNCTIONS HEADER FILE             */
    /*******************************************************/
@@ -47,6 +47,10 @@
 /*                                                           */
 /*            Added fact-addressp function.                  */
 /*                                                           */
+/*      6.42: Added fact-index-to-fact function.             */
+/*                                                           */
+/*      7.00: Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_factfun
@@ -72,6 +76,10 @@
    void                           PPFactFunction(Environment *,UDFContext *,UDFValue *);
    void                           PPFact(Fact *,const char *,bool);
    Fact                          *GetFactAddressOrIndexArgument(UDFContext *,bool);
+   Fact                          *GetFactAddressNameOrIndexArgument(UDFContext *,bool);
    void                           FactAddresspFunction(Environment *,UDFContext *,UDFValue *);
-
+   void                           GenFactNameFunction(Environment *,UDFContext *,UDFValue *);
+   void                           GenFactName(Environment *,UDFValue *);
+   void                           FactIndexToFactFunction(Environment *,UDFContext *,UDFValue *);
+   
 #endif /* _H_factfun */

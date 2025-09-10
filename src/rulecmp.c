@@ -2,7 +2,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.50  11/09/23             */
+   /*            CLIPS Version 7.00  06/11/24             */
    /*                                                     */
    /*            DEFRULE CONSTRUCTS-TO-C MODULE           */
    /*******************************************************/
@@ -43,7 +43,9 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for certainty factors.                 */
 /*                                                           */
 /*************************************************************/
 
@@ -438,11 +440,11 @@ static void DefruleToCode(
    /* Flags and Integer Values */
    /*==========================*/
 
-   fprintf(theFile,",%d,%d,%d,%d,%d,%d,%d,%d,",
+   fprintf(theFile,",%d,%d,%d,%d,%d,%d,%d,%d,%d,",
                    theDefrule->salience,theDefrule->localVarCnt,
                    theDefrule->complexity,theDefrule->afterBreakpoint,
                    theDefrule->watchActivation,theDefrule->watchFiring,
-                   theDefrule->autoFocus,theDefrule->executing);
+                   theDefrule->autoFocus,theDefrule->executing,theDefrule->certainty);
 
    /*==================*/
    /* Dynamic Salience */

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/22/24             */
+   /*            CLIPS Version 7.00  08/08/24             */
    /*                                                     */
    /*              DEFTEMPLATE PARSER MODULE              */
    /*******************************************************/
@@ -51,6 +51,10 @@
 /*                                                           */
 /*            Construct hashing for quick lookup.            */
 /*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -92,8 +96,8 @@
 /***************************************/
 
 #if (! RUN_TIME) && (! BLOAD_ONLY)
-   static struct templateSlot    *SlotDeclarations(Environment *,const char *,struct token *,Deftemplate **);
-   static struct templateSlot    *ParseSlot(Environment *,const char *,struct token *,struct templateSlot *,Deftemplate *);
+   static struct templateSlot    *SlotDeclarations(Environment *,const char *,struct token *,Deftemplate **,bool *,bool *);
+   static struct templateSlot    *ParseSlot(Environment *,const char *,struct token *,struct templateSlot *,Deftemplate *,bool,bool);
    static struct templateSlot    *DefinedSlots(Environment *,const char *,CLIPSLexeme *,bool,struct token *,struct templateSlot *);
    static bool                    ParseFacetAttribute(Environment *,const char *,struct templateSlot *,bool);
    static bool                    InheritedAllowedCheck(Environment *,const char *,struct templateSlot *,struct templateSlot *,const char *,unsigned);
@@ -102,6 +106,13 @@
    static struct templateSlot    *CreateSlot(Environment *);
    static struct templateSlot    *CopySlot(Environment *,struct templateSlot *);
    static bool                    ParseSimpleQualifier(Environment *,const char *,const char *,const char *,const char *,bool *);
+   static bool                    ParseIsA(Environment *,const char *,struct token *,Deftemplate **,bool *,bool *);
+   static bool                    ParseBaseDeftemplates(Environment *,const char *,struct token *,Deftemplate **,bool *,bool *);
+  
+#if CERTAINTY_FACTORS
+   static struct templateSlot    *CreateCFSlot(Environment *);
+#endif
+   static struct templateSlot    *CreateNameSlot(Environment *);
 #endif
 
 /*******************************************************/
@@ -116,6 +127,7 @@ bool ParseDeftemplate(
    Deftemplate *newDeftemplate, *parent = NULL;
    struct templateSlot *slots;
    struct token inputToken;
+   bool cfd = false, named = false;
 
    /*================================================*/
    /* Initialize pretty print and error information. */
@@ -163,7 +175,7 @@ bool ParseDeftemplate(
    /* Parse the slot fields of the deftemplate. */
    /*===========================================*/
 
-   slots = SlotDeclarations(theEnv,readSource,&inputToken,&parent);
+   slots = SlotDeclarations(theEnv,readSource,&inputToken,&parent,&cfd,&named);
    if (DeftemplateData(theEnv)->DeftemplateError == true) return true;
 
    /*==============================================*/
@@ -206,6 +218,8 @@ bool ParseDeftemplate(
    newDeftemplate->watchFacts = 0;
    newDeftemplate->watchGoals = 0;
    newDeftemplate->inScope = true;
+   newDeftemplate->cfd = cfd;
+   newDeftemplate->named = named;
    newDeftemplate->patternNetwork = NULL;
    newDeftemplate->goalNetwork = NULL;
    newDeftemplate->factList = NULL;
@@ -302,7 +316,9 @@ static struct templateSlot *SlotDeclarations(
   Environment *theEnv,
   const char *readSource,
   struct token *inputToken,
-  Deftemplate **parent)
+  Deftemplate **parent,
+  bool *cfd,
+  bool *nd)
   {
    struct templateSlot *newSlot, *slotList = NULL, *lastSlot = NULL;
    struct templateSlot *parentSlot, *childSlot, *updatedSlotList, *lastChildSlot;
@@ -344,47 +360,10 @@ static struct templateSlot *SlotDeclarations(
             DeftemplateData(theEnv)->DeftemplateError = true;
             return NULL;
            }
-           
-         SavePPBuffer(theEnv," ");
-         
-         GetToken(theEnv,readSource,inputToken);
-         if (inputToken->tknType != SYMBOL_TOKEN)
-           {
-            PrintErrorID(theEnv,"TMPLTPSR",2,true);
-            WriteString(theEnv,STDERR,"The is-a declaration expected a valid deftemplate name.\n");
-            ReturnSlots(theEnv,slotList);
-            DeftemplateData(theEnv)->DeftemplateError = true;
-            return NULL;
-           }
 
-         *parent = FindDeftemplate(theEnv,inputToken->lexemeValue->contents);
-         if (*parent == NULL)
+         if (! ParseIsA(theEnv,readSource,inputToken,parent,cfd,nd))
            {
-            CantFindItemErrorMessage(theEnv,"deftemplate",inputToken->lexemeValue->contents,true);
             ReturnSlots(theEnv,slotList);
-            DeftemplateData(theEnv)->DeftemplateError = true;
-            return NULL;
-           }
-
-         if ((*parent)->implied)
-           {
-            PrintErrorID(theEnv,"TMPLTPSR",9,true);
-            WriteString(theEnv,STDERR,"The is-a declaration cannot be used with implied deftemplates.\n");
-            ReturnSlots(theEnv,slotList);
-            DeftemplateData(theEnv)->DeftemplateError = true;
-            return NULL;
-           }
-           
-         GetToken(theEnv,readSource,inputToken);
-         if (inputToken->tknType != RIGHT_PARENTHESIS_TOKEN)
-           {
-            PPBackup(theEnv);
-            SavePPBuffer(theEnv," ");
-            SavePPBuffer(theEnv,inputToken->printForm);
-            PrintErrorID(theEnv,"TMPLTPSR",3,true);
-            WriteString(theEnv,STDERR,"Expected a ')' to close the is-a declaration.\n");
-            ReturnSlots(theEnv,slotList);
-            DeftemplateData(theEnv)->DeftemplateError = true;
             return NULL;
            }
 
@@ -402,7 +381,7 @@ static struct templateSlot *SlotDeclarations(
       /* Parse the slot. */
       /*=================*/
 
-      newSlot = ParseSlot(theEnv,readSource,inputToken,slotList,*parent);
+      newSlot = ParseSlot(theEnv,readSource,inputToken,slotList,*parent,*cfd,*nd);
       if (DeftemplateData(theEnv)->DeftemplateError == true)
         {
          ReturnSlots(theEnv,newSlot);
@@ -444,7 +423,24 @@ static struct templateSlot *SlotDeclarations(
   /*=========================================*/
   
   if (*parent == NULL)
-    { return slotList; }
+    {
+     if (*nd)
+       {
+        newSlot = CreateNameSlot(theEnv);
+        newSlot->next = slotList;
+        slotList = newSlot;
+       }
+       
+#if CERTAINTY_FACTORS
+     if (*cfd)
+       {
+        newSlot = CreateCFSlot(theEnv);
+        newSlot->next = slotList;
+        slotList = newSlot;
+       }
+#endif
+     return slotList;
+    }
   
   /*===============================================*/
   /* If slots are inherited, preserve the ordering */
@@ -521,6 +517,140 @@ static struct templateSlot *SlotDeclarations(
   return updatedSlotList;
  }
 
+/***********************************************************/
+/* ParseIsA: Parses the is-a declaration of a deftemplate. */
+/***********************************************************/
+static bool ParseIsA(
+  Environment *theEnv,
+  const char *readSource,
+  struct token *inputToken,
+  Deftemplate **parent,
+  bool *cfd,
+  bool *nd)
+  {
+   SavePPBuffer(theEnv," ");
+         
+   GetToken(theEnv,readSource,inputToken);
+   if (inputToken->tknType != SYMBOL_TOKEN)
+     {
+      PrintErrorID(theEnv,"TMPLTPSR",2,true);
+      WriteString(theEnv,STDERR,"The is-a declaration expected a valid deftemplate name.\n");
+      DeftemplateData(theEnv)->DeftemplateError = true;
+      return false;
+     }
+
+   /*=============================================================*/
+   /* Determine if inheriting from one or more base deftemplates. */
+   /*=============================================================*/
+
+   if (strcmp(inputToken->lexemeValue->contents,TEMPLATE_ND_STRING) == 0)
+     { return ParseBaseDeftemplates(theEnv,readSource,inputToken,parent,cfd,nd); }
+#if CERTAINTY_FACTORS
+   else if (strcmp(inputToken->lexemeValue->contents,TEMPLATE_CFD_STRING) == 0)
+     { return ParseBaseDeftemplates(theEnv,readSource,inputToken,parent,cfd,nd); }
+#endif
+
+   /*==========================================*/
+   /* Otherwise, the deftemplate inherits from */
+   /* a previously defined deftemplate.        */
+   /*==========================================*/
+   
+   *parent = FindDeftemplate(theEnv,inputToken->lexemeValue->contents);
+   if (*parent == NULL)
+     {
+      CantFindItemErrorMessage(theEnv,"deftemplate",inputToken->lexemeValue->contents,true);
+      DeftemplateData(theEnv)->DeftemplateError = true;
+      return false;
+     }
+
+   if ((*parent)->implied)
+     {
+      PrintErrorID(theEnv,"TMPLTPSR",9,true);
+      WriteString(theEnv,STDERR,"The is-a declaration cannot be used with implied deftemplates.\n");
+      DeftemplateData(theEnv)->DeftemplateError = true;
+      return false;
+     }
+
+   if ((*parent)->named)
+     { *nd = true; }
+
+#if CERTAINTY_FACTORS
+   if ((*parent)->cfd)
+     { *cfd = true; }
+#endif
+
+   GetToken(theEnv,readSource,inputToken);
+   if (inputToken->tknType != RIGHT_PARENTHESIS_TOKEN)
+     {
+      PPBackup(theEnv);
+      SavePPBuffer(theEnv," ");
+      SavePPBuffer(theEnv,inputToken->printForm);
+      PrintErrorID(theEnv,"TMPLTPSR",3,true);
+      WriteString(theEnv,STDERR,"Expected a ')' to close the is-a declaration.\n");
+      DeftemplateData(theEnv)->DeftemplateError = true;
+      return false;
+     }
+
+   return true;
+  }
+
+/**************************/
+/* ParseBaseDeftemplates: */
+/**************************/
+static bool ParseBaseDeftemplates(
+  Environment *theEnv,
+  const char *readSource,
+  struct token *inputToken,
+  Deftemplate **parent,
+  bool *cfd,
+  bool *nd)
+  {
+   while (inputToken->tknType != RIGHT_PARENTHESIS_TOKEN)
+     {
+      if (strcmp(inputToken->lexemeValue->contents,TEMPLATE_ND_STRING) == 0)
+        {
+         if (*nd)
+           {
+            PrintErrorID(theEnv,"TMPLTPSR",12,true);
+            WriteString(theEnv,STDERR,"The ND base deftemplate has already been specified.\n");
+            DeftemplateData(theEnv)->DeftemplateError = true;
+            return false;
+           }
+         *nd = true;
+        }
+#if CERTAINTY_FACTORS
+      else if (strcmp(inputToken->lexemeValue->contents,TEMPLATE_CFD_STRING) == 0)
+        {
+         if (*cfd)
+           {
+            PrintErrorID(theEnv,"TMPLTPSR",12,true);
+            WriteString(theEnv,STDERR,"The CFD base deftemplate has already been specified.\n");
+            DeftemplateData(theEnv)->DeftemplateError = true;
+            return false;
+           }
+         *cfd = true;
+        }
+#endif
+      else
+        {
+         PrintErrorID(theEnv,"TMPLTPSR",13,true);
+         WriteString(theEnv,STDERR,"Expected a valid base deftemplate or right parenthesis.\n");
+         DeftemplateData(theEnv)->DeftemplateError = true;
+         return false;
+        }
+        
+      GetToken(theEnv,readSource,inputToken);
+      if (inputToken->tknType != RIGHT_PARENTHESIS_TOKEN)
+        {
+         PPBackup(theEnv);
+         SavePPBuffer(theEnv," ");
+         SavePPBuffer(theEnv,inputToken->printForm);
+        }
+     }
+
+   return true;
+  }
+
 /*****************************************************/
 /* ParseSlot: Parses a single slot of a deftemplate. */
 /*****************************************************/
@@ -529,7 +659,9 @@ static struct templateSlot *ParseSlot(
   const char *readSource,
   struct token *inputToken,
   struct templateSlot *slotList,
-  Deftemplate *parent)
+  Deftemplate *parent,
+  bool cfd,
+  bool nd)
   {
    bool parsingMultislot;
    CLIPSLexeme *slotName;
@@ -576,6 +708,38 @@ static struct templateSlot *ParseSlot(
      }
 
    slotName = inputToken->lexemeValue;
+   
+   /*=============================================================*/
+   /* The CF slot of a certainty factor fact cannot be redefined. */
+   /*=============================================================*/
+
+#if CERTAINTY_FACTORS
+   if (cfd && (strcmp(slotName->contents,TEMPLATE_CF_STRING) == 0))
+     {
+      PrintErrorID(theEnv,"TMPLTPSR",12,true);
+      WriteString(theEnv,STDERR,"The '");
+      WriteString(theEnv,STDERR,TEMPLATE_CF_STRING);
+      WriteString(theEnv,STDERR,"' slot of a certainty factor deftemplate cannot be redefined.\n");
+      DeftemplateData(theEnv)->DeftemplateError = true;
+      return NULL;
+     }
+#endif
+
+   /*====================================================*/
+   /* The name slot of a named fact cannot be redefined. */
+   /*====================================================*/
+
+#if CERTAINTY_FACTORS
+   if (nd && (strcmp(slotName->contents,TEMPLATE_NAME_STRING) == 0))
+     {
+      PrintErrorID(theEnv,"TMPLTPSR",12,true);
+      WriteString(theEnv,STDERR,"The '");
+      WriteString(theEnv,STDERR,TEMPLATE_NAME_STRING);
+      WriteString(theEnv,STDERR,"' slot of a named deftemplate cannot be redefined.\n");
+      DeftemplateData(theEnv)->DeftemplateError = true;
+      return NULL;
+     }
+#endif
 
    /*================================================*/
    /* Determine if the slot has already been parsed. */
@@ -688,6 +852,50 @@ static struct templateSlot *ParseSlot(
    /*==================*/
 
    return(newSlot);
+  }
+
+/***************************************************/
+/* CreateCFSlot: Creates the certainty factor slot */
+/*   for a certainty factor deftemplate.           */
+/***************************************************/
+#if CERTAINTY_FACTORS
+static struct templateSlot *CreateCFSlot(
+  Environment *theEnv)
+  {
+   struct templateSlot *newSlot;
+   
+   newSlot = CreateSlot(theEnv);
+   newSlot->slotName = CreateSymbol(theEnv,TEMPLATE_CF_STRING);
+   newSlot->constraints->anyAllowed = false;
+   newSlot->constraints->integersAllowed = true;
+   newSlot->defaultPresent = true;
+   newSlot->defaultList = GenConstant(theEnv,INTEGER_TYPE,CreateInteger(theEnv,100));
+   ReturnExpression(theEnv,newSlot->constraints->minValue);
+   newSlot->constraints->minValue = GenConstant(theEnv,INTEGER_TYPE,CreateInteger(theEnv,-100));
+   ReturnExpression(theEnv,newSlot->constraints->maxValue);
+   newSlot->constraints->maxValue = GenConstant(theEnv,INTEGER_TYPE,CreateInteger(theEnv,100));
+
+   return newSlot;
+  }
+#endif
+
+/*****************************************/
+/* CreateNameSlot: Creates the name slot */
+/*   for named deftemplates.             */
+/*****************************************/
+static struct templateSlot *CreateNameSlot(
+  Environment *theEnv)
+  {
+   struct templateSlot *newSlot;
+   
+   newSlot = CreateSlot(theEnv);
+   newSlot->slotName = CreateSymbol(theEnv,TEMPLATE_NAME_STRING);
+   newSlot->constraints->anyAllowed = false;
+   newSlot->constraints->symbolsAllowed = true;
+   newSlot->defaultPresent = true;
+   newSlot->defaultList = GenConstant(theEnv,FCALL,FindFunction(theEnv,"(genfactname)"));
+
+   return newSlot;
   }
 
 /**************************************************************/

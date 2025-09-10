@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  01/27/23             */
+   /*            CLIPS Version 7.00  01/28/25             */
    /*                                                     */
    /*            SYSTEM DEPENDENT HEADER FILE             */
    /*******************************************************/
@@ -106,6 +106,8 @@
 /*            Changed gengetcwd buffer length parameter from */
 /*            int to size_t.                                 */
 /*                                                           */
+/*      7.00: Removed gensnprintf and gensprintf functions.  */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_sysdep
@@ -142,8 +144,6 @@
    size_t                      GenWrite(void *,size_t,FILE *);
    int                       (*SetBeforeOpenFunction(Environment *,int (*)(Environment *)))(Environment *);
    int                       (*SetAfterOpenFunction(Environment *,int (*)(Environment *)))(Environment *);
-   int                         gensprintf(char *,const char *,...);
-   int                         gensnprintf(char *,size_t,const char *,...);
    char                       *genstrcpy(char *,const char *);
    char                       *genstrncpy(char *,const char *,size_t);
    char                       *genstrcat(char *,const char *);

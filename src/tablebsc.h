@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  05/12/24            */
+   /*             CLIPS Version 7.00  03/08/25            */
    /*                                                     */
    /*         DEFTABLE BASIC COMMANDS HEADER FILE         */
    /*******************************************************/
@@ -52,6 +52,8 @@
    void                           QueryDoForRow(Environment *,UDFContext *,UDFValue *);
    void                           QueryDoForThisRow(Environment *,UDFContext *,UDFValue *);
    void                           QueryDoForAllRows(Environment *,UDFContext *,UDFValue *);
-
+   void                           TableColumnsFunction(Environment *,UDFContext *,UDFValue *);
+   void                           TableRowCountFunction(Environment *,UDFContext *,UDFValue *);
+   
 #endif /* _H_tablebsc */
 

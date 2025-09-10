@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*         CONSTRUCT PROFILING FUNCTIONS MODULE        */
    /*******************************************************/
@@ -260,7 +260,7 @@ void ProfileInfoCommand(
 
    if (ProfileFunctionData(theEnv)->LastProfileInfo != NO_PROFILE)
      {
-      gensnprintf(buffer,sizeof(buffer),"Profile elapsed time = %g seconds\n",
+      snprintf(buffer,sizeof(buffer),"Profile elapsed time = %g seconds\n",
                       ProfileFunctionData(theEnv)->ProfileTotalTime);
       WriteString(theEnv,STDOUT,buffer);
 
@@ -410,7 +410,7 @@ static bool OutputProfileInfo(
       itemName = "";
      }
 
-   gensnprintf(buffer,sizeof(buffer),ProfileFunctionData(theEnv)->OutputString,
+   snprintf(buffer,sizeof(buffer),ProfileFunctionData(theEnv)->OutputString,
                         itemName,
                         (long) profileInfo->numberOfEntries,
 

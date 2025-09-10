@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  05/12/24             */
+   /*            CLIPS Version 7.00  02/21/25             */
    /*                                                     */
    /*                DEFTABLE PARSER MODULE               */
    /*******************************************************/
@@ -30,6 +30,7 @@
 
 #include "cstrcpsr.h"
 #include "envrnmnt.h"
+#include "exprnpsr.h"
 #include "memalloc.h"
 #include "modulutl.h"
 #include "pprint.h"
@@ -53,6 +54,13 @@
    static void                    DeclarationParse(Environment *,const char *,bool *,bool *);
    static void                    ParseAutoKeys(Environment *,const char *,bool *,bool *);
    static void                    AddColumnToRow(Expression **,Expression **,Expression *);
+   static struct expr            *TableValueToExpression(Environment *,unsigned short,void *);
+   static struct expr            *CLIPSValueToExpression(Environment *,UDFValue *,bool *,bool);
+   static struct expr            *MultifieldValueToExpression(Environment *,UDFValue *,bool *);
+   static struct expr            *GlobalVariableToExpression(Environment *,unsigned short,void *,
+                                                             bool *,bool);
+   static struct expr            *FunctionCallToExpression(Environment *,const char *,struct token *,
+                                                           bool *,bool);
 #endif
 
 /************************************************************/
@@ -72,7 +80,7 @@ bool ParseDeftable(
    struct token inputToken;
    unsigned short colCount = 0, rowCount = 0, i = 0;
    struct rcHashTableEntry **colHT = NULL, **rowHT = NULL;
-   size_t colHTSize = 0, rowHTSize = 0;
+   unsigned long colHTSize = 0, rowHTSize = 0;
    struct expr *c, *r;
    struct rcHashTableEntry *rcEntry;
    size_t hv;
@@ -353,22 +361,58 @@ static struct expr *ParseColumns(
    /*==========================*/
    /* Parse the column values. */
    /*==========================*/
-   
+
    while (inputToken->tknType != RIGHT_PARENTHESIS_TOKEN)
      {
-      if (inputToken->tknType != SYMBOL_TOKEN)
+      if ((inputToken->tknType == GBL_VARIABLE_TOKEN) ||
+          (inputToken->tknType == MF_GBL_VARIABLE_TOKEN))
+        {
+         theColumn = GlobalVariableToExpression(theEnv,
+                                                 TokenTypeToType(inputToken->tknType),
+                                                 inputToken->value,error,true);
+         if (*error)
+           {
+            ReturnExpression(theEnv,columns);
+            SyntaxErrorMessage(theEnv,"deftable");
+            return NULL;
+           }
+            
+         if (theColumn->type != SYMBOL_TYPE)
+           {
+            PrintErrorID(theEnv,"DFTBLPSR",5,true);
+            WriteString(theEnv,STDERR,"Deftable column names must be symbols.\n");
+            ReturnExpression(theEnv,theColumn);
+            ReturnExpression(theEnv,columns);
+            *error = true;
+            return NULL;
+           }
+        }
+      else if ((inputToken->tknType == SYMBOL_TOKEN) &&
+               (strcmp(inputToken->lexemeValue->contents,"=") == 0))
+        {
+         theColumn = FunctionCallToExpression(theEnv,readSource,inputToken,error,true);
+         if (*error)
+           { 
+            ReturnExpression(theEnv,columns);
+            return NULL;
+           }
+
+         if (theColumn->type != SYMBOL_TYPE)
+           {
+            PrintErrorID(theEnv,"DFTBLPSR",5,true);
+            WriteString(theEnv,STDERR,"Deftable column names must be symbols.\n");
+            ReturnExpression(theEnv,theColumn);
+            ReturnExpression(theEnv,columns);
+            *error = true;
+            return NULL;
+           }
+        }
+      else if (inputToken->tknType == SYMBOL_TOKEN)
+        { theColumn = TableTokenToExpression(theEnv,inputToken); }
+      else
         {
          PrintErrorID(theEnv,"DFTBLPSR",5,true);
          WriteString(theEnv,STDERR,"Deftable column names must be symbols.\n");
-         ReturnExpression(theEnv,columns);
-         *error = true;
-         return NULL;
-        }
-        
-      theColumn = TableTokenToExpression(theEnv,inputToken);
-      if (theColumn == NULL)
-        {
-         SyntaxErrorMessage(theEnv,"deftable");
          ReturnExpression(theEnv,columns);
          *error = true;
          return NULL;
@@ -524,14 +568,44 @@ static bool ParseRow(
            
          columnHead->value = CreateQuantity(theEnv,valueCount);
         }
+        
+      /*=====================*/
+      /* Process a = symbol. */
+      /*=====================*/
+      
+      else if ((inputToken->tknType == SYMBOL_TOKEN) &&
+               (strcmp(inputToken->lexemeValue->contents,"=") == 0))
+        {
+         columnHead = FunctionCallToExpression(theEnv,readSource,inputToken,error,true);
+         if (*error)
+           { return false; }
+        }
 
+      /*============================*/
+      /* Process a global variable. */
+      /*============================*/
+      
+      else if ((inputToken->tknType == GBL_VARIABLE_TOKEN) ||
+               (inputToken->tknType == MF_GBL_VARIABLE_TOKEN))
+        {
+         columnHead = GlobalVariableToExpression(theEnv,
+                                                 TokenTypeToType(inputToken->tknType),
+                                                 inputToken->value,error,true);
+                                                 
+          if (*error)
+            {
+             SyntaxErrorMessage(theEnv,"deftable");
+             return false;
+            }
+        }
+        
       /*==================================================*/
       /* Otherwise, a single-field value is being parsed. */
       /*==================================================*/
         
       else
        {
-        columnHead = TableTokenToExpression(theEnv,inputToken);
+        columnHead = TableTokenToExpression(theEnv,inputToken); // TBD use error
         if (columnHead == NULL)
           {
            SyntaxErrorMessage(theEnv,"deftable");
@@ -633,6 +707,207 @@ static struct expr *TableTokenToExpression(
     return NULL;
    }
 
+/**************************/
+/* CLIPSValueToExpression */
+/**************************/
+static struct expr *CLIPSValueToExpression(
+  Environment *theEnv,
+  UDFValue *assignValue,
+  bool *error,
+  bool createQuantity)
+  {
+   struct expr *columnHead, *next;
+   
+   if (assignValue->header->type != MULTIFIELD_TYPE)
+     {
+      columnHead = TableValueToExpression(theEnv,assignValue->header->type,assignValue->value); // TBD error
+      if (columnHead == NULL)
+        { *error = true; }
+        
+      return columnHead;
+     }
+          
+   next = MultifieldValueToExpression(theEnv,assignValue,error);
+   if (*error)
+     { return NULL; }
+   
+   if (createQuantity)
+     {
+      columnHead = get_struct(theEnv,expr);
+      columnHead->type = QUANTITY_TYPE;
+      columnHead->value = CreateQuantity(theEnv,(long long) assignValue->multifieldValue->length); ;
+      columnHead->nextArg = next;
+      columnHead->argList = NULL;
+      return columnHead;
+     }
+
+   return next;
+  }
+
+/*******************************/
+/* MultifieldValueToExpression */
+/*******************************/
+static struct expr *MultifieldValueToExpression(
+  Environment *theEnv,
+  UDFValue *assignValue,
+  bool *error)
+  {
+   struct expr *columnHead, *columnTail, *next;
+   size_t i;
+   
+   columnHead = NULL;
+   columnTail = NULL;
+   
+   for (i = 0; i < assignValue->range; i++)
+     {
+      next = TableValueToExpression(theEnv,assignValue->multifieldValue->contents[i].header->type,
+                                           assignValue->multifieldValue->contents[i].value);
+
+      if (next == NULL)
+        {
+         ReturnExpression(theEnv,columnHead);
+         *error = true;
+         return NULL;
+        }
+                       
+      if (columnHead == NULL)
+        {
+         columnHead = next;
+         columnTail = columnHead;
+        }
+      else
+        {
+         columnTail->nextArg = next;
+         columnTail = next;
+        }
+     }
+   
+   return columnHead;
+  }
+
+/******************************/
+/* GlobalVariableToExpression */
+/******************************/
+static struct expr *GlobalVariableToExpression(
+  Environment *theEnv,
+  unsigned short type,
+  void *value,
+  bool *error,
+  bool createQuantity)
+  {
+   Expression *theExpression, *columnHead = NULL;
+   UDFValue assignValue;
+   
+   /*===============================*/
+   /* Evaluate the global variable. */
+   /*===============================*/
+   
+   theExpression = GenConstant(theEnv,type,value);
+         
+   SetEvaluationError(theEnv,false);
+   if (EvaluateExpression(theEnv,theExpression,&assignValue))
+     {
+      ReturnExpression(theEnv,theExpression);
+      *error = true;
+      return NULL;
+     }
+        
+   ReturnExpression(theEnv,theExpression);
+         
+   columnHead = CLIPSValueToExpression(theEnv,&assignValue,error,createQuantity);
+         
+   if (*error)
+     {
+      SyntaxErrorMessage(theEnv,"deftable");
+      return NULL;
+     }
+     
+   return columnHead;
+  }
+
+/****************************/
+/* FunctionCallToExpression */
+/****************************/
+static struct expr *FunctionCallToExpression(
+  Environment *theEnv,
+  const char *readSource,
+  struct token *inputToken,
+  bool *error,
+  bool createQuantity)
+  {
+   struct expr *theExpression, *columnHead;
+   UDFValue assignValue;
+
+   GetToken(theEnv,readSource,inputToken);
+         
+   if (inputToken->tknType != LEFT_PARENTHESIS_TOKEN)
+     {
+      PrintErrorID(theEnv,"DFTBLPSR",2,true);
+      WriteString(theEnv,STDERR,"Expected a function call.\n");
+      PPBackup(theEnv);
+      SavePPBuffer(theEnv," ");
+      SavePPBuffer(theEnv,inputToken->printForm);
+      *error = true;
+      return NULL;
+     }
+         
+   theExpression = Function1Parse(theEnv,readSource);
+         
+   if (theExpression == NULL)
+     {
+      *error = true;
+      return NULL;
+     }
+           
+   SetEvaluationError(theEnv,false);
+   if (EvaluateExpression(theEnv,theExpression,&assignValue))
+     {
+      ReturnExpression(theEnv,theExpression);
+      *error = true;
+      return NULL;
+     }
+           
+   ReturnExpression(theEnv,theExpression);
+   columnHead = CLIPSValueToExpression(theEnv,&assignValue,error,createQuantity);
+         
+   if (*error)
+     {
+      SyntaxErrorMessage(theEnv,"deftable");
+      *error = true;
+      return NULL;
+     }
+     
+   return columnHead;
+  }
+
+/**************************/
+/* TableValueToExpression */
+/**************************/
+static struct expr *TableValueToExpression(
+  Environment *theEnv,
+  unsigned short type,
+  void *value)
+  {
+   switch (type)
+     {
+      case SYMBOL_TYPE:
+      case STRING_TYPE:
+      case INSTANCE_NAME_TYPE:
+        return GenConstant(theEnv,type,value);
+           
+      case FLOAT_TYPE:
+        return GenConstant(theEnv,type,value);
+           
+      case INTEGER_TYPE:
+        return GenConstant(theEnv,type,value);
+           
+      default:
+        return NULL;
+     }
+        
+   return NULL;
+  }
+   
 /****************************************************/
 /* DeclarationParse: Parses a deftable declaration. */
 /****************************************************/

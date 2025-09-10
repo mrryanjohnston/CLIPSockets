@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  05/28/21             */
+   /*            CLIPS Version 7.00  08/08/24             */
    /*                                                     */
    /*               INSTANCE PARSER MODULE                */
    /*******************************************************/
@@ -239,7 +239,7 @@ Expression *ParseInitializeInstance(
              (strcmp(top->argList->nextArg->lexemeValue->contents,CLASS_RLN) != 0))
            {
             top->argList->type = FCALL;
-            top->argList->value = FindFunction(theEnv,"gensym*");
+            top->argList->functionValue = FindFunction(theEnv,"gensym*");
             readclass = false;
            }
          else

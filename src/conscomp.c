@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  02/06/24            */
+   /*             CLIPS Version 7.00  01/29/25            */
    /*                                                     */
    /*              CONSTRUCT COMPILER MODULE              */
    /*******************************************************/
@@ -169,7 +169,7 @@ const char *SecondaryCodes[] = { "A" , "B", "C", "D", "E" , "F" , "G" , "H", "I"
 /***************************************/
 
    void                               ConstructsToCCommand(Environment *,UDFContext *,UDFValue *);
-   static bool                        ConstructsToC(Environment *,const char *,const char *,char *,unsigned,unsigned);
+   static bool                        ConstructsToC(Environment *,const char *,const char *,size_t,unsigned,unsigned);
    static void                        WriteFunctionExternDeclarations(Environment *,FILE *);
    static bool                        FunctionsToCode(Environment *theEnv,const char *,const char *,char *);
    static bool                        WriteInitializationFunction(Environment *,const char *,const char *,char *);
@@ -227,7 +227,6 @@ void ConstructsToCCommand(
   UDFValue *returnValue)
   {
    const char *fileName;
-   char *fileNameBuffer;
    const char *pathName;
    UDFValue theArg;
    long long id, max;
@@ -356,11 +355,7 @@ void ConstructsToCCommand(
    /* generate the C code.       */
    /*============================*/
 
-   fileNameBuffer = (char *) genalloc(theEnv,nameLength + pathLength + EXTRA_FILE_NAME);
-
-   ConstructsToC(theEnv,fileName,pathName,fileNameBuffer,(unsigned) id, (unsigned) max);
-
-   genfree(theEnv,fileNameBuffer,nameLength + pathLength + EXTRA_FILE_NAME);
+   ConstructsToC(theEnv,fileName,pathName,nameLength + pathLength + EXTRA_FILE_NAME,(unsigned) id, (unsigned) max);
   }
 
 /***************************************/
@@ -371,12 +366,19 @@ static bool ConstructsToC(
   Environment *theEnv,
   const char *fileName,
   const char *pathName,
-  char *fileNameBuffer,
+  size_t bufferSize,
   unsigned theImageID,
   unsigned max)
   {
    unsigned fileVersion;
    struct CodeGeneratorItem *cgPtr;
+   char *fileNameBuffer;
+
+   /*================================*/
+   /* Allocate the file name buffer. */
+   /*================================*/
+   
+   fileNameBuffer = (char *) genalloc(theEnv,bufferSize);
 
    /*===============================================*/
    /* Set the global MaxIndices variable indicating */
@@ -390,10 +392,11 @@ static bool ConstructsToC(
    /* Open a header file for dumping general information. */
    /*=====================================================*/
 
-   gensprintf(fileNameBuffer,"%s%s.h",pathName,fileName);
+   snprintf(fileNameBuffer,bufferSize,"%s%s.h",pathName,fileName);
    if ((ConstructCompilerData(theEnv)->HeaderFP = GenOpen(theEnv,fileNameBuffer,"w")) == NULL)
      {
       OpenErrorMessage(theEnv,"constructs-to-c",fileNameBuffer);
+      genfree(theEnv,fileNameBuffer,bufferSize);
       return false;
      }
 
@@ -401,10 +404,11 @@ static bool ConstructsToC(
    /* Open a file for dumping fixup information. */
    /*============================================*/
 
-   gensprintf(fileNameBuffer,"%s%s_init.c",pathName,fileName);
+   snprintf(fileNameBuffer,bufferSize,"%s%s_init.c",pathName,fileName);
    if ((ConstructCompilerData(theEnv)->FixupFP = GenOpen(theEnv,fileNameBuffer,"w")) == NULL)
      {
       OpenErrorMessage(theEnv,"constructs-to-c",fileNameBuffer);
+      genfree(theEnv,fileNameBuffer,bufferSize);
       return false;
      }
 
@@ -425,6 +429,7 @@ static bool ConstructsToC(
    ConstructCompilerData(theEnv)->FilePrefix = fileName;
    ConstructCompilerData(theEnv)->PathName = pathName;
    ConstructCompilerData(theEnv)->FileNameBuffer = fileNameBuffer;
+   ConstructCompilerData(theEnv)->BufferSize = bufferSize;
    ConstructCompilerData(theEnv)->ImageID = theImageID;
    ConstructCompilerData(theEnv)->ExpressionFP = NULL;
    ConstructCompilerData(theEnv)->ExpressionVersion = 1;
@@ -541,6 +546,12 @@ static bool ConstructsToC(
    /*========================*/
 
    GenClose(theEnv,ConstructCompilerData(theEnv)->HeaderFP);
+   
+   /*============================*/
+   /* Free the file name buffer. */
+   /*============================*/
+   
+   genfree(theEnv,fileNameBuffer,bufferSize);
 
    /*==================================================*/
    /* Return true to indicate that the constructs-to-c */
@@ -705,7 +716,7 @@ static bool WriteInitializationFunction(
    /* Open the initialization file. */
    /*===============================*/
 
-   gensprintf(fileNameBuffer,"%s%s.c",pathName,fileName);
+   snprintf(fileNameBuffer,ConstructCompilerData(theEnv)->BufferSize,"%s%s.c",pathName,fileName);
    if ((fp = GenOpen(theEnv,fileNameBuffer,"w")) == NULL)
      {
       OpenErrorMessage(theEnv,"constructs-to-c",fileNameBuffer);
@@ -799,7 +810,7 @@ FILE *NewCFile(
   {
    FILE *newFP;
 
-   gensprintf(fileNameBuffer,"%s%s%d_%d.c",pathName,fileName,id,version);
+   snprintf(fileNameBuffer,ConstructCompilerData(theEnv)->BufferSize,"%s%s%d_%d.c",pathName,fileName,id,version);
 
    if (reopenOldFile)
      { newFP = GenOpen(theEnv,fileNameBuffer,"a"); }
@@ -1166,9 +1177,9 @@ struct CodeGeneratorItem *AddCodeGeneratorItem(
       for (i = 0 ; i < arrayCount ; i++)
         {
          if (ConstructCompilerData(theEnv)->CodeGeneratorCount < PRIMARY_LEN)
-           { gensnprintf(theBuffer,sizeof(theBuffer),"%c",PRIMARY_CODES[ConstructCompilerData(theEnv)->CodeGeneratorCount]); }
+           { snprintf(theBuffer,sizeof(theBuffer),"%c",PRIMARY_CODES[ConstructCompilerData(theEnv)->CodeGeneratorCount]); }
          else
-           { gensnprintf(theBuffer,sizeof(theBuffer),"%s_",SecondaryCodes[ConstructCompilerData(theEnv)->CodeGeneratorCount - PRIMARY_LEN]); }
+           { snprintf(theBuffer,sizeof(theBuffer),"%s_",SecondaryCodes[ConstructCompilerData(theEnv)->CodeGeneratorCount - PRIMARY_LEN]); }
          ConstructCompilerData(theEnv)->CodeGeneratorCount++;
          newPtr->arrayNames[i] = (char *) gm2(theEnv,(strlen(theBuffer) + 1));
          genstrcpy(newPtr->arrayNames[i],theBuffer);
@@ -1404,7 +1415,7 @@ FILE *OpenFileIfNeeded(
    if (reopenOldFile == false)
      {
       (*fileCount)++;
-      gensnprintf(arrayName,sizeof(arrayName),"%s%d_%d",structPrefix,imageID,arrayVersion);
+      snprintf(arrayName,sizeof(arrayName),"%s%d_%d",structPrefix,imageID,arrayVersion);
       fprintf(theFile,"%s %s[] = {\n",structureName,arrayName);
       fprintf(headerFP,"extern %s %s[];\n",structureName,arrayName);
      }

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.50  09/14/23            */
+   /*             CLIPS Version 7.00  09/14/23            */
    /*                                                     */
    /*       DEFTEMPLATE BASIC COMMANDS HEADER FILE        */
    /*******************************************************/
@@ -54,7 +54,7 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
-/*      6.50: Changed the function name DeftemplateGetWatch  */
+/*      7.00: Changed the function name DeftemplateGetWatch  */
 /*            to DeftemplateGetWatchFacts.                   */
 /*                                                           */
 /*            Added functions DeftemplateGetWatchGoals and   */

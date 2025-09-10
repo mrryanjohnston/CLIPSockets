@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  02/17/24             */
+   /*            CLIPS Version 7.00  09/18/24             */
    /*                                                     */
    /*              DEFTABLE DEFINITION MODULE             */
    /*******************************************************/
@@ -132,6 +132,9 @@ static void DeallocateDeftableData(
       theModuleItem = (struct deftableModule *)
                       GetModuleItem(theEnv,theModule,
                                     DeftableData(theEnv)->DeftableModuleIndex);
+      
+      ClearDefmoduleHashMap(theEnv,&theModuleItem->header);
+
       rtn_struct(theEnv,deftableModule,theModuleItem);
      }
 #else
@@ -162,6 +165,8 @@ static void DestroyDeftableAction(
    ReturnPackedExpression(theEnv,theDeftable->columns);
    ReturnPackedExpression(theEnv,theDeftable->rows);
    FreeRCHT(theEnv,theDeftable->columnHashTable,theDeftable->columnHashTableSize);
+   FreeRCHT(theEnv,theDeftable->rowHashTable,theDeftable->rowHashTableSize);
+
    DestroyConstructHeader(theEnv,&theDeftable->header);
 
    rtn_struct(theEnv,deftable,theDeftable);
@@ -652,6 +657,9 @@ struct rcHashTableEntry *FindTableEntryTypeValue(
    size_t hv;
    struct rcHashTableEntry *entry;
 
+   if (hashTableSize == 0)
+     { return NULL; }
+     
    hv = TableKeyHashTypeValue(theEnv,type,value);
    hv = hv % hashTableSize;
   

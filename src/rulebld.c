@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.50  10/13/23             */
+   /*            CLIPS Version 7.00  10/13/23             */
    /*                                                     */
    /*                  RULE BUILD MODULE                  */
    /*******************************************************/
@@ -44,7 +44,7 @@
 /*                                                           */
 /*            Incremental reset is always enabled.           */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
 /*                                                           */
 /*************************************************************/
 
@@ -1240,7 +1240,7 @@ static struct joinNode *CreateNewJoin(
        (! isExplicit) &&
        (! joinFromTheRight) &&
        (! negatedRHSPattern) &&
-       (! existsRHSPattern)) // TBD Should we generate a goal for exists?
+       (! existsRHSPattern))
      {
       newJoin->goalJoin = true;
       newJoin->goalExpression = AddHashedExpression(theEnv,goalExpression);

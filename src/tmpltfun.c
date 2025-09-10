@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/03/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*             DEFTEMPLATE FUNCTIONS MODULE            */
    /*******************************************************/
@@ -101,6 +101,14 @@
 /*                                                           */
 /*      7.00: Support for non-reactive fact patterns.        */
 /*                                                           */
+/*            Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
+/*            Slot names in the modify/update/duplicate      */
+/*            functions can now be dynamically specified.    */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -117,6 +125,7 @@
 #include "default.h"
 #include "envrnmnt.h"
 #include "exprnpsr.h"
+#include "factfun.h"
 #include "factmch.h"
 #include "factmngr.h"
 #include "factrhs.h"
@@ -134,6 +143,7 @@
 #include "sysdep.h"
 #include "tmpltdef.h"
 #include "tmpltlhs.h"
+#include "tmpltpsr.h"
 #include "tmpltrhs.h"
 #include "tmpltutl.h"
 #include "utility.h"
@@ -148,9 +158,6 @@
    static void                    FreeTemplateValueArray(Environment *,CLIPSValue *,Deftemplate *);
    static struct expr            *ModAndDupParse(Environment *,struct expr *,const char *,const char *);
    static void                    ModifyUpdateDriver(Environment *,UDFContext *,UDFValue *,bool);
-#if (! RUN_TIME) && (! BLOAD_ONLY)
-   static CLIPSLexeme            *FindTemplateForFactAddress(CLIPSLexeme *,struct lhsParseNode *);
-#endif
 
 /****************************************************************/
 /* DeftemplateFunctions: Initializes the deftemplate functions. */
@@ -159,9 +166,9 @@ void DeftemplateFunctions(
   Environment *theEnv)
   {
 #if ! RUN_TIME
-   AddUDF(theEnv,"modify","bf",0,UNBOUNDED,"*;lf",ModifyCommand,"ModifyCommand",NULL);
-   AddUDF(theEnv,"update","bf",0,UNBOUNDED,"*;lf",UpdateCommand,"UpdateCommand",NULL);
-   AddUDF(theEnv,"duplicate","bf",0,UNBOUNDED,"*;lf",DuplicateCommand,"DuplicateCommand",NULL);
+   AddUDF(theEnv,"modify","bf",0,UNBOUNDED,"*;lfy",ModifyCommand,"ModifyCommand",NULL);
+   AddUDF(theEnv,"update","bf",0,UNBOUNDED,"*;lfy",UpdateCommand,"UpdateCommand",NULL);
+   AddUDF(theEnv,"duplicate","bf",0,UNBOUNDED,"*;lfy",DuplicateCommand,"DuplicateCommand",NULL);
 
    AddUDF(theEnv,"deftemplate-slot-names","bm",1,1,"y",DeftemplateSlotNamesFunction,"DeftemplateSlotNamesFunction",NULL);
    AddUDF(theEnv,"deftemplate-slot-default-value","*",2,2,"y",DeftemplateSlotDefaultValueFunction,"DeftemplateSlotDefaultValueFunction",NULL);
@@ -247,7 +254,7 @@ static void ModifyUpdateDriver(
   {
    long long factNum;
    Fact *oldFact;
-   struct expr *testPtr;
+   struct expr *testPtr, *tempPtr;
    UDFValue computeResult;
    Deftemplate *templatePtr;
    struct templateSlot *slotPtr;
@@ -302,12 +309,28 @@ static void ModifyUpdateDriver(
       if (oldFact == NULL)
         {
          char tempBuffer[20];
-         gensnprintf(tempBuffer,sizeof(tempBuffer),"f-%lld",factNum);
+         snprintf(tempBuffer,sizeof(tempBuffer),"f-%lld",factNum);
          CantFindItemErrorMessage(theEnv,"fact",tempBuffer,false);
          return;
         }
      }
+   
+   /*=======================================*/
+   /* Otherwise, if a fact-name is supplied */
+   /* then search for the named fact.       */
+   /*=======================================*/
 
+   else if ((computeResult.header->type == SYMBOL_TYPE) &&
+            (computeResult.lexemeValue->contents[0] == '@'))
+     {
+      oldFact = LookupFact(theEnv,computeResult.lexemeValue);
+      if (oldFact == NULL)
+        {
+         CantFindItemErrorMessage(theEnv,"fact",computeResult.lexemeValue->contents,false);
+         return;
+        }
+     }
+      
    /*==========================================*/
    /* Otherwise, if a pointer is supplied then */
    /* no lookup is required.                   */
@@ -392,12 +415,38 @@ static void ModifyUpdateDriver(
         { position = testPtr->integerValue->contents; }
       else
         {
+         /*=====================================================*/
+         /* Evaluate the expression to determine the slot name. */
+         /*=====================================================*/
+
+         IncrementClearReadyLocks(theEnv);
+         EvaluateExpression(theEnv,testPtr,&computeResult);
+         SetEvaluationError(theEnv,false);
+         DecrementClearReadyLocks(theEnv);
+      
+         if (computeResult.header->type != SYMBOL_TYPE)
+           {
+            PrintErrorID(theEnv,"TMPLTFUN",1,true);
+            WriteString(theEnv,STDERR,"The value ");
+            WriteUDFValue(theEnv,STDOUT,&computeResult);
+            WriteString(theEnv,STDERR," is not a valid slot name.\n");
+            SetEvaluationError(theEnv,true);
+            FreeTemplateValueArray(theEnv,theValueArray,templatePtr);
+            if (changeMap != NULL)
+              { rm(theEnv,(void *) changeMap,CountToBitMapSize(templatePtr->numberOfSlots)); }
+            return;
+           }
+           
+         /*==============================================*/
+         /* Search for the slot name in the deftemplate. */
+         /*==============================================*/
+         
          found = false;
          position = 0;
          slotPtr = templatePtr->slotList;
          while (slotPtr != NULL)
            {
-            if (slotPtr->slotName == testPtr->lexemeValue)
+            if (slotPtr->slotName == computeResult.lexemeValue)
               {
                found = true;
                slotPtr = NULL;
@@ -411,7 +460,7 @@ static void ModifyUpdateDriver(
 
          if (! found)
            {
-            InvalidDeftemplateSlotMessage(theEnv,testPtr->lexemeValue->contents,
+            InvalidDeftemplateSlotMessage(theEnv,computeResult.lexemeValue->contents,
                                           templatePtr->header.name->contents,true);
             SetEvaluationError(theEnv,true);
             FreeTemplateValueArray(theEnv,theValueArray,templatePtr);
@@ -421,34 +470,24 @@ static void ModifyUpdateDriver(
            }
         }
 
+      /*=======================================*/
+      /* The slot value follows the slot name. */
+      /*=======================================*/
+      
+      testPtr = testPtr->nextArg;
+      
       /*===================================================*/
       /* If a single field slot is being replaced, then... */
       /*===================================================*/
 
       if (oldFact->theProposition.contents[position].header->type != MULTIFIELD_TYPE)
         {
-         /*======================================================*/
-         /* If the list of values to store in the slot is empty  */
-         /* or contains more than one member than an error has   */
-         /* occured because a single field slot can only contain */
-         /* a single value.                                      */
-         /*======================================================*/
-
-         if ((testPtr->argList == NULL) ? true : (testPtr->argList->nextArg != NULL))
-           {
-            MultiIntoSingleFieldSlotError(theEnv,GetNthSlot(templatePtr,position),templatePtr);
-            FreeTemplateValueArray(theEnv,theValueArray,templatePtr);
-            if (changeMap != NULL)
-              { rm(theEnv,(void *) changeMap,CountToBitMapSize(templatePtr->numberOfSlots)); }
-            return;
-           }
-
          /*===================================================*/
          /* Evaluate the expression to be stored in the slot. */
          /*===================================================*/
 
          IncrementClearReadyLocks(theEnv);
-         EvaluateExpression(theEnv,testPtr->argList,&computeResult);
+         EvaluateExpression(theEnv,testPtr,&computeResult);
          SetEvaluationError(theEnv,false);
          DecrementClearReadyLocks(theEnv);
 
@@ -491,7 +530,10 @@ static void ModifyUpdateDriver(
          /*======================================*/
 
          IncrementClearReadyLocks(theEnv);
-         StoreInMultifield(theEnv,&computeResult,testPtr->argList,false);
+         tempPtr = testPtr->nextArg;
+         testPtr->nextArg = NULL;
+         StoreInMultifield(theEnv,&computeResult,testPtr,false);
+         testPtr->nextArg = tempPtr;
          SetEvaluationError(theEnv,false);
          DecrementClearReadyLocks(theEnv);
 
@@ -529,6 +571,40 @@ static void ModifyUpdateDriver(
       returnValue->value = oldFact;
       return;
      }
+   
+   /*=====================================*/
+   /* If the name slot is a symbol, check */
+   /* that it begins with an @ character. */
+   /*=====================================*/
+   
+   if (templatePtr->named)
+     {
+      unsigned short nameSlot = 0;
+      
+      if (templatePtr->cfd)
+        { nameSlot++; }
+        
+      if (TestBitMap(changeMap,nameSlot))
+        {
+         unsigned short theType;
+         
+         theType = theValueArray[nameSlot].header->type;
+         
+         if ((theType != SYMBOL_TYPE) ||
+             (theValueArray[nameSlot].lexemeValue->contents[0] != '@'))
+           {
+            InvalidFactNameError(theEnv);
+            
+            if (theValueArray != NULL)
+              { rm(theEnv,theValueArray,sizeof(void *) * templatePtr->numberOfSlots); }
+            if (changeMap != NULL)
+              { rm(theEnv,(void *) changeMap,CountToBitMapSize(templatePtr->numberOfSlots)); }
+
+            SetEvaluationError(theEnv,true);
+            return;
+           }
+        }
+     }
      
    /*====================================*/
    /* Copy the unchanged values from the */
@@ -554,8 +630,26 @@ static void ModifyUpdateDriver(
    else
      { theBitMap = NULL; }
 
+   /*==================================================*/
+   /* If the fact is successfully asserted, then the   */
+   /* return value is the fact-name if this is a named */
+   /* fact, otherwise its the fact-address.            */
+   /*==================================================*/
+   
    if ((oldFact = ReplaceFact(theEnv,oldFact,theValueArray,theBitMap,applyReactivity)) != NULL)
-     { returnValue->factValue = oldFact; }
+     {
+      if (oldFact->whichDeftemplate->named)
+        {
+         unsigned short nameSlot = 0;
+      
+         if (oldFact->whichDeftemplate->cfd)
+           { nameSlot++; }
+        
+         returnValue->lexemeValue = oldFact->theProposition.contents[nameSlot].lexemeValue;
+        }
+      else
+        { returnValue->factValue = oldFact; }
+     }
 
    if (theBitMap != NULL)
      { DecrementBitMapReferenceCount(theEnv,theBitMap); }
@@ -585,6 +679,30 @@ Fact *ReplaceFact(
    Fact *factListPosition, *templatePosition;
    size_t factHash;
    
+   if (oldFact->whichDeftemplate->named)
+     {
+      unsigned short nameSlot = 0;
+      CLIPSLexeme *theName;
+      
+      if (oldFact->whichDeftemplate->cfd)
+        { nameSlot++; }
+        
+      if (TestBitMap(changeMap->contents,nameSlot))
+        {
+         theName = theValueArray[nameSlot].lexemeValue;
+         
+         if (LookupFact(theEnv,theName))
+           {
+            PrintErrorID(theEnv,"FACTMNGR",6,true); // Add to prntutil
+            WriteString(theEnv,STDERR,"A fact named ");
+            WriteString(theEnv,STDERR,theName->contents);
+            WriteString(theEnv,STDERR," already exists.\n");
+            SetEvaluationError(theEnv,true);
+            return NULL;
+           }
+        }
+     }
+     
    /*===============================================*/
    /* Call registered modify notification functions */
    /* for the existing version of the fact.         */
@@ -740,7 +858,7 @@ void DuplicateCommand(
   {
    long long factNum;
    Fact *oldFact, *newFact, *theFact;
-   struct expr *testPtr;
+   struct expr *testPtr, *tempPtr;
    UDFValue computeResult;
    Deftemplate *templatePtr;
    struct templateSlot *slotPtr;
@@ -791,8 +909,24 @@ void DuplicateCommand(
       if (oldFact == NULL)
         {
          char tempBuffer[20];
-         gensnprintf(tempBuffer,sizeof(tempBuffer),"f-%lld",factNum);
+         snprintf(tempBuffer,sizeof(tempBuffer),"f-%lld",factNum);
          CantFindItemErrorMessage(theEnv,"fact",tempBuffer,false);
+         return;
+        }
+     }
+   
+   /*=======================================*/
+   /* Otherwise, if a fact-name is supplied */
+   /* then search for the named fact.       */
+   /*=======================================*/
+
+   else if ((computeResult.header->type == SYMBOL_TYPE) &&
+            (computeResult.lexemeValue->contents[0] == '@'))
+     {
+      oldFact = LookupFact(theEnv,computeResult.lexemeValue);
+      if (oldFact == NULL)
+        {
+         CantFindItemErrorMessage(theEnv,"fact",computeResult.lexemeValue->contents,false);
          return;
         }
      }
@@ -872,12 +1006,32 @@ void DuplicateCommand(
         { position = testPtr->integerValue->contents; }
       else
         {
+         /*=====================================================*/
+         /* Evaluate the expression to determine the slot name. */
+         /*=====================================================*/
+
+         IncrementClearReadyLocks(theEnv);
+         EvaluateExpression(theEnv,testPtr,&computeResult);
+         SetEvaluationError(theEnv,false);
+         DecrementClearReadyLocks(theEnv);
+         
+         if (computeResult.header->type != SYMBOL_TYPE)
+           {
+            PrintErrorID(theEnv,"TMPLTFUN",1,true);
+            WriteString(theEnv,STDERR,"The value ");
+            WriteUDFValue(theEnv,STDOUT,&computeResult);
+            WriteString(theEnv,STDERR," is not a valid slot name.\n");
+            SetEvaluationError(theEnv,true);
+            ReturnFact(theEnv,newFact);
+            return;
+           }
+         
          found = false;
          position = 0;
          slotPtr = templatePtr->slotList;
          while (slotPtr != NULL)
            {
-            if (slotPtr->slotName == testPtr->lexemeValue)
+            if (slotPtr->slotName == computeResult.lexemeValue)
               {
                found = true;
                slotPtr = NULL;
@@ -891,40 +1045,32 @@ void DuplicateCommand(
 
          if (! found)
            {
-            InvalidDeftemplateSlotMessage(theEnv,testPtr->lexemeValue->contents,
+            InvalidDeftemplateSlotMessage(theEnv,computeResult.lexemeValue->contents,
                                           templatePtr->header.name->contents,true);
             SetEvaluationError(theEnv,true);
             ReturnFact(theEnv,newFact);
             return;
            }
         }
-
+        
+      /*=======================================*/
+      /* The slot value follows the slot name. */
+      /*=======================================*/
+      
+      testPtr = testPtr->nextArg;
+      
       /*===================================================*/
       /* If a single field slot is being replaced, then... */
       /*===================================================*/
 
       if (newFact->theProposition.contents[position].value != NULL)
         {
-         /*======================================================*/
-         /* If the list of values to store in the slot is empty  */
-         /* or contains more than one member than an error has   */
-         /* occured because a single field slot can only contain */
-         /* a single value.                                      */
-         /*======================================================*/
-
-         if ((testPtr->argList == NULL) ? true : (testPtr->argList->nextArg != NULL))
-           {
-            MultiIntoSingleFieldSlotError(theEnv,GetNthSlot(templatePtr,position),templatePtr);
-            ReturnFact(theEnv,newFact);
-            return;
-           }
-
          /*===================================================*/
          /* Evaluate the expression to be stored in the slot. */
          /*===================================================*/
 
          IncrementClearReadyLocks(theEnv);
-         EvaluateExpression(theEnv,testPtr->argList,&computeResult);
+         EvaluateExpression(theEnv,testPtr,&computeResult);
          SetEvaluationError(theEnv,false);
          DecrementClearReadyLocks(theEnv);
 
@@ -959,7 +1105,10 @@ void DuplicateCommand(
          /*======================================*/
 
          IncrementClearReadyLocks(theEnv);
-         StoreInMultifield(theEnv,&computeResult,testPtr->argList,false);
+         tempPtr = testPtr->nextArg;
+         testPtr->nextArg = NULL;
+         StoreInMultifield(theEnv,&computeResult,testPtr,false);
+         testPtr->nextArg = tempPtr;
          SetEvaluationError(theEnv,false);
          DecrementClearReadyLocks(theEnv);
 
@@ -973,6 +1122,27 @@ void DuplicateCommand(
       testPtr = testPtr->nextArg;
      }
 
+   /*=======================================================*/
+   /* If this is a named slot and the named value has not   */
+   /* been replaced, then a new name needs to be generated. */
+   /*=======================================================*/
+   
+   if (templatePtr->named)
+     {
+      unsigned short nameSlot = 0;
+      
+      if (templatePtr->cfd)
+        { nameSlot++; }
+
+      if (newFact->theProposition.contents[nameSlot].value == oldFact->theProposition.contents[nameSlot].value)
+        {
+         UDFValue theValue;
+         
+         GenFactName(theEnv,&theValue);
+         newFact->theProposition.contents[nameSlot].value = theValue.value;
+        }
+     }
+     
    /*=====================================*/
    /* Copy the multifield values from the */
    /* old fact that were not replaced.    */
@@ -989,21 +1159,52 @@ void DuplicateCommand(
         }
      }
 
+   /*=================================*/
+   /* The name slot must be a symbol  */
+   /* beginning with the @ character. */
+   /*=================================*/
+   
+   if (templatePtr->named)
+     {
+      unsigned short nameSlot = 0;
+      
+      if (templatePtr->cfd)
+        { nameSlot++; }
+
+      if ((newFact->theProposition.contents[nameSlot].header->type != SYMBOL_TYPE) ||
+          (newFact->theProposition.contents[nameSlot].lexemeValue->contents[0] != '@'))
+        {
+         InvalidFactNameError(theEnv);
+         ReturnFact(theEnv,newFact);
+         return;
+        }
+     }
+
    /*===============================*/
    /* Perform the duplicate action. */
    /*===============================*/
 
    theFact = AssertDriver(newFact,0,NULL,NULL,NULL,false);
 
-   /*========================================*/
-   /* The asserted fact is the return value. */
-   /*========================================*/
-
+   /*==================================================*/
+   /* If the fact is successfully asserted, then the   */
+   /* return value is the fact-name if this is a named */
+   /* fact, otherwise its the fact-address.            */
+   /*==================================================*/
+   
    if (theFact != NULL)
      {
-      returnValue->begin = 0;
-      returnValue->range = theFact->theProposition.length;
-      returnValue->value = theFact;
+      if (theFact->whichDeftemplate->named)
+        {
+         unsigned short nameSlot = 0;
+      
+         if (theFact->whichDeftemplate->cfd)
+           { nameSlot++; }
+        
+         returnValue->lexemeValue = theFact->theProposition.contents[nameSlot].lexemeValue;
+        }
+      else
+        { returnValue->factValue = theFact; }
      }
 
    return;
@@ -2227,181 +2428,6 @@ static CLIPSLexeme *CheckDeftemplateAndSlotArguments(
    return theArg.lexemeValue;
   }
 
-#if (! RUN_TIME) && (! BLOAD_ONLY)
-
-/***************************************************************/
-/* UpdateModifyDuplicate: Changes the modify/duplicate command */
-/*   found on the RHS of a rule such that the positions of the */
-/*   slots for replacement are stored rather than the slot     */
-/*   name which allows quicker replacement of slots. This      */
-/*   substitution can only take place when the deftemplate     */
-/*   type is known (i.e. if a fact-index is used you don't     */
-/*   know which type of deftemplate is going to be replaced    */
-/*   until you actually do the replacement of slots).          */
-/***************************************************************/
-bool UpdateModifyDuplicate(
-  Environment *theEnv,
-  struct expr *top,
-  const char *name,
-  struct lhsParseNode *theLHS)
-  {
-   struct expr *functionArgs, *tempArg;
-   CLIPSLexeme *templateName;
-   Deftemplate *theDeftemplate;
-   struct templateSlot *slotPtr;
-
-   /*========================================*/
-   /* Determine the fact-address or index to */
-   /* be retracted by the modify command.    */
-   /*========================================*/
-
-   functionArgs = top->argList;
-   if (functionArgs->type == SF_VARIABLE)
-     {
-      if (SearchParsedBindNames(theEnv,functionArgs->lexemeValue) != 0)
-        { return true; }
-      templateName = FindTemplateForFactAddress(functionArgs->lexemeValue,theLHS);
-      if (templateName == NULL) return true;
-     }
-   else
-     { return true; }
-
-   /*========================================*/
-   /* Make sure that the fact being modified */
-   /* has a corresponding deftemplate.       */
-   /*========================================*/
-
-   theDeftemplate = (Deftemplate *)
-                    LookupConstruct(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,
-                                    templateName->contents,
-                                    false);
-
-   if (theDeftemplate == NULL) return true;
-
-   if (theDeftemplate->implied) return true;
-
-   /*=============================================================*/
-   /* Make sure all the slot names are valid for the deftemplate. */
-   /*=============================================================*/
-
-   tempArg = functionArgs->nextArg;
-   while (tempArg != NULL)
-     {
-      /*======================*/
-      /* Does the slot exist? */
-      /*======================*/
-
-      if ((slotPtr = FindSlot(theDeftemplate,tempArg->lexemeValue,NULL)) == NULL)
-        {
-         InvalidDeftemplateSlotMessage(theEnv,tempArg->lexemeValue->contents,
-                                       theDeftemplate->header.name->contents,true);
-         return false;
-        }
-
-      /*=========================================================*/
-      /* Is a multifield value being put in a single field slot? */
-      /*=========================================================*/
-
-      if (slotPtr->multislot == false)
-        {
-         if (tempArg->argList == NULL)
-           {
-            SingleFieldSlotCardinalityError(theEnv,slotPtr->slotName->contents);
-            return false;
-           }
-         else if (tempArg->argList->nextArg != NULL)
-           {
-            SingleFieldSlotCardinalityError(theEnv,slotPtr->slotName->contents);
-            return false;
-           }
-         else if (tempArg->argList->type == FCALL)
-           {
-            if ((ExpressionUnknownFunctionType(tempArg->argList) & SINGLEFIELD_BITS) == 0)
-              {
-               SingleFieldSlotCardinalityError(theEnv,slotPtr->slotName->contents);
-               return false;
-              }
-           }
-         else if (tempArg->argList->type == MF_VARIABLE)
-           {
-            SingleFieldSlotCardinalityError(theEnv,slotPtr->slotName->contents);
-            return false;
-           }
-        }
-
-      /*======================================*/
-      /* Are the slot restrictions satisfied? */
-      /*======================================*/
-
-      if (CheckRHSSlotTypes(theEnv,tempArg->argList,slotPtr,name) == 0)
-        return false;
-
-      /*=============================================*/
-      /* Replace the slot with the integer position. */
-      /*=============================================*/
-
-      tempArg->type = INTEGER_TYPE;
-      tempArg->value = CreateInteger(theEnv,(long long) (FindSlotPosition(theDeftemplate,tempArg->lexemeValue) - 1));
-
-      tempArg = tempArg->nextArg;
-     }
-
-   return true;
-  }
-
-/**************************************************/
-/* FindTemplateForFactAddress: Searches for the   */
-/*   deftemplate name associated with the pattern */
-/*   to which a fact address has been bound.      */
-/**************************************************/
-static CLIPSLexeme *FindTemplateForFactAddress(
-  CLIPSLexeme *factAddress,
-  struct lhsParseNode *theLHS)
-  {
-   struct lhsParseNode *thePattern = NULL;
-
-   /*===============================================*/
-   /* Look through the LHS patterns for the pattern */
-   /* which is bound to the fact address used by    */
-   /* the modify/duplicate function.                */
-   /*===============================================*/
-
-   while (theLHS != NULL)
-     {
-      if (theLHS->value == (void *) factAddress)
-        {
-         thePattern = theLHS;
-         theLHS = NULL;
-        }
-      else
-        { theLHS = theLHS->bottom; }
-     }
-
-   if (thePattern == NULL) return NULL;
-
-   /*=====================================*/
-   /* Verify that just a symbol is stored */
-   /* as the first field of the pattern.  */
-   /*=====================================*/
-
-   thePattern = thePattern->right;
-   if ((thePattern->pnType != SF_WILDCARD_NODE) || (thePattern->bottom == NULL))
-     { return NULL; }
-
-   thePattern = thePattern->bottom;
-   if ((thePattern->pnType != SYMBOL_NODE) ||
-            (thePattern->right != NULL) ||
-            (thePattern->bottom != NULL))
-    { return NULL; }
-
-   /*==============================*/
-   /* Return the deftemplate name. */
-   /*==============================*/
-
-   return thePattern->lexemeValue;
-  }
-#endif
-
 /*******************************************/
 /* ModifyParse: Parses the modify command. */
 /*******************************************/
@@ -2446,10 +2472,12 @@ static struct expr *ModAndDupParse(
   {
    bool error = false;
    struct token theToken;
-   struct expr *nextOne, *tempSlot;
+   struct expr *nextOne, *tempSlot, *nameArg;
    struct expr *newField, *firstField, *lastField;
    bool printError;
    bool done;
+   unsigned short slotNameType;
+   int fieldCount;
 
    /*==================================================================*/
    /* Parse the fact-address or index to the modify/duplicate command. */
@@ -2462,6 +2490,9 @@ static struct expr *ModAndDupParse(
      { nextOne = GenConstant(theEnv,TokenTypeToType(theToken.tknType),theToken.value); }
    else if (theToken.tknType == INTEGER_TOKEN)
      { nextOne = GenConstant(theEnv,INTEGER_TYPE,theToken.value); }
+   else if ((theToken.tknType == SYMBOL_TOKEN) &&
+            (theToken.lexemeValue->contents[0] == '@'))
+     { nextOne = GenConstant(theEnv,SYMBOL_TYPE,theToken.value); }
    else if (theToken.tknType == LEFT_PARENTHESIS_TOKEN)
      {
       nextOne = Function1Parse(theEnv,logicalName);
@@ -2504,11 +2535,38 @@ static struct expr *ModAndDupParse(
         }
 
       /*=================================*/
-      /* The slot name must be a symbol. */
+      /* The slot name must be a symbol, */
+      /* a variable, or a function call. */
       /*=================================*/
 
       GetToken(theEnv,logicalName,&theToken);
-      if (theToken.tknType != SYMBOL_TOKEN)
+      
+      if (theToken.tknType == SYMBOL_TOKEN)
+        {
+         slotNameType = SYMBOL_TYPE;
+         nameArg = GenConstant(theEnv,SYMBOL_TYPE,theToken.value);
+        }
+      else if (theToken.tknType == SF_VARIABLE_TOKEN)
+        {
+         slotNameType = SF_VARIABLE;
+         nameArg = GenConstant(theEnv,SF_VARIABLE,theToken.value);
+        }
+      else if (theToken.tknType == GBL_VARIABLE_TOKEN)
+        {
+         slotNameType = GBL_VARIABLE;
+         nameArg = GenConstant(theEnv,GBL_VARIABLE,theToken.value);
+        }
+      else if (theToken.tknType == LEFT_PARENTHESIS_TOKEN)
+        {
+         nameArg = Function1Parse(theEnv,logicalName);
+         if (nameArg == NULL)
+           {
+            ReturnExpression(theEnv,top);
+            return NULL;
+           }
+         slotNameType = nameArg->type;
+        }
+      else
         {
          SyntaxErrorMessage(theEnv,"duplicate/modify/update function");
          ReturnExpression(theEnv,top);
@@ -2519,15 +2577,20 @@ static struct expr *ModAndDupParse(
       /* Check for duplicate slot names. */
       /*=================================*/
 
-      for (tempSlot = top->argList->nextArg;
-           tempSlot != NULL;
-           tempSlot = tempSlot->nextArg)
+      if (slotNameType == SYMBOL_TYPE)
         {
-         if (tempSlot->value == theToken.value)
+         for (tempSlot = top->argList->nextArg;
+              tempSlot != NULL;
+              tempSlot = tempSlot->nextArg)
            {
-            AlreadyParsedErrorMessage(theEnv,"slot ",theToken.lexemeValue->contents);
-            ReturnExpression(theEnv,top);
-            return NULL;
+            if ((tempSlot->type == SYMBOL_TYPE) &&
+                (tempSlot->value == theToken.value))
+              {
+               AlreadyParsedErrorMessage(theEnv,"slot ",theToken.lexemeValue->contents);
+               ReturnExpression(theEnv,top);
+               ReturnExpression(theEnv,nameArg);
+               return NULL;
+              }
            }
         }
 
@@ -2535,8 +2598,8 @@ static struct expr *ModAndDupParse(
       /* Add the slot name to the list of slots. */
       /*=========================================*/
 
-      nextOne->nextArg = GenConstant(theEnv,SYMBOL_TYPE,theToken.value);
-      nextOne = nextOne->nextArg;
+      nextOne->nextArg = nameArg;
+      nextOne = nameArg;
 
       /*====================================================*/
       /* Get the values to be stored in the specified slot. */
@@ -2545,6 +2608,7 @@ static struct expr *ModAndDupParse(
       firstField = NULL;
       lastField = NULL;
       done = false;
+      fieldCount = 0;
       while (! done)
         {
          SavePPBuffer(theEnv," ");
@@ -2560,11 +2624,14 @@ static struct expr *ModAndDupParse(
 
          if (newField == NULL)
            { done = true; }
-
+         else
+           { fieldCount++; }
+           
          if (lastField == NULL)
            { firstField = newField; }
          else
            { lastField->nextArg = newField; }
+           
          lastField = newField;
         }
 
@@ -2586,7 +2653,15 @@ static struct expr *ModAndDupParse(
          SavePPBuffer(theEnv,")");
         }
 
-      nextOne->argList = firstField;
+      if (fieldCount != 1)
+        {
+         newField = GenConstant(theEnv,FCALL,FindFunction(theEnv,"create$"));
+         newField->argList = firstField;
+         firstField = newField;
+        }
+        
+      nextOne->nextArg = firstField;
+      nextOne = nextOne->nextArg;
 
       GetToken(theEnv,logicalName,&theToken);
      }

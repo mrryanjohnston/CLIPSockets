@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  02/09/24             */
+   /*            CLIPS Version 7.00  08/08/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -47,6 +47,10 @@
 /*            function overloads a function that can only    */
 /*            be called from within a message-handler.       */
 /*                                                           */
+/*      7.00: Generic function support for deftemplates.     */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 /* =========================================
@@ -64,6 +68,10 @@
 #include "classcom.h"
 #include "classfun.h"
 #include "insfun.h"
+#endif
+
+#if DEFTEMPLATE_CONSTRUCT
+#include "factmngr.h"
 #endif
 
 #include "argacces.h"
@@ -101,9 +109,11 @@
    static void                    WatchMethod(Environment *,const char *);
 #endif
 
-#if OBJECT_SYSTEM
-   static Defclass               *DetermineRestrictionClass(Environment *,UDFValue *);
+#if OBJECT_SYSTEM || DEFTEMPLATE_CONSTRUCT
+   static bool                    DetermineRestrictionClass(Environment *,UDFValue *,RESTRICTION_TYPE *);
 #endif
+
+   static bool                    IsClassApplicable(Environment *,RESTRICTION *,RESTRICTION_TYPE *,unsigned short);
 
 /* =========================================
    *****************************************
@@ -312,13 +322,10 @@ bool IsMethodApplicable(
   Defmethod *meth)
   {
    UDFValue temp;
-   unsigned int i,j,k;
+   unsigned int i, k;
    RESTRICTION *rp;
-#if OBJECT_SYSTEM
-   Defclass *type;
-#else
-   int type;
-#endif
+   bool found;
+   RESTRICTION_TYPE theType;
 
    if (((ProceduralPrimitiveData(theEnv)->ProcParamArraySize < meth->minRestrictions) && (meth->minRestrictions != RESTRICTIONS_UNBOUNDED)) ||
        ((ProceduralPrimitiveData(theEnv)->ProcParamArraySize > meth->minRestrictions) && (meth->maxRestrictions != RESTRICTIONS_UNBOUNDED)))
@@ -328,47 +335,26 @@ bool IsMethodApplicable(
       rp = &meth->restrictions[k];
       if (rp->tcnt != 0)
         {
-#if OBJECT_SYSTEM
-         type = DetermineRestrictionClass(theEnv,&ProceduralPrimitiveData(theEnv)->ProcParamArray[i]);
-         if (type == NULL)
-           return false;
-         for (j = 0 ; j < rp->tcnt ; j++)
+         found = false;
+
+#if OBJECT_SYSTEM || DEFTEMPLATE_CONSTRUCT
+         if (DetermineRestrictionClass(theEnv,&ProceduralPrimitiveData(theEnv)->ProcParamArray[i],&theType))
            {
-            if (type == rp->types[j])
-              break;
-            if (HasSuperclass(type,(Defclass *) rp->types[j]))
-              break;
-            if (rp->types[j] == (void *) DefclassData(theEnv)->PrimitiveClassMap[INSTANCE_ADDRESS_TYPE])
-              {
-               if (ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type == INSTANCE_ADDRESS_TYPE)
-                 break;
-              }
-            else if (rp->types[j] == (void *) DefclassData(theEnv)->PrimitiveClassMap[INSTANCE_NAME_TYPE])
-              {
-               if (ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type == INSTANCE_NAME_TYPE)
-                 break;
-              }
-            else if (rp->types[j] ==
-                DefclassData(theEnv)->PrimitiveClassMap[INSTANCE_NAME_TYPE]->directSuperclasses.classArray[0])
-              {
-               if ((ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type == INSTANCE_NAME_TYPE) ||
-                   (ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type == INSTANCE_ADDRESS_TYPE))
-                 break;
-              }
-           }
-#else
-         type = ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type;
-         for (j = 0 ; j < rp->tcnt ; j++)
-           {
-            if (type == ((CLIPSInteger *) (rp->types[j]))->contents)
-              break;
-            if (SubsumeType(type,((CLIPSInteger *) (rp->types[j]))->contents))
-              break;
+            if (IsClassApplicable(theEnv,rp,&theType,ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type))
+              { found = true; }
            }
 #endif
-         if (j == rp->tcnt)
-           return false;
+
+#if ! OBJECT_SYSTEM
+         theType.type = ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type;
+         if (! IsClassApplicable(theEnv,rp,&theType,ProceduralPrimitiveData(theEnv)->ProcParamArray[i].header->type))
+           { return false; }
+         found = true;
+#endif
+         if (! found)
+           { return false; }
         }
+
       if (rp->query != NULL)
         {
          DefgenericData(theEnv)->GenericCurrentArgument = &ProceduralPrimitiveData(theEnv)->ProcParamArray[i];
@@ -380,6 +366,88 @@ bool IsMethodApplicable(
         k++;
      }
    return true;
+  }
+
+/*********************/
+/* IsClassApplicable */
+/*********************/
+static bool IsClassApplicable(
+  Environment *theEnv,
+  RESTRICTION *rp,
+  RESTRICTION_TYPE *theType, 
+  unsigned short paramType) 
+  {
+   unsigned int j;
+
+   for (j = 0 ; j < rp->tcnt ; j++)
+     {
+      switch (rp->types[j].type)
+        {
+#if OBJECT_SYSTEM
+         case DEFCLASS_PTR:
+           if (rp->types[j].theClass == DefclassData(theEnv)->PrimitiveClassMap[FACT_ADDRESS_TYPE])
+             {
+              if (theType->type == DEFTEMPLATE_PTR)
+                { return true; }
+             }
+             
+           if (theType->type != DEFCLASS_PTR)
+             { continue; }
+
+           if (theType->theClass == rp->types[j].theClass)
+             { return true; }
+        
+           if (HasSuperclass(theType->theClass,rp->types[j].theClass))
+             { return true; }
+        
+           if (rp->types[j].theClass == DefclassData(theEnv)->PrimitiveClassMap[INSTANCE_ADDRESS_TYPE])
+             {
+              if (paramType == INSTANCE_ADDRESS_TYPE)
+                { return true; }
+             }
+           else if (rp->types[j].theClass == DefclassData(theEnv)->PrimitiveClassMap[INSTANCE_NAME_TYPE])
+             {
+              if (paramType == INSTANCE_NAME_TYPE)
+                { return true; }
+             }
+           else if (rp->types[j].theClass ==
+                    DefclassData(theEnv)->PrimitiveClassMap[INSTANCE_NAME_TYPE]->directSuperclasses.classArray[0])
+             {
+              if ((paramType == INSTANCE_NAME_TYPE) ||
+                  (paramType == INSTANCE_ADDRESS_TYPE))
+                { return true; }
+             }
+           break;
+#endif
+
+#if DEFTEMPLATE_CONSTRUCT
+         case DEFTEMPLATE_PTR:
+           if (theType->type != DEFTEMPLATE_PTR)
+             { continue; }
+             
+           for (Deftemplate *theTemplate = theType->theTemplate;
+                theTemplate != NULL;
+                theTemplate = theTemplate->parent)
+             {
+              if (theTemplate == rp->types[j].theTemplate)
+                { return true; }
+             }
+           break;
+#endif
+
+#if ! OBJECT_SYSTEM
+         case INTEGER_TYPE:
+           if (theType->type == rp->types[j].theInteger->contents)
+             { return true; }
+              
+           if (SubsumeType(theType->type,rp->types[j].theInteger->contents))
+             { return true; }
+           break;
+#endif
+        }
+     }
+   
+   return false;
   }
 
 /***************************************************
@@ -697,7 +765,7 @@ static void WatchMethod(
 
 #endif
 
-#if OBJECT_SYSTEM
+#if OBJECT_SYSTEM || DEFTEMPLATE_CONSTRUCT
 
 /***************************************************
   NAME         : DetermineRestrictionClass
@@ -708,36 +776,92 @@ static void WatchMethod(
   SIDE EFFECTS : EvaluationError set on errors
   NOTES        : None
  ***************************************************/
-static Defclass *DetermineRestrictionClass(
+static bool DetermineRestrictionClass(
   Environment *theEnv,
-  UDFValue *dobj)
+  UDFValue *dobj,
+  RESTRICTION_TYPE *theType)
   {
+#if OBJECT_SYSTEM
    Instance *ins;
    Defclass *cls;
+#endif
+#if DEFTEMPLATE_CONSTRUCT
+   Fact *theFact;
+   Deftemplate *theDeftemplate;
+#endif
+   
+#if OBJECT_SYSTEM
+   if ((dobj->header->type == INSTANCE_NAME_TYPE) ||
+       (dobj->header->type == INSTANCE_ADDRESS_TYPE))
+     {
+      if (dobj->header->type == INSTANCE_NAME_TYPE)
+        {
+         ins = FindInstanceBySymbol(theEnv,dobj->lexemeValue);
+         cls = (ins != NULL) ? ins->cls : NULL;
+        }
+      else
+        {
+         ins = dobj->instanceValue;
+         cls = (ins->garbage == 0) ? ins->cls : NULL;
+        }
+         
+      if (cls == NULL)
+        {
+         SetEvaluationError(theEnv,true);
+         PrintErrorID(theEnv,"GENRCEXE",3,false);
+         WriteString(theEnv,STDERR,"Unable to determine class of ");
+         WriteUDFValue(theEnv,STDERR,dobj);
+         WriteString(theEnv,STDERR," in generic function '");
+         WriteString(theEnv,STDERR,DefgenericName(DefgenericData(theEnv)->CurrentGeneric));
+         WriteString(theEnv,STDERR,"'.\n");
+         return false;
+        }
+     
+      theType->type = DEFCLASS_PTR;
+      theType->theClass = cls;
+      return true;
+     }
+#endif
 
-   if (dobj->header->type == INSTANCE_NAME_TYPE)
+#if DEFTEMPLATE_CONSTRUCT
+   if ((dobj->header->type == FACT_ADDRESS_TYPE) ||
+       ((dobj->header->type == SYMBOL_TYPE) &&
+        (dobj->lexemeValue->contents[0] == '@')))
      {
-      ins = FindInstanceBySymbol(theEnv,dobj->lexemeValue);
-      cls = (ins != NULL) ? ins->cls : NULL;
+      if (dobj->header->type == FACT_ADDRESS_TYPE)
+        {
+         theFact = dobj->factValue;
+         theDeftemplate = (theFact->garbage == 0) ? theFact->whichDeftemplate : NULL;
+        }
+      else
+        {
+         theFact = LookupFact(theEnv,dobj->lexemeValue);
+         theDeftemplate = (theFact != NULL) ? theFact->whichDeftemplate : NULL;
+        }
+      
+      if (theDeftemplate == NULL)
+        {
+         SetEvaluationError(theEnv,true);
+         PrintErrorID(theEnv,"GENRCEXE",3,false);
+         WriteString(theEnv,STDERR,"Unable to determine template of ");
+         WriteUDFValue(theEnv,STDERR,dobj);
+         WriteString(theEnv,STDERR," in generic function '");
+         WriteString(theEnv,STDERR,DefgenericName(DefgenericData(theEnv)->CurrentGeneric));
+         WriteString(theEnv,STDERR,"'.\n");
+         return false;
+        }
+      
+      theType->type = DEFTEMPLATE_PTR;
+      theType->theTemplate = theDeftemplate;
+      return true;
      }
-   else if (dobj->header->type == INSTANCE_ADDRESS_TYPE)
-     {
-      ins = dobj->instanceValue;
-      cls = (ins->garbage == 0) ? ins->cls : NULL;
-     }
-   else
-     return(DefclassData(theEnv)->PrimitiveClassMap[dobj->header->type]);
-   if (cls == NULL)
-     {
-      SetEvaluationError(theEnv,true);
-      PrintErrorID(theEnv,"GENRCEXE",3,false);
-      WriteString(theEnv,STDERR,"Unable to determine class of ");
-      WriteUDFValue(theEnv,STDERR,dobj);
-      WriteString(theEnv,STDERR," in generic function '");
-      WriteString(theEnv,STDERR,DefgenericName(DefgenericData(theEnv)->CurrentGeneric));
-      WriteString(theEnv,STDERR,"'.\n");
-     }
-   return(cls);
+#endif
+
+#if OBJECT_SYSTEM
+   theType->type = DEFCLASS_PTR;
+   theType->theClass = DefclassData(theEnv)->PrimitiveClassMap[dobj->header->type];
+#endif
+   return true;
   }
 
 #endif

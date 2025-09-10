@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  02/17/24            */
+   /*             CLIPS Version 7.00  11/19/24            */
    /*                                                     */
    /*                DEFTABLE HEADER FILE                 */
    /*******************************************************/
@@ -75,10 +75,10 @@ struct deftable
    ConstructHeader header;
    struct expr *columns;
    struct expr *rows;
-   size_t columnCount;
-   size_t rowCount;
-   size_t columnHashTableSize;
-   size_t rowHashTableSize;
+   unsigned long columnCount;
+   unsigned long rowCount;
+   unsigned long columnHashTableSize;
+   unsigned long rowHashTableSize;
    struct rcHashTableEntry **columnHashTable;
    struct rcHashTableEntry **rowHashTable;
    long busyCount;

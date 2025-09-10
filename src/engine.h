@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  08/25/16            */
+   /*             CLIPS Version 6.40  06/11/24            */
    /*                                                     */
    /*                 ENGINE HEADER FILE                  */
    /*******************************************************/
@@ -72,6 +72,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Support for certainty factors.                 */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_engine
@@ -116,6 +118,9 @@ struct engineData
    struct joinNode *TheLogicalJoin;
    struct partialMatch *TheLogicalBind;
    struct dependency *UnsupportedDataEntities;
+#if CERTAINTY_FACTORS
+   struct dependency *CFUpdateList;
+#endif
    bool alreadyEntered;
    RuleFiredFunctionItem *ListOfAfterRuleFiresFunctions;
    RuleFiredFunctionItem *ListOfBeforeRuleFiresFunctions;
@@ -144,6 +149,11 @@ struct engineData
    long betaHashHTSkips;
    long betaHashListSkips;
    long unneededMarkerCompare;
+#endif
+#if CERTAINTY_FACTORS
+   short certaintyTally;
+   short certaintyAddition;
+   bool cfUpdateInProgress;
 #endif
   };
 

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  12/04/22             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*                 CLASS EXAMINATION MODULE            */
    /*******************************************************/
@@ -108,7 +108,7 @@
    static void                    PrintClassBrowse(Environment *,const char *,Defclass *,unsigned long);
    static void                    DisplaySeparator(Environment *,const char *,char *,int,int);
    static void                    DisplaySlotBasicInfo(Environment *,const char *,const char *,const char *,
-                                                       char *,Defclass *);
+                                                       char *,size_t,Defclass *);
    static bool                    PrintSlotSources(Environment *,const char *,CLIPSLexeme *,PACKED_CLASS_LINKS *,
                                                    unsigned long,bool);
    static void                    DisplaySlotConstraintInfo(Environment *,const char *,const char *,char *,unsigned,Defclass *);
@@ -274,11 +274,11 @@ void DescribeClass(
       if (maxOverrideMessageLength > 12)
         maxOverrideMessageLength = 12;
 
-      gensnprintf(slotNamePrintFormat,sizeof(slotNamePrintFormat),"%%-%zd.%zds : ",maxSlotNameLength,maxSlotNameLength);
-      gensnprintf(overrideMessagePrintFormat,sizeof(overrideMessagePrintFormat),"%%-%zd.%zds ",maxOverrideMessageLength,
+      snprintf(slotNamePrintFormat,sizeof(slotNamePrintFormat),"%%-%zd.%zds : ",maxSlotNameLength,maxSlotNameLength);
+      snprintf(overrideMessagePrintFormat,sizeof(overrideMessagePrintFormat),"%%-%zd.%zds ",maxOverrideMessageLength,
                                               maxOverrideMessageLength);
 
-      DisplaySlotBasicInfo(theEnv,logicalName,slotNamePrintFormat,overrideMessagePrintFormat,buf,theDefclass);
+      DisplaySlotBasicInfo(theEnv,logicalName,slotNamePrintFormat,overrideMessagePrintFormat,buf,82,theDefclass);
       WriteString(theEnv,logicalName,"\nConstraint information for slots:\n\n");
       DisplaySlotConstraintInfo(theEnv,logicalName,slotNamePrintFormat,buf,82,theDefclass);
      }
@@ -1157,26 +1157,27 @@ static void DisplaySlotBasicInfo(
   const char *slotNamePrintFormat,
   const char *overrideMessagePrintFormat,
   char *buf,
+  size_t bufSize,
   Defclass *cls)
   {
    long i;
    SlotDescriptor *sp;
    const char *createString;
 
-   gensprintf(buf,slotNamePrintFormat,"SLOTS");
+   snprintf(buf,bufSize,slotNamePrintFormat,"SLOTS");
 #if DEFRULE_CONSTRUCT
    genstrcat(buf,"FLD DEF PRP ACC STO MCH SRC VIS CRT ");
 #else
    genstrcat(buf,"FLD DEF PRP ACC STO SRC VIS CRT ");
 #endif
    WriteString(theEnv,logicalName,buf);
-   gensprintf(buf,overrideMessagePrintFormat,"OVRD-MSG");
+   snprintf(buf,bufSize,overrideMessagePrintFormat,"OVRD-MSG");
    WriteString(theEnv,logicalName,buf);
    WriteString(theEnv,logicalName,"SOURCE(S)\n");
    for (i = 0 ; i < cls->instanceSlotCount ; i++)
      {
       sp = cls->instanceTemplate[i];
-      gensprintf(buf,slotNamePrintFormat,sp->slotName->name->contents);
+      snprintf(buf,bufSize,slotNamePrintFormat,sp->slotName->name->contents);
       genstrcat(buf,sp->multiple ? "MLT " : "SGL ");
       if (sp->noDefault)
         genstrcat(buf,"NIL ");
@@ -1203,7 +1204,7 @@ static void DisplaySlotBasicInfo(
         genstrcat(buf," ");
       genstrcat(buf," ");
       WriteString(theEnv,logicalName,buf);
-      gensprintf(buf,overrideMessagePrintFormat,
+      snprintf(buf,bufSize,overrideMessagePrintFormat,
               sp->noWrite ? "NIL" : sp->overrideMessage->contents);
       WriteString(theEnv,logicalName,buf);
       PrintSlotSources(theEnv,logicalName,sp->slotName->name,&sp->cls->allSuperclasses,0,true);
@@ -1295,13 +1296,13 @@ static void DisplaySlotConstraintInfo(
    CONSTRAINT_RECORD *cr;
    const char *strdest = "***describe-class***";
 
-   gensprintf(buf,slotNamePrintFormat,"SLOTS");
+   snprintf(buf,maxlen,slotNamePrintFormat,"SLOTS");
    genstrcat(buf,"SYM STR INN INA EXA FTA INT FLT\n");
    WriteString(theEnv,logicalName,buf);
    for (i = 0 ; i < cls->instanceSlotCount ; i++)
      {
       cr = cls->instanceTemplate[i]->constraint;
-      gensprintf(buf,slotNamePrintFormat,cls->instanceTemplate[i]->slotName->name->contents);
+      snprintf(buf,maxlen,slotNamePrintFormat,cls->instanceTemplate[i]->slotName->name->contents);
       if (cr != NULL)
         {
          genstrcat(buf,ConstraintCode(cr,cr->symbolsAllowed,cr->symbolRestriction));

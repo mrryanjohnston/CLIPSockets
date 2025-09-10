@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/22/24             */
+   /*            CLIPS Version 7.00  02/05/25             */
    /*                                                     */
    /*              DEFMODULE UTILITY MODULE               */
    /*******************************************************/
@@ -117,14 +117,8 @@ CLIPSLexeme *ExtractModuleName(
    /* Copy the entire module/construct name to the string. */
    /*======================================================*/
 
-   genstrncpy(newString,theString,
-           (STD_SIZE) thePosition - 1);
-
-   /*========================================================*/
-   /* Place an end of string marker where the :: is located. */
-   /*========================================================*/
-
-   newString[thePosition-1] = EOS;
+   newString[0] = EOS;
+   genstrncat(newString,theString,thePosition - 1);
 
    /*=====================================================*/
    /* Add the module name (the truncated module/construct */
@@ -158,7 +152,7 @@ CLIPSLexeme *ExtractConstructName(
   const char *theString,
   unsigned returnType)
   {
-   size_t theLength;
+   size_t theLength, bufferSize;
    char *newString;
    CLIPSLexeme *returnValue;
 
@@ -187,15 +181,16 @@ CLIPSLexeme *ExtractConstructName(
    /* enough to hold the construct name. */
    /*====================================*/
 
-   newString = (char *) gm2(theEnv,theLength - thePosition);
+   bufferSize = theLength - thePosition;
+   newString = (char *) gm2(theEnv,bufferSize);
 
    /*================================================*/
    /* Copy the construct name portion of the         */
    /* module/construct name to the temporary string. */
    /*================================================*/
 
-   genstrncpy(newString,&theString[thePosition+1],
-           (STD_SIZE) theLength - thePosition);
+   newString[0] = EOS;
+   genstrncat(newString,&theString[thePosition+1],bufferSize-1);
 
    /*=============================================*/
    /* Add the construct name to the symbol table. */
@@ -212,7 +207,7 @@ CLIPSLexeme *ExtractConstructName(
    /* Return the storage of the temporary string. */
    /*=============================================*/
 
-   rm(theEnv,newString,theLength - thePosition);
+   rm(theEnv,newString,bufferSize);
 
    /*================================================*/
    /* Return a pointer to the construct name symbol. */

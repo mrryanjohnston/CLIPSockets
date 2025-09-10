@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  03/02/24            */
+   /*             CLIPS Version 7.00  06/01/25            */
    /*                                                     */
    /*              FACTS MANAGER HEADER FILE              */
    /*******************************************************/
@@ -81,6 +81,10 @@
 /*                                                           */
 /*            Support for non-reactive fact patterns.        */
 /*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_factmngr
@@ -113,7 +117,8 @@ typedef enum
    AE_NULL_POINTER_ERROR,
    AE_RETRACTED_ERROR,
    AE_COULD_NOT_ASSERT_ERROR,
-   AE_RULE_NETWORK_ERROR
+   AE_RULE_NETWORK_ERROR,
+   AE_INVALID_CERTAINTY_FACTOR_ERROR
   } AssertError;
 
 typedef enum
@@ -122,7 +127,8 @@ typedef enum
    ASE_NULL_POINTER_ERROR,
    ASE_PARSING_ERROR,
    ASE_COULD_NOT_ASSERT_ERROR,
-   ASE_RULE_NETWORK_ERROR
+   ASE_RULE_NETWORK_ERROR,
+   ASE_INVALID_CERTAINTY_FACTOR_ERROR
   } AssertStringError;
 
 typedef enum
@@ -132,7 +138,8 @@ typedef enum
    FBE_DEFTEMPLATE_NOT_FOUND_ERROR,
    FBE_IMPLIED_DEFTEMPLATE_ERROR,
    FBE_COULD_NOT_ASSERT_ERROR,
-   FBE_RULE_NETWORK_ERROR
+   FBE_RULE_NETWORK_ERROR,
+   FBE_INVALID_CERTAINTY_FACTOR_ERROR
   } FactBuilderError;
 
 typedef enum
@@ -169,6 +176,9 @@ struct fact
    unsigned int goal : 1;
    unsigned int pendingAssert : 1;
    unsigned int supportCount : 13;
+#if CERTAINTY_FACTORS
+   short cfBase;
+#endif
    Fact *previousFact;
    Fact *nextFact;
    Fact *previousTemplateFact;
@@ -219,6 +229,7 @@ struct factsData
    long long NextGoalIndex;
    unsigned long NumberOfFacts;
    unsigned long NumberOfGoals;
+   long long CollisionIndex;
    struct callFunctionItemWithArg *ListOfAssertFunctions;
    struct callFunctionItemWithArg *ListOfRetractFunctions;
    ModifyCallFunctionItem *ListOfModifyFunctions;
@@ -245,6 +256,9 @@ struct factsData
    struct goalNetworkUpdate *goalUpdateList;
    struct extractedInfo **goalInfoArray;
    bool goalGenerationDisabled;
+   size_t namedFactCount;
+   size_t namedFactHashTableSize;
+   struct namedFactHashTableEntry **namedFactHashTable;
   };
 
 #define FactData(theEnv) ((struct factsData *) GetEnvironmentData(theEnv,FACTS_DATA))
@@ -350,7 +364,12 @@ struct factsData
    void                           RemoveGarbageFacts(Environment *);
    Fact                          *AssertGoal(Fact *,struct partialMatch *);
    RetractError                   RetractGoal(Fact *);
-
+   bool                           GetGoalListChanged(Environment *);
+   void                           SetGoalListChanged(Environment *,bool);
+   short                          GetFactCertaintyFactor(Fact *);
+   bool                           CheckFactCertaintyFactor(Environment *,Fact *);
+   void                           PropagateFactToTemplates(Environment *,Fact *,CLIPSBitMap *,bool);
+   void                           InvalidFactNameError(Environment *);
 #endif /* _H_factmngr */
 
 

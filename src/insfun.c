@@ -670,7 +670,7 @@ PutSlotError DirectPutSlotValue(
      {
       PrintErrorID(theEnv,"INSFUN",5,false);
       WriteString(theEnv,STDERR,"Cannot modify reactive instance slots while ");
-      WriteString(theEnv,STDERR,"pattern-matching is in process.\n");
+      WriteString(theEnv,STDERR,"pattern matching is in process.\n");
       SetEvaluationError(theEnv,true);
       return PSE_RULE_NETWORK_ERROR;
      }

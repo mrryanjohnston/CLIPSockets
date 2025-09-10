@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/03/24             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -55,6 +55,9 @@
 /*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
+/*            Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
+/*                                                           */
 /*************************************************************/
 
 /* =========================================
@@ -103,6 +106,7 @@
 
    static bool                    ValidDeffunctionName(Environment *,const char *);
    static Deffunction            *AddDeffunction(Environment *,CLIPSLexeme *,Expression *,unsigned short,unsigned short,unsigned short,bool);
+   static int                     SlotReferenceVar(Environment *,Expression *,void *);
 
 /***************************************************************************
   NAME         : ParseDeffunction
@@ -205,7 +209,7 @@ bool ParseDeffunction(
    ExpressionData(theEnv)->ReturnContext = true;
    actions = ParseProcActions(theEnv,"deffunction",readSource,
                               &inputToken,parameterList,wildcard,
-                              NULL,NULL,&lvars,NULL);
+                              SlotReferenceVar,BindSlotReferenceDefault,&lvars,NULL);
 
    /*=============================================================*/
    /* Check for the closing right parenthesis of the deffunction. */
@@ -514,5 +518,32 @@ static Deffunction *AddDeffunction(
    return dfuncPtr;
   }
 
+/********************/
+/* SlotReferenceVar */
+/********************/
+static int SlotReferenceVar(
+  Environment *theEnv,
+  Expression *varexp,
+  void *userBuffer)
+  {
+   const char *varName;
+
+   if ((varexp->type != SF_VARIABLE) && (varexp->type != MF_VARIABLE))
+     { return 0; }
+     
+   varName = varexp->lexemeValue->contents;
+     
+   if (strchr(varName,':') != NULL)
+     {
+      PrintErrorID(theEnv,"DFFNXPSR",6,false);
+      WriteString(theEnv,STDERR,"The variable:slot reference ?");
+      WriteString(theEnv,STDERR,varName);
+      WriteString(theEnv,STDERR," is not valid in this context.\n");
+      return -1;
+     }
+     
+   return 0;
+  }
+  
 #endif /* DEFFUNCTION_CONSTRUCT && (! BLOAD_ONLY) && (! RUN_TIME) */
 

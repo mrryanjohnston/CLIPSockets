@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/13/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*                    BLOAD MODULE                     */
    /*******************************************************/
@@ -91,7 +91,7 @@ void InitializeBloadData(
   Environment *theEnv)
   {
    char sizeBuffer[20];
-   gensnprintf(sizeBuffer,sizeof(sizeBuffer),
+   snprintf(sizeBuffer,sizeof(sizeBuffer),
                "%2zu%2zu%2zu%2zu%2zu",sizeof(void *),sizeof(double),
                sizeof(int),sizeof(long),sizeof(long long));
 

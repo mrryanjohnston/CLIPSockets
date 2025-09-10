@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.42  05/04/24             */
+   /*            CLIPS Version 7.00  02/05/25             */
    /*                                                     */
    /*                I/O FUNCTIONS MODULE                 */
    /*******************************************************/
@@ -112,6 +112,8 @@
 /*            carriage returns and line feeds in the         */
 /*            printout, println, and print functions.        */
 /*                                                           */
+/*            Added with-open-file function.                 */
+/*                                                           */
 /*************************************************************/
 
 #include "setup.h"
@@ -129,10 +131,13 @@
 #include "commline.h"
 #include "constant.h"
 #include "envrnmnt.h"
+#include "exprnpsr.h"
 #include "extnfunc.h"
 #include "filertr.h"
 #include "memalloc.h"
 #include "miscfun.h"
+#include "pprint.h"
+#include "prcdrfun.h"
 #include "prntutil.h"
 #include "router.h"
 #include "scanner.h"
@@ -154,7 +159,7 @@ typedef enum
 struct conversionInfo
   {
    unsigned flags;
-   int width;
+   size_t width;
    size_t precision;
    char conversionChar;
    bool widthSpecified;
@@ -196,6 +201,9 @@ struct IOFunctionData
    static void             PrintDriver(UDFContext *,const char *,bool);
    static void             CreateConversionString(StringBuilder *,struct conversionInfo *,UDFValue *);
    static int              GetCharForReadline(Environment *,const char *);
+#if (! BLOAD_ONLY)
+   static struct expr     *WithOpenFileParser(Environment *,struct expr *,const char *);
+#endif
 #endif
 
 /**************************************/
@@ -235,10 +243,18 @@ void IOFunctionDefinitions(
    AddUDF(theEnv,"set-locale","sy",0,1,";s",SetLocaleFunction,"SetLocaleFunction",NULL);
    AddUDF(theEnv,"read-number","syld",0,1,";ldsyn",ReadNumberFunction,"ReadNumberFunction",NULL);
    AddUDF(theEnv,"chdir","b",0,1,"sy",ChdirFunction,"ChdirFunction",NULL);
+   AddUDF(theEnv,"with-open-file","b",0,UNBOUNDED,NULL,WithOpenFileFunction,"WithOpenFileFunction",NULL);
+   FuncSeqOvlFlags(theEnv,"with-open-file",false,false);
 #endif
 #else
 #if MAC_XCD
 #pragma unused(theEnv)
+#endif
+#endif
+
+#if ! BLOAD_ONLY
+#if IO_FUNCTIONS
+   AddFunctionParser(theEnv,"with-open-file",WithOpenFileParser);
 #endif
 #endif
   }
@@ -611,10 +627,10 @@ void OpenFunction(
       return;
      }
 
-   /*==================================*/
-   /* Check to see if the logical name */
-   /* is already in use.               */
-   /*==================================*/
+   /*=============================*/
+   /* Check to see if the logical */
+   /* name is already in use.     */
+   /*=============================*/
 
    if (FindFile(theEnv,logicalName,NULL))
      {
@@ -1598,7 +1614,7 @@ static char FindFormatFlag(
       (*a)++;
       minWidth = (minWidth * 10) + (inchar - '0');
       widthFound = true;
-      conversion->width = minWidth;
+      conversion->width = (size_t) minWidth;
       conversion->widthSpecified = true;
      }
 
@@ -1745,7 +1761,7 @@ static void CreateConversionString(
      { SBAddChar(formatBuffer,'#'); }
      
    if (conversion->widthSpecified)
-     { SBAppendInteger(formatBuffer,conversion->width); }
+     { SBAppendInteger(formatBuffer,(long long) conversion->width); }
      
    if (conversion->precisionSpecified)
      {
@@ -1800,8 +1816,8 @@ static const char *PrintFormatFlag(
         formatString = conversionSB->contents;
 
         theLength = strlen(formatString) + strlen(theResult.lexemeValue->contents) + 200;
-        printBuffer = (char *) gm2(theEnv,(sizeof(char) * theLength));
-        gensprintf(printBuffer,formatString,theResult.lexemeValue->contents);
+        printBuffer = (char *) gm2(theEnv,theLength);
+        snprintf(printBuffer,theLength,formatString,theResult.lexemeValue->contents);
         break;
 
       case 'c':
@@ -1814,14 +1830,14 @@ static const char *PrintFormatFlag(
             (theResult.header->type == SYMBOL_TYPE))
           {           
            theLength = strlen(formatString) + strlen(theResult.lexemeValue->contents) + 200;
-           printBuffer = (char *) gm2(theEnv,(sizeof(char) * theLength));
-           gensprintf(printBuffer,formatString,theResult.lexemeValue->contents);
+           printBuffer = (char *) gm2(theEnv,theLength);
+           snprintf(printBuffer,theLength,formatString,theResult.lexemeValue->contents);
           }
         else if (theResult.header->type == INTEGER_TYPE)
           {
            theLength = strlen(formatString) + 200;
-           printBuffer = (char *) gm2(theEnv,(sizeof(char) * theLength));
-           gensprintf(printBuffer,formatString,(char) theResult.integerValue->contents);
+           printBuffer = (char *) gm2(theEnv,theLength);
+           snprintf(printBuffer,theLength,formatString,(char) theResult.integerValue->contents);
           }
         else
           {
@@ -1845,15 +1861,15 @@ static const char *PrintFormatFlag(
         formatString = conversionSB->contents;
 
         theLength = strlen(formatString) + 200;
-        printBuffer = (char *) gm2(theEnv,(sizeof(char) * theLength));
+        printBuffer = (char *) gm2(theEnv,theLength);
 
         oldLocale = CreateSymbol(theEnv,setlocale(LC_NUMERIC,NULL));
         setlocale(LC_NUMERIC,IOFunctionData(theEnv)->locale->contents);
 
         if (theResult.header->type == FLOAT_TYPE)
-          { gensprintf(printBuffer,formatString,(long long) theResult.floatValue->contents); }
+          { snprintf(printBuffer,theLength,formatString,(long long) theResult.floatValue->contents); }
         else
-          { gensprintf(printBuffer,formatString,theResult.integerValue->contents); }
+          { snprintf(printBuffer,theLength,formatString,theResult.integerValue->contents); }
 
         setlocale(LC_NUMERIC,oldLocale->contents);
         break;
@@ -1871,16 +1887,16 @@ static const char *PrintFormatFlag(
         formatString = conversionSB->contents;
 
         theLength = strlen(formatString) + 200;
-        printBuffer = (char *) gm2(theEnv,(sizeof(char) * theLength));
+        printBuffer = (char *) gm2(theEnv,theLength);
 
         oldLocale = CreateSymbol(theEnv,setlocale(LC_NUMERIC,NULL));
 
         setlocale(LC_NUMERIC,IOFunctionData(theEnv)->locale->contents);
 
         if (theResult.header->type == FLOAT_TYPE)
-          { gensprintf(printBuffer,formatString,theResult.floatValue->contents); }
+          { snprintf(printBuffer,theLength,formatString,theResult.floatValue->contents); }
         else
-          { gensprintf(printBuffer,formatString,(double) theResult.integerValue->contents); }
+          { snprintf(printBuffer,theLength,formatString,(double) theResult.integerValue->contents); }
 
         setlocale(LC_NUMERIC,oldLocale->contents);
 
@@ -2315,5 +2331,250 @@ static void ReadNumber(
    SetErrorValue(theEnv,&CreateSymbol(theEnv,"READ_ERROR")->header);
   }
 
+/********************************************/
+/* WithOpenFileFunction: H/L access routine */
+/*   for the with-open-file function.       */
+/********************************************/
+void WithOpenFileFunction(
+  Environment *theEnv,
+  UDFContext *context,
+  UDFValue *returnValue)
+  {
+   const char *fileName, *logicalName, *accessMode = NULL;
+   UDFValue theArg;
+
+   /*====================*/
+   /* Get the file name. */
+   /*====================*/
+
+   if ((fileName = GetFileName(context)) == NULL)
+     {
+      returnValue->lexemeValue = FalseSymbol(theEnv);
+      return;
+     }
+
+   /*=======================================*/
+   /* Get the logical name to be associated */
+   /* with the opened file.                 */
+   /*=======================================*/
+
+   logicalName = GetLogicalName(context,NULL);
+   if (logicalName == NULL)
+     {
+      SetHaltExecution(theEnv,true);
+      SetEvaluationError(theEnv,true);
+      IllegalLogicalNameMessage(theEnv,"with-open-file");
+      returnValue->lexemeValue = FalseSymbol(theEnv);
+      return;
+     }
+
+   /*=============================*/
+   /* Check to see if the logical */
+   /* name is already in use.     */
+   /*=============================*/
+
+   if (FindFile(theEnv,logicalName,NULL))
+     {
+      SetHaltExecution(theEnv,true);
+      SetEvaluationError(theEnv,true);
+      PrintErrorID(theEnv,"IOFUN",2,false);
+      WriteString(theEnv,STDERR,"Logical name '");
+      WriteString(theEnv,STDERR,logicalName);
+      WriteString(theEnv,STDERR,"' already in use.\n");
+      returnValue->lexemeValue = FalseSymbol(theEnv);
+      return;
+     }
+
+   /*===========================*/
+   /* Get the file access mode. */
+   /*===========================*/
+
+   if (! UDFNextArgument(context,STRING_BIT,&theArg))
+     { return; }
+   accessMode = theArg.lexemeValue->contents;
+
+   /*=====================================*/
+   /* Check for a valid file access mode. */
+   /*=====================================*/
+
+   if ((strcmp(accessMode,"r") != 0) &&
+       (strcmp(accessMode,"r+") != 0) &&
+       (strcmp(accessMode,"w") != 0) &&
+       (strcmp(accessMode,"w+") != 0) &&
+       (strcmp(accessMode,"a") != 0) &&
+       (strcmp(accessMode,"a+") != 0) &&
+       (strcmp(accessMode,"rb") != 0) &&
+       (strcmp(accessMode,"r+b") != 0) &&
+       (strcmp(accessMode,"rb+") != 0) &&
+       (strcmp(accessMode,"wb") != 0) &&
+       (strcmp(accessMode,"w+b") != 0) &&
+       (strcmp(accessMode,"wb+") != 0) &&
+       (strcmp(accessMode,"ab") != 0) &&
+       (strcmp(accessMode,"a+b") != 0) &&
+       (strcmp(accessMode,"ab+")))
+     {
+      SetHaltExecution(theEnv,true);
+      SetEvaluationError(theEnv,true);
+      ExpectedTypeError1(theEnv,"open",3,"'file access mode string'");
+      returnValue->lexemeValue = FalseSymbol(theEnv);
+      return;
+     }
+
+   /*===============================================*/
+   /* Open the named file. If unsuccessful, return. */
+   /*===============================================*/
+
+   if (! OpenAFile(theEnv,fileName,accessMode,logicalName))
+     {
+      returnValue->lexemeValue = FalseSymbol(theEnv);
+      return;
+     }
+
+   /*======================*/
+   /* Execute the actions. */
+   /*======================*/
+   
+   while (UDFHasNextArgument(context) && (GetHaltExecution(theEnv) != true))
+     {
+      UDFNextArgument(context,ANY_TYPE_BITS,&theArg);
+      if ((ProcedureFunctionData(theEnv)->BreakFlag == true) || (ProcedureFunctionData(theEnv)->ReturnFlag == true))
+        { break; }
+     }
+
+   /***********************************/
+   /* Close the file and return FALSE */
+   /* if there were any errors.       */
+   /***********************************/
+   
+   if (! CloseFile(theEnv,logicalName))
+     { returnValue->value = FalseSymbol(theEnv); }
+   else if (GetHaltExecution(theEnv) == true)
+     { returnValue->value = FalseSymbol(theEnv); }
+   else
+     { returnValue->value = TrueSymbol(theEnv); }
+  }
+
+#if (! BLOAD_ONLY)
+
+/***********************************************************/
+/* WithOpenFileParser: Parses the with-open-file function. */
+/***********************************************************/
+static struct expr *WithOpenFileParser(
+  Environment *theEnv,
+  struct expr *top,
+  const char *logName)
+  {
+   struct token tkn;
+   struct expr *curArg;
+
+   /*====================================*/
+   /* Parse the file specification which */
+   /* begins with a left parenthesis.    */
+   /*====================================*/
+   
+   SavePPBuffer(theEnv," ");
+   GetToken(theEnv,logName,&tkn);
+   
+   if (tkn.tknType != LEFT_PARENTHESIS_TOKEN)
+     {
+      SyntaxErrorMessage(theEnv,"with-open-file");
+      ReturnExpression(theEnv,top);
+      return NULL;
+     }
+     
+   /*=================================*/
+   /* Parse the file name expression. */
+   /*=================================*/
+   
+   top->argList = ParseAtomOrExpression(theEnv,logName,NULL);
+   if ((top->argList == NULL) ||
+       (CheckArgumentAgainstRestriction(theEnv,top->argList,SYMBOL_BIT | STRING_BIT)))
+     {
+      SyntaxErrorMessage(theEnv,"with-open-file");
+      ReturnExpression(theEnv,top);
+      return NULL;
+     }
+   curArg = top->argList;
+
+   /*====================================*/
+   /* Parse the logical name expression. */
+   /*====================================*/
+   
+   SavePPBuffer(theEnv," ");
+
+   curArg->nextArg = ParseAtomOrExpression(theEnv,logName,NULL);
+   if ((curArg->nextArg == NULL) ||
+       (CheckArgumentAgainstRestriction(theEnv,curArg->nextArg,NUMBER_BITS | LEXEME_BITS | INSTANCE_NAME_BIT)))
+     {
+      SyntaxErrorMessage(theEnv,"with-open-file");
+      ReturnExpression(theEnv,top);
+      return NULL;
+     }
+   curArg= curArg->nextArg;
+   
+   /*=======================================*/
+   /* Parse the mode expression if present. */
+   /*=======================================*/
+
+   GetToken(theEnv,logName,&tkn);
+   if (tkn.tknType == RIGHT_PARENTHESIS_TOKEN)
+     { curArg->nextArg = GenConstant(theEnv,STRING_TYPE,CreateString(theEnv,"r")); }
+   else
+     {
+      PPBackup(theEnv);
+      SavePPBuffer(theEnv," ");
+      SavePPBuffer(theEnv,tkn.printForm);
+
+      curArg->nextArg = ParseAtomOrExpression(theEnv,logName,&tkn);
+      if ((curArg->nextArg == NULL) ||
+          (CheckArgumentAgainstRestriction(theEnv,curArg->nextArg,STRING_BIT)))
+        {
+         SyntaxErrorMessage(theEnv,"with-open-file");
+         ReturnExpression(theEnv,top);
+         return NULL;
+        }
+        
+      GetToken(theEnv,logName,&tkn);
+      if (tkn.tknType != RIGHT_PARENTHESIS_TOKEN)
+        {
+         SyntaxErrorMessage(theEnv,"with-open-file");
+         ReturnExpression(theEnv,top);
+         return NULL;
+        }
+     }
+   curArg = curArg->nextArg;
+     
+   /*====================*/
+   /* Parse the actions. */
+   /*====================*/
+         
+   GetToken(theEnv,logName,&tkn);
+   if (tkn.tknType != RIGHT_PARENTHESIS_TOKEN)
+     {
+      PPBackup(theEnv);
+      IncrementIndentDepth(theEnv,3);
+      PPCRAndIndent(theEnv);
+      SavePPBuffer(theEnv,tkn.printForm);
+
+      curArg->nextArg = GroupActions(theEnv,logName,&tkn,false,NULL,false);
+      
+      PPBackup(theEnv);
+      PPBackup(theEnv);
+      SavePPBuffer(theEnv,")");
+      DecrementIndentDepth(theEnv,3);
+      
+      if (curArg->nextArg == NULL)
+        {
+         ReturnExpression(theEnv,top);
+         return NULL;
+        }
+        
+      curArg->nextArg = RemoveUnneededProgn(theEnv,curArg->nextArg);
+     }
+     
+   return top;
+  }
+  
 #endif
 
+#endif

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.50  10/13/23            */
+   /*             CLIPS Version 7.00  06/11/24            */
    /*                                                     */
    /*           DEFRULE BSAVE/BLOAD HEADER FILE           */
    /*******************************************************/
@@ -37,7 +37,9 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
-/*      6.50: Support for data driven backward chaining.     */
+/*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for certainty factors.                 */
 /*                                                           */
 /*************************************************************/
 
@@ -60,6 +62,7 @@ struct bsaveDefrule
    unsigned short localVarCnt;
    unsigned int complexity      : 12;
    unsigned int autoFocus       :  1;
+   short certainty;
    unsigned long dynamicSalience;
    unsigned long actions;
    unsigned long logicalJoin;

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/22/24             */
+   /*            CLIPS Version 7.00  01/28/25             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -58,6 +58,13 @@
 /*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
+/*            Generic function support for deftemplates.     */
+/*                                                           */
+/*            Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 /* =========================================
@@ -81,6 +88,11 @@
 #if OBJECT_SYSTEM
 #include "classfun.h"
 #include "classcom.h"
+#endif
+
+#if DEFTEMPLATE_CONSTRUCT
+#include "factgen.h"
+#include "tmpltdef.h"
 #endif
 
 #include "cstrccom.h"
@@ -133,13 +145,14 @@
    static bool                    DuplicateParameters(Environment *,Expression *,Expression **,CLIPSLexeme *);
    static Expression             *AddParameter(Environment *,Expression *,Expression *,CLIPSLexeme *,RESTRICTION *);
    static Expression             *ValidType(Environment *,CLIPSLexeme *);
-   static bool                    RedundantClasses(Environment *,void *,void *);
+   static bool                    RedundantClasses(Environment *,Expression *,Expression *);
    static Defgeneric             *AddGeneric(Environment *,CLIPSLexeme *,bool *);
    static Defmethod              *AddGenericMethod(Environment *,Defgeneric *,int,unsigned short);
-   static int                     RestrictionsCompare(Expression *,int,int,int,Defmethod *);
-   static int                     TypeListCompare(RESTRICTION *,RESTRICTION *);
+   static int                     RestrictionsCompare(Environment *,Expression *,int,int,int,Defmethod *);
+   static int                     TypeListCompare(Environment *,RESTRICTION *,RESTRICTION *);
    static Defgeneric             *NewGeneric(Environment *,CLIPSLexeme *);
-
+   static int                     ReplaceExpressionVariables(Environment *,struct expr *,void *);
+  
 /* =========================================
    *****************************************
           EXTERNALLY VISIBLE FUNCTIONS
@@ -291,7 +304,7 @@ bool ParseDefmethod(
          goto DefmethodParseError;
         }
      }
-   meth = FindMethodByRestrictions(gfunc,params,rcnt,wildcard,&mposn);
+   meth = FindMethodByRestrictions(theEnv,gfunc,params,rcnt,wildcard,&mposn);
    error = false;
    if (meth != NULL)
      {
@@ -338,7 +351,7 @@ bool ParseDefmethod(
    ExpressionData(theEnv)->ReturnContext = true;
    actions = ParseProcActions(theEnv,"method",readSource,
                               &genericInputToken,params,wildcard,
-                              NULL,NULL,&lvars,NULL);
+                              ReplaceExpressionVariables,BindSlotReferenceDefault,&lvars,params);
 
    /*===========================================================*/
    /* Check for the closing right parenthesis of the defmethod. */
@@ -538,8 +551,8 @@ Defmethod *AddMethod(
         {
          if (rtmp->types != NULL)
            {
-            rptr->types = (void **) gm2(theEnv,(rptr->tcnt * sizeof(void *)));
-            GenCopyMemory(void *,rptr->tcnt,rptr->types,rtmp->types);
+            rptr->types = (struct restrictionType *) gm2(theEnv,(rptr->tcnt * sizeof(struct restrictionType)));
+            GenCopyMemory(struct restrictionType,rptr->tcnt,rptr->types,rtmp->types);
            }
          else
            rptr->types = NULL;
@@ -557,11 +570,25 @@ Defmethod *AddMethod(
         }
       ExpressionInstall(theEnv,rptr->query);
       for (j = 0 ; j < rptr->tcnt ; j++)
+        {
+         switch (rptr->types[j].type)
+           {
 #if OBJECT_SYSTEM
-        IncrementDefclassBusyCount(theEnv,(Defclass *) rptr->types[j]);
+            case DEFCLASS_PTR:
+              IncrementDefclassBusyCount(theEnv,rptr->types[j].theClass);
+              break;
 #else
-        IncrementIntegerCount((CLIPSInteger *) rptr->types[j]);
+            case INTEGER_TYPE:
+              IncrementIntegerCount(rptr->types[j].theInteger);
+              break;
 #endif
+#if DEFTEMPLATE_CONSTRUCT
+            case DEFTEMPLATE_PTR:
+              IncrementDeftemplateBusyCount(theEnv,rptr->types[j].theTemplate);
+              break;
+#endif
+           }
+        }
       params = params->nextArg;
      }
    RestoreBusyCount(gfunc);
@@ -591,11 +618,14 @@ void PackRestrictionTypes(
    for (tmp = types ; tmp != NULL ; tmp = tmp->nextArg)
      rptr->tcnt++;
    if (rptr->tcnt != 0)
-     rptr->types = (void **) gm2(theEnv,(sizeof(void *) * rptr->tcnt));
+     rptr->types = (struct restrictionType *) gm2(theEnv,(sizeof(struct restrictionType) * rptr->tcnt));
    else
      rptr->types = NULL;
    for (i = 0 , tmp = types ; i < rptr->tcnt ; i++ , tmp = tmp->nextArg)
-     rptr->types[i] = tmp->value;
+     {
+      rptr->types[i].type = tmp->type;
+      rptr->types[i].thePointer = tmp->value;
+     }
    ReturnExpression(theEnv,types);
   }
 
@@ -623,7 +653,7 @@ void DeleteTempRestricts(
       rtn_struct(theEnv,expr,ptmp);
       ReturnExpression(theEnv,rtmp->query);
       if (rtmp->tcnt != 0)
-        rm(theEnv,rtmp->types,(sizeof(void *) * rtmp->tcnt));
+        rm(theEnv,rtmp->types,(sizeof(struct restrictionType) * rtmp->tcnt));
       rtn_struct(theEnv,restriction,rtmp);
      }
   }
@@ -647,6 +677,7 @@ void DeleteTempRestricts(
   NOTES        : None
  **********************************************************/
 Defmethod *FindMethodByRestrictions(
+  Environment *theEnv,
   Defgeneric *gfunc,
   Expression *params,
   int rcnt,
@@ -665,7 +696,7 @@ Defmethod *FindMethodByRestrictions(
      min = max = rcnt;
    for (i = 0 ; i < gfunc->mcnt ; i++)
      {
-      cmp = RestrictionsCompare(params,rcnt,min,max,&gfunc->methods[i]);
+      cmp = RestrictionsCompare(theEnv,params,rcnt,min,max,&gfunc->methods[i]);
       if (cmp == IDENTICAL)
         {
          *posn = -1;
@@ -808,11 +839,13 @@ static void CreateDefaultGenericPPForm(
   {
    const char *moduleName, *genericName;
    char *buf;
+   size_t bufSize;
 
    moduleName = DefmoduleName(GetCurrentModule(theEnv));
    genericName = DefgenericName(gfunc);
-   buf = (char *) gm2(theEnv,(sizeof(char) * (strlen(moduleName) + strlen(genericName) + 17)));
-   gensprintf(buf,"(defgeneric %s::%s)\n",moduleName,genericName);
+   bufSize = sizeof(char) * (strlen(moduleName) + strlen(genericName) + 17);
+   buf = (char *) gm2(theEnv,bufSize);
+   snprintf(buf,bufSize,"(defgeneric %s::%s)\n",moduleName,genericName);
    SetDefgenericPPForm(theEnv,gfunc,buf);
   }
 
@@ -1046,17 +1079,24 @@ static RESTRICTION *ParseRestriction(
                   if (tmp->value == tmp2->value)
                     {
                      PrintErrorID(theEnv,"GENRCPSR",11,false);
-#if OBJECT_SYSTEM
-                     WriteString(theEnv,STDERR,"Duplicate classes not allowed in parameter restriction.\n");
-#else
-                     WriteString(theEnv,STDERR,"Duplicate types not allowed in parameter restriction.\n");
+#if DEFTEMPLATE_CONSTRUCT
+                     if (tmp->type == DEFTEMPLATE_PTR)
+                       { WriteString(theEnv,STDERR,"Duplicate deftemplates not allowed in parameter restriction.\n"); }
+                     else
 #endif
+                       {
+#if OBJECT_SYSTEM
+                        WriteString(theEnv,STDERR,"Duplicate classes not allowed in parameter restriction.\n");
+#else
+                        WriteString(theEnv,STDERR,"Duplicate types not allowed in parameter restriction.\n");
+#endif
+                       }
                      ReturnExpression(theEnv,query);
                      ReturnExpression(theEnv,types);
                      ReturnExpression(theEnv,new_types);
                      return NULL;
                     }
-                  if (RedundantClasses(theEnv,tmp->value,tmp2->value))
+                  if (RedundantClasses(theEnv,tmp,tmp2))
                     {
                      ReturnExpression(theEnv,query);
                      ReturnExpression(theEnv,types);
@@ -1239,21 +1279,45 @@ static Expression *ValidType(
   {
 #if OBJECT_SYSTEM
    Defclass *cls;
+#endif
+#if DEFTEMPLATE_CONSTRUCT
+   Deftemplate *theDeftemplate;
+#endif
 
    if (FindModuleSeparator(tname->contents))
-     IllegalModuleSpecifierMessage(theEnv);
-   else
      {
-      cls = LookupDefclassInScope(theEnv,tname->contents);
-      if (cls == NULL)
-        {
-         PrintErrorID(theEnv,"GENRCPSR",14,false);
-         WriteString(theEnv,STDERR,"Unknown class in method.\n");
-         return NULL;
-        }
-      return(GenConstant(theEnv,DEFCLASS_PTR,cls));
+      IllegalModuleSpecifierMessage(theEnv);
+      return NULL;
      }
-#else
+     
+   /*==========================*/
+   /* First check for a class. */
+   /*==========================*/
+
+#if OBJECT_SYSTEM
+   cls = LookupDefclassInScope(theEnv,tname->contents);
+      
+   if (cls != NULL)
+     { return(GenConstant(theEnv,DEFCLASS_PTR,cls)); }
+#endif
+
+   /*=====================================*/
+   /* Otherwise, check for a deftemplate. */
+   /*=====================================*/
+   
+#if DEFTEMPLATE_CONSTRUCT
+   theDeftemplate = FindDeftemplate(theEnv,tname->contents);
+   
+   if (theDeftemplate != NULL)
+     { return(GenConstant(theEnv,DEFTEMPLATE_PTR,theDeftemplate)); }
+#endif
+
+   /*====================================*/
+   /* Otherwise, check for a type if the */
+   /* object system isn't installed.     */
+   /*====================================*/
+
+#if ! OBJECT_SYSTEM
    if (strcmp(tname->contents,INTEGER_TYPE_NAME) == 0)
      return(GenConstant(theEnv,INTEGER_TYPE,CreateInteger(theEnv,INTEGER_TYPE)));
    if (strcmp(tname->contents,FLOAT_TYPE_NAME) == 0)
@@ -1284,10 +1348,19 @@ static Expression *ValidType(
      return(GenConstant(theEnv,INTEGER_TYPE,CreateInteger(theEnv,INSTANCE_NAME_TYPE)));
    if (strcmp(tname->contents,INSTANCE_ADDRESS_TYPE_NAME) == 0)
      return(GenConstant(theEnv,INTEGER_TYPE,CreateInteger(theEnv,INSTANCE_ADDRESS_TYPE)));
+#endif
 
+#if OBJECT_SYSTEM && DEFTEMPLATE_CONSTRUCT
+   PrintErrorID(theEnv,"GENRCPSR",14,false);
+   WriteString(theEnv,STDERR,"Unknown class or template in method.\n");
+#elif  DEFTEMPLATE_CONSTRUCT
+   PrintErrorID(theEnv,"GENRCPSR",14,false);
+   WriteString(theEnv,STDERR,"Unknown template or type in method.\n");
+#else
    PrintErrorID(theEnv,"GENRCPSR",14,false);
    WriteString(theEnv,STDERR,"Unknown type in method.\n");
 #endif
+
    return NULL;
   }
 
@@ -1304,21 +1377,44 @@ static Expression *ValidType(
  *************************************************************/
 static bool RedundantClasses(
   Environment *theEnv,
-  void *c1,
-  void *c2)
+  Expression *c1,
+  Expression *c2)
   {
    const char *tname;
+#if DEFTEMPLATE_CONSTRUCT
+#endif
+
+   if (c1->type != c2->type)
+     { return false; }
+
+#if DEFTEMPLATE_CONSTRUCT
+   if (c1->type == DEFTEMPLATE_PTR)
+     {
+      if (HasSupertemplate((Deftemplate *) c1->value,(Deftemplate *) c2->value))
+        { tname = DeftemplateName((Deftemplate *) c1->value); }
+      else if (HasSupertemplate((Deftemplate *) c2->value,(Deftemplate *) c1->value))
+        { tname = DeftemplateName((Deftemplate *) c2->value); }
+      else
+        { return false; }
+        
+      PrintErrorID(theEnv,"GENRCPSR",15,false);
+      WriteString(theEnv,STDERR,"Deftemplate '");
+      WriteString(theEnv,STDERR,tname);
+      WriteString(theEnv,STDERR,"' is redundant.\n");
+      return true;
+     }
+#endif
 
 #if OBJECT_SYSTEM
-   if (HasSuperclass((Defclass *) c1,(Defclass *) c2))
-     tname = DefclassName((Defclass *) c1);
-   else if (HasSuperclass((Defclass *) c2,(Defclass *) c1))
-     tname = DefclassName((Defclass *) c2);
+   if (HasSuperclass((Defclass *) c1->value,(Defclass *) c2->value))
+     tname = DefclassName((Defclass *) c1->value);
+   else if (HasSuperclass((Defclass *) c2->value,(Defclass *) c1->value))
+     tname = DefclassName((Defclass *) c2->value);
 #else
-   if (SubsumeType(((CLIPSInteger *) c1)->contents,((CLIPSInteger *) c2)->contents))
-     tname = TypeName(theEnv,((CLIPSInteger *) c1)->contents);
-   else if (SubsumeType(((CLIPSInteger *) c2)->contents,((CLIPSInteger *) c1)->contents))
-     tname = TypeName(theEnv,((CLIPSInteger *) c2)->contents);
+   if (SubsumeType(c1->integerValue->contents,c2->integerValue->contents))
+     tname = TypeName(theEnv,c1->integerValue->contents);
+   else if (SubsumeType(c2->integerValue->contents,c1->integerValue->contents))
+     tname = TypeName(theEnv,c2->integerValue->contents);
 #endif
    else
      return false;
@@ -1460,6 +1556,7 @@ static Defmethod *AddGenericMethod(
                    pointers of the parameter expressions
  ****************************************************************/
 static int RestrictionsCompare(
+  Environment *theEnv,
   Expression *params,
   int rcnt,
   int min,
@@ -1489,7 +1586,7 @@ static int RestrictionsCompare(
          ============================================================= */
       r1 = (RESTRICTION *) params->argList;
       r2 = &meth->restrictions[i];
-      rtn = TypeListCompare(r1,r2);
+      rtn = TypeListCompare(theEnv,r1,r2);
       if (rtn != IDENTICAL)
         return rtn;
 
@@ -1546,33 +1643,89 @@ static int RestrictionsCompare(
   NOTES        : None
  *****************************************************/
 static int TypeListCompare(
+  Environment *theEnv,
   RESTRICTION *r1,
   RESTRICTION *r2)
   {
    long i;
    bool diff = false;
+#if DEFTEMPLATE_CONSTRUCT
+   Deftemplate *theDeftemplate;
+#endif
 
    if ((r1->tcnt == 0) && (r2->tcnt == 0))
      return(IDENTICAL);
+     
    if (r1->tcnt == 0)
      return(LOWER_PRECEDENCE);
+     
    if (r2->tcnt == 0)
      return(HIGHER_PRECEDENCE);
+     
    for (i = 0 ; (i < r1->tcnt) && (i < r2->tcnt) ; i++)
      {
-      if (r1->types[i] != r2->types[i])
-        {
-         diff = true;
+      if (r1->types[i].thePointer == r2->types[i].thePointer)
+        { continue; }
+
+      diff = true;
+
+#if DEFTEMPLATE_CONSTRUCT
 #if OBJECT_SYSTEM
-         if (HasSuperclass((Defclass *) r1->types[i],(Defclass *) r2->types[i]))
-           return(HIGHER_PRECEDENCE);
-         if (HasSuperclass((Defclass *) r2->types[i],(Defclass *) r1->types[i]))
-           return(LOWER_PRECEDENCE);
+      if ((r1->types[i].type == DEFTEMPLATE_PTR) &&
+          (r2->types[i].theClass == DefclassData(theEnv)->PrimitiveClassMap[FACT_ADDRESS_TYPE]))
+        { return HIGHER_PRECEDENCE; }
+      else if ((r2->types[i].type == DEFTEMPLATE_PTR) &&
+               (r1->types[i].theClass == DefclassData(theEnv)->PrimitiveClassMap[FACT_ADDRESS_TYPE]))
+        { return LOWER_PRECEDENCE; }
 #else
-         if (SubsumeType(((CLIPSInteger *) r1->types[i])->contents,((CLIPSInteger *) r2->types[i])->contents))
-           return(HIGHER_PRECEDENCE);
-         if (SubsumeType(((CLIPSInteger *) r2->types[i])->contents,((CLIPSInteger *) r1->types[i])->contents))
-           return(LOWER_PRECEDENCE);
+      if ((r1->types[i].type == DEFTEMPLATE_PTR) &&
+          (r2->types[i].type == INTEGER_TYPE) &&
+          (r2->types[i].theInteger->contents == FACT_ADDRESS_TYPE))
+        { return HIGHER_PRECEDENCE; }
+      else if ((r2->types[i].type == DEFTEMPLATE_PTR) &&
+               (r1->types[i].type == INTEGER_TYPE) &&
+               (r1->types[i].theInteger->contents == FACT_ADDRESS_TYPE))
+        { return LOWER_PRECEDENCE; }
+#endif
+#endif
+
+      if (r1->types[i].type != r2->types[i].type)
+        { continue; }
+
+      switch (r1->types[i].type)
+        {
+#if OBJECT_SYSTEM
+         case DEFCLASS_PTR:
+           if (HasSuperclass(r1->types[i].theClass,r2->types[i].theClass))
+             return(HIGHER_PRECEDENCE);
+           if (HasSuperclass(r2->types[i].theClass,r1->types[i].theClass))
+             return(LOWER_PRECEDENCE);
+           break;
+#else
+         case INTEGER_TYPE:
+           if (SubsumeType(r1->types[i].theInteger->contents,r2->types[i].theInteger->contents))
+             return(HIGHER_PRECEDENCE);
+           if (SubsumeType(r2->types[i].theInteger->contents,r1->types[i].theInteger->contents))
+             return(LOWER_PRECEDENCE);
+           break;
+#endif
+#if DEFTEMPLATE_CONSTRUCT
+         case DEFTEMPLATE_PTR:
+           for (theDeftemplate = r1->types[i].theTemplate->parent;
+                theDeftemplate != NULL;
+                theDeftemplate = theDeftemplate->parent)
+             {
+              if (theDeftemplate == r2->types[i].theTemplate)
+                { return HIGHER_PRECEDENCE; }
+             }
+           for (theDeftemplate = r2->types[i].theTemplate->parent;
+                theDeftemplate != NULL;
+                theDeftemplate = theDeftemplate->parent)
+             {
+              if (theDeftemplate == r1->types[i].theTemplate)
+                { return LOWER_PRECEDENCE; }
+             }
+           break;
 #endif
         }
      }
@@ -1611,7 +1764,29 @@ static Defgeneric *NewGeneric(
 #endif
    return(ngen);
   }
+  
+/***********************************************************/
+/* ReplaceVarSlotVariables: Replaces all variable/slot     */
+/*   references found in a defmethod body with expressions */
+/*   to retrieve the variable/slot value.                  */
+/***********************************************************/
+static int ReplaceExpressionVariables(
+  Environment *theEnv,
+  struct expr *list,
+  void *vTheParams)
+  {
+   Expression *theParams = (struct expr *) vTheParams;
 
+   if ((list->type != SF_VARIABLE) && (list->type != MF_VARIABLE))
+     { return 0; }
+
+#if DEFTEMPLATE_CONSTRUCT
+   return MethodFactSlotReferenceVar(theEnv,list,theParams);
+#else
+   return 0;
+#endif
+  }
+  
 #endif /* DEFGENERIC_CONSTRUCT && (! BLOAD_ONLY) && (! RUN_TIME) */
 
 /***************************************************

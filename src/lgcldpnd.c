@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  08/25/16             */
+   /*            CLIPS Version 7.00  06/11/24             */
    /*                                                     */
    /*             LOGICAL DEPENDENCIES MODULE             */
    /*******************************************************/
@@ -38,6 +38,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      7.00: Support for certainty factors.                 */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
@@ -50,6 +52,7 @@
 #include "engine.h"
 #include "envrnmnt.h"
 #include "evaluatn.h"
+#include "facthsh.h"
 #include "factmngr.h"
 #include "memalloc.h"
 #include "pattern.h"
@@ -82,7 +85,8 @@
 bool AddLogicalDependencies(
   Environment *theEnv,
   struct patternEntity *theEntity,
-  bool existingEntity)
+  bool existingEntity,
+  short cf)
   {
    struct partialMatch *theBinds;
    struct dependency *newDependency;
@@ -114,16 +118,16 @@ bool AddLogicalDependencies(
    if ((theBinds->leftParent == NULL) && (theBinds->rightParent == NULL))
      { return false; }
 
-   /*==============================================================*/
-   /* Add a dependency link between the partial match and the data */
-   /* entity. The dependency links are stored in the partial match */
-   /* behind the data entities stored in the partial match and the */
-   /* activation link, if any.                                     */
-   /*==============================================================*/
+   /*=================================================================*/
+   /* Add a dependency link between the partial match and the entity. */
+   /*=================================================================*/
 
    newDependency = get_struct(theEnv,dependency);
    newDependency->dPtr = theEntity;
    newDependency->next = (struct dependency *) theBinds->dependents;
+#if CERTAINTY_FACTORS
+   newDependency->cf = cf;
+#endif
    theBinds->dependents = newDependency;
 
    /*================================================================*/
@@ -133,6 +137,9 @@ bool AddLogicalDependencies(
    newDependency = get_struct(theEnv,dependency);
    newDependency->dPtr = theBinds;
    newDependency->next = (struct dependency *) theEntity->dependents;
+#if CERTAINTY_FACTORS
+   newDependency->cf = cf;
+#endif
    theEntity->dependents = newDependency;
 
    /*==================================================================*/
@@ -407,12 +414,49 @@ void RemoveLogicalSupport(
 
       if (theEntity->dependents == NULL)
         {
-         (*theEntity->theInfo->base.incrementBusyCount)(theEnv,theEntity);
-         dlPtr->next = EngineData(theEnv)->UnsupportedDataEntities;
-         EngineData(theEnv)->UnsupportedDataEntities = dlPtr;
+#if CERTAINTY_FACTORS
+         if (theEntity->header.type == FACT_ADDRESS_TYPE)
+           {
+            Fact *theFact;
+            
+            theFact = (Fact *) theEntity;
+            if ((theFact->cfBase == NO_CF_BASE) ||
+                (theFact->cfBase == NON_CF_FACT))
+              {
+               (*theEntity->theInfo->base.incrementBusyCount)(theEnv,theEntity);
+               dlPtr->next = EngineData(theEnv)->UnsupportedDataEntities;
+               EngineData(theEnv)->UnsupportedDataEntities = dlPtr;
+              }
+            else
+              {
+               (*theEntity->theInfo->base.incrementBusyCount)(theEnv,theEntity);
+               dlPtr->next = EngineData(theEnv)->CFUpdateList;
+               EngineData(theEnv)->CFUpdateList = dlPtr;
+              }
+           }
+         else
+#endif
+           {
+            (*theEntity->theInfo->base.incrementBusyCount)(theEnv,theEntity);
+            dlPtr->next = EngineData(theEnv)->UnsupportedDataEntities;
+            EngineData(theEnv)->UnsupportedDataEntities = dlPtr;
+           }
         }
       else
-        { rtn_struct(theEnv,dependency,dlPtr); }
+        {
+#if CERTAINTY_FACTORS
+         if (dlPtr->cf == NON_CF_FACT)
+           { rtn_struct(theEnv,dependency,dlPtr); }
+         else
+           {
+            (*theEntity->theInfo->base.incrementBusyCount)(theEnv,theEntity);
+            dlPtr->next = EngineData(theEnv)->CFUpdateList;
+            EngineData(theEnv)->CFUpdateList = dlPtr;
+           }
+#else
+         rtn_struct(theEnv,dependency,dlPtr);
+#endif
+        }
 
       /*==================================*/
       /* Move on to the next dependency.  */
@@ -442,6 +486,12 @@ void ForceLogicalRetractions(
   {
    struct dependency *tempPtr;
    struct patternEntity *theEntity;
+#if CERTAINTY_FACTORS
+   Fact *theFact;
+   short oldCF, newCF;
+   CFTransition transition;
+   CLIPSBitMap *theBitMap;
+#endif
 
    /*===================================================*/
    /* Don't reenter this function once it's called. Any */
@@ -483,6 +533,69 @@ void ForceLogicalRetractions(
       (*theEntity->theInfo->base.decrementBusyCount)(theEnv,theEntity);
       (*theEntity->theInfo->base.deleteFunction)(theEntity,theEnv);
      }
+
+   /*=====================================*/
+   /* Handle update to certainty factors. */
+   /*=====================================*/
+
+#if CERTAINTY_FACTORS
+   while (EngineData(theEnv)->CFUpdateList != NULL)
+     {
+      /*===========================================*/
+      /* Determine the fact requiring a CF update. */
+      /*===========================================*/
+
+      theFact = (Fact *) EngineData(theEnv)->CFUpdateList->dPtr;
+
+      /*================================================*/
+      /* Remove the dependency structure from the list. */
+      /*================================================*/
+
+      tempPtr = EngineData(theEnv)->CFUpdateList;
+      EngineData(theEnv)->CFUpdateList = EngineData(theEnv)->CFUpdateList->next;
+      rtn_struct(theEnv,dependency,tempPtr);
+      
+      /*=============================================*/
+      /* Decrement the busy count and move on to the */
+      /* next fact if this one has been deleted.     */
+      /*=============================================*/
+      
+      theFact->patternHeader.theInfo->base.decrementBusyCount(theEnv,theFact);
+      if (theFact->garbage) continue;
+      
+      oldCF = (short) theFact->theProposition.contents[0].integerValue->contents;
+
+      newCF = theFact->cfBase;
+      for (tempPtr = theFact->patternHeader.dependents;
+           tempPtr != NULL;
+           tempPtr = tempPtr->next)
+        {
+         if (newCF == NO_CF_BASE)
+           { newCF = tempPtr->cf; }
+         else
+           { newCF = CombineCFs(newCF,tempPtr->cf); }
+        }
+        
+      transition = DetermineCFTransition(oldCF,newCF);
+      theBitMap = CreateCFChangeMap(theEnv,theFact->whichDeftemplate);
+
+      switch (transition) // TBD Refactor
+        {
+         case CF_NO_TRANSITION:
+         case CF_UNCHANGED:
+           break;
+        
+         case CF_UNKNOWN_TO_KNOWN:
+         case CF_KNOWN_TO_UNKNOWN:
+           HandleCFUpdate(theEnv,theFact,theBitMap,newCF,false);
+           break;
+
+         case CF_REMAINS_KNOWN_OR_UNKNOWN:
+           HandleCFUpdate(theEnv,theFact,theBitMap,newCF,true);
+           break;
+        }
+     }
+#endif
 
    /*============================================*/
    /* Deletion of items on the list is complete. */

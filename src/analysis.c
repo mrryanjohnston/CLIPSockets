@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  06/12/19             */
+   /*            CLIPS Version 7.00  08/22/24             */
    /*                                                     */
    /*                  ANALYSIS MODULE                    */
    /*******************************************************/
@@ -339,9 +339,9 @@ static bool TestCEAnalysis(
    if (rv != NULL)
      { *errorFlag = true; }
    else if (secondary)
-     { patternPtr->secondaryNetworkTest = CombineExpressions(theEnv,patternPtr->secondaryNetworkTest,GetvarReplace(theEnv,theExpression,false,theNandFrames)); }
+     { patternPtr->secondaryNetworkTest = CombineExpressions(theEnv,patternPtr->secondaryNetworkTest,GetvarReplace(theEnv,theExpression,false,false,theNandFrames)); }
    else
-     { patternPtr->networkTest = CombineExpressions(theEnv,patternPtr->networkTest,GetvarReplace(theEnv,theExpression,false,theNandFrames)); }
+     { patternPtr->networkTest = CombineExpressions(theEnv,patternPtr->networkTest,GetvarReplace(theEnv,theExpression,false,false,theNandFrames)); }
 
    return false;
   }

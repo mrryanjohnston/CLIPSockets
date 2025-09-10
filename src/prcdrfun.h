@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  05/11/24            */
+   /*             CLIPS Version 7.00  12/06/24            */
    /*                                                     */
    /*          PROCEDURAL FUNCTIONS HEADER FILE           */
    /*******************************************************/
@@ -45,6 +45,8 @@
 /*                                                           */
 /*            UDF redesign.                                  */
 /*                                                           */
+/*      6.42: Added try function.                            */
+/*                                                           */
 /*      7.00: Added inline if function.                      */
 /*                                                           */
 /*************************************************************/
@@ -86,6 +88,7 @@ struct procedureFunctionData
    void                           ReturnFunction(Environment *,UDFContext *,UDFValue *);
    void                           BreakFunction(Environment *,UDFContext *,UDFValue *);
    void                           SwitchFunction(Environment *,UDFContext *,UDFValue *);
+   void                           TryFunction(Environment *,UDFContext *,UDFValue *);
    bool                           GetBoundVariable(Environment *,UDFValue *,CLIPSLexeme *);
    void                           FlushBindList(Environment *,void *);
 

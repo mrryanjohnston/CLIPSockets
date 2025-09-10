@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  05/12/24             */
+   /*            CLIPS Version 7.00  05/28/25             */
    /*                                                     */
    /*                CONSTANTS HEADER FILE                */
    /*******************************************************/
@@ -36,6 +36,8 @@
 /*            Removed DATA_OBJECT_ARRAY primitive type.      */
 /*                                                           */
 /*      7.00: Data driven backward chaining.                 */
+/*                                                           */
+/*            Support for certainty factors.                 */
 /*                                                           */
 /*************************************************************/
 
@@ -105,6 +107,12 @@ typedef enum
    GSE_INVALID_TARGET_ERROR,
    GSE_SLOT_NOT_FOUND_ERROR
   } GetSlotError;
+  
+#if CERTAINTY_FACTORS
+#define CERTAINTY_THRESHOLD  20
+#define NO_CF_BASE          101
+#define NON_CF_FACT         102
+#endif
 
 #ifndef APPLICATION_NAME
 #define APPLICATION_NAME "CLIPS"
@@ -119,11 +127,11 @@ typedef enum
 #endif
 
 #ifndef CREATION_DATE_STRING
-#define CREATION_DATE_STRING "5/12/24"
+#define CREATION_DATE_STRING "5/28/25"
 #endif
 
 #ifndef BANNER_STRING
-#define BANNER_STRING "         CLIPS (Forge Alpha 5/12/24)\n"
+#define BANNER_STRING "         CLIPS (Forge Alpha 5/28/25)\n"
 #endif
 
 /*************************/
@@ -258,12 +266,5 @@ typedef enum
 #define INTEGER_OR_FLOAT              180
 #define SYMBOL_OR_STRING              181
 #define INSTANCE_OR_INSTANCE_NAME     182
-
-/*************************/
-/* Macintosh Definitions */
-/*************************/
-
-#define CREATOR_STRING "CLIS"
-#define CREATOR_CODE   'CLIS'
 
 #endif

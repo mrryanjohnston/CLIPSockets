@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  07/16/25             */
    /*                                                     */
    /*                  DEFINSTANCES MODULE                */
    /*******************************************************/
@@ -62,6 +62,9 @@
 /*                                                           */
 /*            Pretty print functions accept optional logical */
 /*            name argument.                                 */
+/*                                                           */
+/*      6.43: Fixed NULL pointer reference issue in          */
+/*            GetNextConstructItem calls.                    */
 /*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
@@ -259,6 +262,9 @@ static void DeallocateDefinstancesData(
       theModuleItem = (struct definstancesModule *)
                       GetModuleItem(theEnv,theModule,
                                     DefinstancesData(theEnv)->DefinstancesModuleIndex);
+                                    
+      ClearDefmoduleHashMap(theEnv,&theModuleItem->header);
+
       rtn_struct(theEnv,definstancesModule,theModuleItem);
      }
 #else
@@ -374,7 +380,14 @@ Definstances *GetNextDefinstances(
   Environment *theEnv,
   Definstances *theDefinstances)
   {
-   return (Definstances *) GetNextConstructItem(theEnv,&theDefinstances->header,
+   ConstructHeader *theHeader;
+   
+   if (theDefinstances == NULL)
+     { theHeader = NULL; }
+   else
+     { theHeader = &theDefinstances->header; }
+
+   return (Definstances *) GetNextConstructItem(theEnv,theHeader,
                                                 DefinstancesData(theEnv)->DefinstancesModuleIndex);
   }
 

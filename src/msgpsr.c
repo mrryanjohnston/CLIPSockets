@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.40  04/04/19             */
+   /*            CLIPS Version 7.00  01/28/25             */
    /*                                                     */
    /*           MESSAGE-HANDLER PARSER FUNCTIONS          */
    /*******************************************************/
@@ -47,6 +47,9 @@
 /*            data structures.                               */
 /*                                                           */
 /*            Static constraint checking is always enabled.  */
+/*                                                           */
+/*      7.00: Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
 /*                                                           */
 /*************************************************************/
 
@@ -365,7 +368,7 @@ void CreateGetAndPutHandlers(
 
    if (sd->createReadAccessor)
      {
-      gensprintf(buf,"%s get-%s () ?self:%s)",className,slotName,slotName);
+      snprintf(buf,bufsz,"%s get-%s () ?self:%s)",className,slotName,slotName);
 
       oldRouter = RouterData(theEnv)->FastCharGetRouter;
       oldString = RouterData(theEnv)->FastCharGetString;
@@ -392,7 +395,7 @@ void CreateGetAndPutHandlers(
 
    if (sd->createWriteAccessor)
      {
-      gensprintf(buf,"%s put-%s ($?value) (bind ?self:%s ?value))",
+      snprintf(buf,bufsz,"%s put-%s ($?value) (bind ?self:%s ?value))",
                   className,slotName,slotName);
 
       oldRouter = RouterData(theEnv)->FastCharGetRouter;
@@ -547,6 +550,7 @@ static int BindSlotReference(
       WriteString(theEnv,STDERR,"Active instance parameter cannot be changed.\n");
       return -1;
      }
+     
    if ((strncmp(bindName,SELF_STRING,SELF_LEN) == 0) ?
                (bindName[SELF_LEN] == SELF_SLOT_REF) : false)
      {
@@ -570,6 +574,13 @@ static int BindSlotReference(
          return 1;
         }
      }
+
+   if (strchr(bindName,':') != NULL)
+     {
+      BindVarSlotErrorMessage(theEnv,bindName);
+      return -1;
+     }
+
    return 0;
   }
 

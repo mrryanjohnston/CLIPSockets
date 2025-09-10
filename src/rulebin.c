@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  06/11/24             */
    /*                                                     */
    /*              DEFRULE BSAVE/BLOAD MODULE             */
    /*******************************************************/
@@ -39,6 +39,8 @@
 /*            data structures.                               */
 /*                                                           */
 /*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Support for certainty factors.                 */
 /*                                                           */
 /*************************************************************/
 
@@ -487,6 +489,7 @@ static void BsaveDisjuncts(
                                      &theDisjunct->header);
       tempDefrule.salience = theDisjunct->salience;
       tempDefrule.localVarCnt = theDisjunct->localVarCnt;
+      tempDefrule.certainty = theDisjunct->certainty;
       tempDefrule.complexity = theDisjunct->complexity;
       tempDefrule.autoFocus = theDisjunct->autoFocus;
 
@@ -952,6 +955,7 @@ static void UpdateDefrule(
    DefruleBinaryData(theEnv)->DefruleArray[obji].disjunct = BloadDefrulePointer(DefruleBinaryData(theEnv)->DefruleArray,br->disjunct);
    DefruleBinaryData(theEnv)->DefruleArray[obji].salience = br->salience;
    DefruleBinaryData(theEnv)->DefruleArray[obji].localVarCnt = br->localVarCnt;
+   DefruleBinaryData(theEnv)->DefruleArray[obji].certainty = br->certainty;
    DefruleBinaryData(theEnv)->DefruleArray[obji].complexity = br->complexity;
    DefruleBinaryData(theEnv)->DefruleArray[obji].autoFocus = br->autoFocus;
    DefruleBinaryData(theEnv)->DefruleArray[obji].executing = 0;

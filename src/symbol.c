@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  02/06/24             */
+   /*            CLIPS Version 7.00  07/25/24             */
    /*                                                     */
    /*                    SYMBOL MODULE                    */
    /*******************************************************/
@@ -69,6 +69,8 @@
 /*            ALLOW_ENVIRONMENT_GLOBALS no longer supported. */
 /*                                                           */
 /*      7.00: Support for data driven backward chaining.     */
+/*                                                           */
+/*            Hash value stored with lexemes.                */
 /*                                                           */
 /*************************************************************/
 
@@ -387,7 +389,7 @@ CLIPSLexeme *AddSymbol(
   const char *str,
   unsigned short theType)
   {
-   size_t tally;
+   size_t tally, hashValue;
    size_t length;
    CLIPSLexeme *past = NULL, *peek;
    char *buffer;
@@ -402,7 +404,8 @@ CLIPSLexeme *AddSymbol(
        ExitRouter(theEnv,EXIT_FAILURE);
       }
 
-    tally = HashSymbol(str,SYMBOL_HASH_SIZE);
+    hashValue = HashSymbol(str,0);
+    tally = hashValue % SYMBOL_HASH_SIZE;
     peek = SymbolData(theEnv)->SymbolTable[tally];
 
     /*==================================================*/
@@ -439,6 +442,7 @@ CLIPSLexeme *AddSymbol(
     peek->count = 0;
     peek->permanent = false;
     peek->header.type = theType;
+    peek->hv = hashValue;
 
     /*================================================*/
     /* Add the string to the list of ephemeral items. */

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  03/02/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*                 FACT HASHING MODULE                 */
    /*******************************************************/
@@ -56,10 +56,15 @@
 /*                                                           */
 /*            Support for non-reactive fact patterns.        */
 /*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 #include "setup.h"
 
@@ -70,15 +75,21 @@
 #include "factmngr.h"
 #include "memalloc.h"
 #include "multifld.h"
+#include "prntutil.h"
 #include "router.h"
 #include "sysdep.h"
+#include "tmpltfun.h"
 #include "utility.h"
 
 #if DEFRULE_CONSTRUCT
+#include "engine.h"
 #include "lgcldpnd.h"
 #endif
 
 #include "facthsh.h"
+
+#define NAMED_FACT_INITIAL_HASH_TABLE_SIZE 17
+#define NAMED_FACT_HASH_TABLE_LOAD_FACTOR 2
 
 /***************************************/
 /* LOCAL INTERNAL FUNCTION DEFINITIONS */
@@ -87,7 +98,10 @@
    static struct factHashEntry  **CreateFactHashTable(Environment *,size_t);
    static void                    ResizeFactHashTable(Environment *);
    static void                    ResetFactHashTable(Environment *);
-
+   static bool                    FactsEqual(Multifield *,Multifield *,bool);
+   static void                    UpdateHashMapSize(Environment *,size_t);
+   static void                    RehashValues(struct namedFactHashTableEntry **,size_t,struct namedFactHashTableEntry **,size_t);
+  
 /************************************************/
 /* HashFact: Returns the hash value for a fact. */
 /************************************************/
@@ -95,6 +109,7 @@ size_t HashFact(
   Fact *theFact)
   {
    size_t count = 0;
+   Multifield *theSegment;
 
    /*============================================*/
    /* Get a hash value for the deftemplate name. */
@@ -102,11 +117,17 @@ size_t HashFact(
 
    count += theFact->whichDeftemplate->header.name->bucket * 73981;
 
-   /*=================================================*/
-   /* Add in the hash value for the rest of the fact. */
-   /*=================================================*/
+   /*=====================================================*/
+   /* Add in the hash value for the rest of the fact. The */
+   /* certainty factor is not included in the hash value. */
+   /*=====================================================*/
 
-   count += HashMultifield(&theFact->theProposition,0);
+   theSegment = &theFact->theProposition;
+
+   if (theFact->whichDeftemplate->cfd)
+     { count += HashValueArray(&theSegment->contents[1],theSegment->length-1,0); }
+   else
+     { count += HashValueArray(&theSegment->contents[0],theSegment->length,0); }
 
    /*================================*/
    /* Make sure the hash value falls */
@@ -175,12 +196,62 @@ Fact *FactExists(
         { continue; }
 
       if ((theFact->whichDeftemplate == theFactHash->theFact->whichDeftemplate) ?
-          MultifieldsEqual(&theFact->theProposition,
-                           &theFactHash->theFact->theProposition) : false)
+          FactsEqual(&theFact->theProposition,
+                     &theFactHash->theFact->theProposition,
+                     theFact->whichDeftemplate->cfd) : false)
         { return(theFactHash->theFact); }
      }
 
    return NULL;
+  }
+
+/******************************************************/
+/* FactsEqual: Determines if two facts are identical. */
+/******************************************************/
+static bool FactsEqual(
+  Multifield *segment1,
+  Multifield *segment2,
+  bool cfd)
+  {
+   CLIPSValue *elem1;
+   CLIPSValue *elem2;
+   size_t length, i = 0;
+
+   length = segment1->length;
+   if (length != segment2->length)
+     { return false; }
+
+   elem1 = segment1->contents;
+   elem2 = segment2->contents;
+
+   /*========================================================*/
+   /* When comparing facts with certainty factors, skip past */
+   /* the first slot holding the certainty factor value.     */
+   /*========================================================*/
+   
+   if (cfd)
+     { i++; }
+     
+   /*==================================================*/
+   /* Compare each field of both facts until the facts */
+   /* match completely or the facts mismatch.          */
+   /*==================================================*/
+
+   while (i < length)
+     {
+      if (elem1[i].header->type == MULTIFIELD_TYPE)
+        {
+         if (MultifieldsEqual(elem1[i].multifieldValue,
+                              elem2[i].multifieldValue) == false)
+          { return false; }
+        }
+      else if (elem1[i].value != elem2[i].value)
+        { return false; }
+
+      i++;
+     }
+     
+   return true;
   }
 
 /*********************************************************/
@@ -315,30 +386,276 @@ size_t HandleFactDuplication(
   Environment *theEnv,
   Fact *theFact,
   Fact **duplicate,
-  long long reuseIndex)
+  long long reuseIndex,
+  short cf,
+  CLIPSLexeme *factName,
+  bool *error)
   {
    size_t hashValue;
+#if CERTAINTY_FACTORS
+   CFTransition transition = CF_NO_TRANSITION;
+   CLIPSBitMap *theBitMap = NULL;
+   short oldCF, newCF;
+   bool isCFFact = theFact->whichDeftemplate->cfd;
+#endif
+
    *duplicate = NULL;
+
+   /*================================*/
+   /* Compute the fact's hash value. */
+   /*================================*/
 
    hashValue = HashFact(theFact);
 
-   if (FactData(theEnv)->FactDuplication)
+   /*=================================================*/
+   /* If the fact doesn't have a certainty factor or  */
+   /* name, and duplication is allowed, then the fact */
+   /* can be asserted regardless of whether it's a    */
+   /* duplicate.                                      */
+   /*=================================================*/
+      
+   if ((! isCFFact) &&
+       (factName == NULL) &&
+       (FactData(theEnv)->FactDuplication))
      { return hashValue; }
 
+   /*=================================*/
+   /* See if the fact already exists. */
+   /*=================================*/
+   
    *duplicate = FactExists(theEnv,theFact,hashValue);
-   if (*duplicate == NULL) return hashValue;
+   
+   /*================================================*/
+   /* If it's not a duplicate and it's a named fact, */
+   /* the name must not be in use by another fact.   */
+   /*================================================*/
+   
+   if ((*duplicate == NULL) && (factName != NULL))
+     {
+      if (LookupFact(theEnv,factName))
+        {
+         PrintErrorID(theEnv,"FACTMNGR",5,true);
+         WriteString(theEnv,STDERR,"A fact named ");
+         WriteString(theEnv,STDERR,factName->contents);
+         WriteString(theEnv,STDERR," already exists.\n");
+         SetEvaluationError(theEnv,true);
+         ReturnFact(theEnv,theFact);
+         *error = true;
+         return hashValue;
+        }
+        
+      AddNamedFactToHashMap(theEnv,theFact,factName);
+     }
+     
+   /*=====================================================*/
+   /* If the fact doesn't exist, then it can be asserted. */
+   /*=====================================================*/
+   
+   if (*duplicate == NULL)
+     {
+#if CERTAINTY_FACTORS
+      if (isCFFact &&
+          (EngineData(theEnv)->TheLogicalJoin == NULL) &&
+          (! EngineData(theEnv)->cfUpdateInProgress))
+        { theFact->cfBase = cf; }
+#endif
+      return hashValue;
+     }
 
-   if (reuseIndex == 0)
+   /*==============================================================*/
+   /* A duplicate of a CF fact will cause the CF to be recomputed. */
+   /*==============================================================*/
+
+#if CERTAINTY_FACTORS
+   if (isCFFact)
+     {
+      theBitMap = CreateCFChangeMap(theEnv,theFact->whichDeftemplate);
+      IncrementBitMapReferenceCount(theEnv,theBitMap);
+
+      if (EngineData(theEnv)->TheLogicalJoin == NULL)
+        {
+         if ((*duplicate)->cfBase == NO_CF_BASE)
+           { (*duplicate)->cfBase = cf; }
+         else
+           { (*duplicate)->cfBase = CombineCFs((*duplicate)->cfBase,cf); }
+        }
+      else
+        { EngineData(theEnv)->certaintyAddition = cf; }
+     
+      /*========================================*/
+      /* Compute the combined certainty factor. */
+      /*========================================*/
+   
+      oldCF = (short) (*duplicate)->theProposition.contents[0].integerValue->contents;
+      newCF = (short) theFact->theProposition.contents[0].integerValue->contents;
+      newCF = CombineCFs(oldCF,newCF);
+      transition = DetermineCFTransition(oldCF,newCF);
+     
+      switch (transition)
+        {
+         case CF_NO_TRANSITION:
+         case CF_UNCHANGED:
+           break;
+        
+         case CF_UNKNOWN_TO_KNOWN:
+         case CF_KNOWN_TO_UNKNOWN:
+           HandleCFUpdate(theEnv,*duplicate,theBitMap,newCF,false);
+           break;
+
+         case CF_REMAINS_KNOWN_OR_UNKNOWN:
+           HandleCFUpdate(theEnv,*duplicate,theBitMap,newCF,true);
+           break;
+        }
+        
+      DecrementBitMapReferenceCount(theEnv,theBitMap);
+     }
+#endif
+
+   if (reuseIndex == 0) // TBD what is this for CF fact
      { ReturnFact(theEnv,theFact); }
    else
      { AddToGarbageFactList(theEnv,theFact); }
 
 #if DEFRULE_CONSTRUCT
-   AddLogicalDependencies(theEnv,(struct patternEntity *) *duplicate,true);
+   if (! isCFFact)
+#if CERTAINTY_FACTORS
+     { AddLogicalDependencies(theEnv,(struct patternEntity *) *duplicate,true,NON_CF_FACT); }
+#else
+     { AddLogicalDependencies(theEnv,(struct patternEntity *) *duplicate,true,0); }
+#endif
 #endif
 
    return 0;
   }
+
+#if CERTAINTY_FACTORS
+
+/*****************************************************/
+/* CreateCFChangeMap: Creates a change map for a CFD */
+/*   deftemplate that includes just the CF slot.     */
+/*****************************************************/
+CLIPSBitMap *CreateCFChangeMap(
+  Environment *theEnv,
+  Deftemplate *theDeftemplate)
+  {
+   char *changeMap;
+   CLIPSBitMap *theBitMap = NULL;
+
+   if (! theDeftemplate->cfd)
+     { return NULL; }
+     
+   changeMap = (char *) gm2(theEnv,CountToBitMapSize(theDeftemplate->numberOfSlots));
+   ClearBitString((void *) changeMap,CountToBitMapSize(theDeftemplate->numberOfSlots));
+   SetBitMap(changeMap,0);
+   theBitMap = AddBitMap(theEnv,changeMap,CountToBitMapSize(theDeftemplate->numberOfSlots));
+   rm(theEnv,(void *) changeMap,CountToBitMapSize(theDeftemplate->numberOfSlots));
+   
+   return theBitMap;
+  }
+
+/******************/
+/* HandleCFUpdate */
+/******************/
+void HandleCFUpdate(
+  Environment *theEnv,
+  Fact *theFact,
+  CLIPSBitMap *changeMap,
+  short newCF,
+  bool applyReactivity)
+  {
+   CLIPSValue *theValueArray;
+   size_t i;
+   struct dependency *theDependents;
+
+   theValueArray = (CLIPSValue *) gm2(theEnv,sizeof(void *) * theFact->whichDeftemplate->numberOfSlots);
+   
+   theValueArray[0].integerValue = CreateInteger(theEnv,newCF);
+   for (i = 1; i < theFact->theProposition.length; i++)
+     { theValueArray[i].value = theFact->theProposition.contents[i].value; }
+
+   /*===================================================*/
+   /* Set the flag indicating a certainty factor update */
+   /* to disable any certainty factor compuations on a  */
+   /* value that has already been computed.             */
+   /*===================================================*/
+   
+   EngineData(theEnv)->cfUpdateInProgress = true;
+   
+   /*============================*/
+   /* Preserve the dependencies. */
+   /*============================*/
+   
+   theDependents = theFact->patternHeader.dependents;
+   theFact->patternHeader.dependents = NULL;
+   
+   /*======================================*/
+   /* Process the certainty factor update. */
+   /*======================================*/
+   
+   ReplaceFact(theEnv,theFact,theValueArray,changeMap,applyReactivity);
+   
+   /*===========================*/
+   /* Restore the dependencies. */
+   /*===========================*/
+
+   if (theDependents != NULL)
+     {
+      if (theFact->patternHeader.dependents != NULL)
+        { theFact->patternHeader.dependents->next = theDependents; }
+      else
+        { theFact->patternHeader.dependents = theDependents; }
+     }
+
+   /*======================================*/
+   /* Certainty factor update is complete. */
+   /*======================================*/
+   
+   EngineData(theEnv)->cfUpdateInProgress = false;
+
+   rm(theEnv,theValueArray,sizeof(void *) * theFact->whichDeftemplate->numberOfSlots);
+  }
+
+/**************************/
+/* DetermineCFTransition: */
+/**************************/
+CFTransition DetermineCFTransition(
+  short oldCF,
+  short newCF)
+  {
+   if (newCF == oldCF)
+     { return CF_UNCHANGED; }
+     
+   if ((oldCF < CERTAINTY_THRESHOLD) && (newCF >= CERTAINTY_THRESHOLD))
+     { return CF_UNKNOWN_TO_KNOWN; }
+   else if ((oldCF >= CERTAINTY_THRESHOLD) && (newCF < CERTAINTY_THRESHOLD))
+     { return CF_KNOWN_TO_UNKNOWN; }
+   
+   return CF_REMAINS_KNOWN_OR_UNKNOWN;
+  }
+
+/***************/
+/* CombineCFs: */
+/***************/
+short CombineCFs(
+  short cf1,
+  short cf2)
+  {
+   int min;
+   
+   if ((cf1 > 0) && (cf2 > 0))
+     { return (short) round((((cf1 + cf2) * 100.0) - (cf1 * cf2)) / 100.0); }
+     
+   if ((cf1 < 0) && (cf2 < 0))
+     { return (short) round((((cf1 + cf2) * 100.0) + (cf1 * cf2)) / 100.0); }
+   
+   if (cf1 + cf2 == 0)
+     { return 0; }
+
+   min = (abs(cf1) > abs(cf2)) ? abs(cf2) : abs(cf1);
+   
+   return (short) round(((cf1 + cf2) * 100.0) / (100.0 - min));
+  }
+#endif
 
 /*******************************************/
 /* GetFactDuplication: C access routine    */
@@ -470,6 +787,246 @@ static void ResetFactHashTable(
     FactData(theEnv)->FactHashTable = newTable;
    }
 
+/**************************/
+/* AddNamedFactToHashMap: */
+/**************************/
+void AddNamedFactToHashMap(
+  Environment *theEnv,
+  Fact *theFact,
+  CLIPSLexeme *theName)
+  {
+   size_t theHashTableSize, spaceNeeded, theHashValue;
+   struct namedFactHashTableEntry *theEntry;
+   
+   if (! theFact->whichDeftemplate->named)
+     { return; }
+     
+   FactData(theEnv)->namedFactCount++;
+   
+   /*======================================*/
+   /* If no hash table exists, create one. */
+   /*======================================*/
+   
+   if (FactData(theEnv)->namedFactHashTableSize == 0)
+     {
+      theHashTableSize = IncreaseHashSize(FactData(theEnv)->namedFactHashTableSize,NAMED_FACT_INITIAL_HASH_TABLE_SIZE);
+      FactData(theEnv)->namedFactHashTableSize = theHashTableSize;
+      spaceNeeded = sizeof(struct namedFactHashTableEntry *) * theHashTableSize;
+      FactData(theEnv)->namedFactHashTable = (struct namedFactHashTableEntry **) gm2(theEnv,spaceNeeded);
+      memset(FactData(theEnv)->namedFactHashTable,0,spaceNeeded);
+     }
+   else
+     { theHashTableSize = FactData(theEnv)->namedFactHashTableSize; }
+   
+   /*===============================================*/
+   /* Add the new entry to the existing hash table. */
+   /*===============================================*/
+
+   theEntry = get_struct(theEnv,namedFactHashTableEntry);
+   theEntry->item = theFact;
+   theEntry->name = theName;
+   RetainLexeme(theEnv,theName);
+   
+   theHashValue = theEntry->name->hv % theHashTableSize;
+
+   theEntry->next = FactData(theEnv)->namedFactHashTable[theHashValue];
+   FactData(theEnv)->namedFactHashTable[theHashValue] = theEntry;
+
+   /*=====================================================*/
+   /* If the number of entries is within the load factor, */
+   /* then the hash table doesn't need to be resized.     */
+   /*=====================================================*/
+   
+   if (FactData(theEnv)->namedFactCount < (theHashTableSize * NAMED_FACT_HASH_TABLE_LOAD_FACTOR))
+     { return; }
+
+   /*=============================*/
+   /* Create a larger hash table. */
+   /*=============================*/
+   
+   theHashTableSize = IncreaseHashSize(FactData(theEnv)->namedFactHashTableSize,NAMED_FACT_INITIAL_HASH_TABLE_SIZE);
+   UpdateHashMapSize(theEnv,theHashTableSize);
+  }
+
+/*******************************/
+/* RemoveNamedFactFromHashMap: */
+/*******************************/
+void RemoveNamedFactFromHashMap(
+  Environment *theEnv,
+  CLIPSLexeme *compareName)
+  {
+   size_t theHashTableSize, spaceNeeded, theHashValue;
+   struct namedFactHashTableEntry *theEntry, *lastEntry = NULL;
+   Fact *theFact;
+   bool found = false;
+   CLIPSLexeme *theName;
+   short namePosition;
+
+   if (FactData(theEnv)->namedFactHashTable == NULL)
+     { return; }
+     
+   /*==================================*/
+   /* Remove the item from hash table. */
+   /*==================================*/
+   
+   theHashValue = HashSymbol(compareName->contents,FactData(theEnv)->namedFactHashTableSize);
+   
+   for (theEntry = FactData(theEnv)->namedFactHashTable[theHashValue];
+        theEntry != NULL;
+        theEntry = theEntry->next)
+     {
+      theFact = theEntry->item;
+      
+      if (theFact->whichDeftemplate->cfd)
+        { namePosition = 1; }
+      else
+        { namePosition = 0; }
+        
+      theName = theFact->theProposition.contents[namePosition].lexemeValue;
+      
+      if (theName == compareName)
+        {
+         ReleaseLexeme(theEnv,theName);
+         
+         if (lastEntry == NULL)
+           { FactData(theEnv)->namedFactHashTable[theHashValue] = theEntry->next; }
+         else
+           { lastEntry->next = theEntry->next; }
+           
+         FactData(theEnv)->namedFactCount--;
+         found = true;
+         rtn_struct(theEnv,namedFactHashTableEntry,theEntry);
+         break;
+        }
+        
+      lastEntry = theEntry;
+     }
+   
+   if (! found)
+     { return; }
+
+   /*=====================================================*/
+   /* If the number of entries is within the load factor, */
+   /* then the hash table doesn't need to be resized.     */
+   /*=====================================================*/
+
+   if (FactData(theEnv)->namedFactCount > (FactData(theEnv)->namedFactHashTableSize / NAMED_FACT_HASH_TABLE_LOAD_FACTOR))
+     { return; }
+
+   /*=============================================*/
+   /* If no items remain, release the hash table. */
+   /*=============================================*/
+
+   if (FactData(theEnv)->namedFactCount == 0)
+     {
+      spaceNeeded = sizeof(struct namedFactHashTableEntry *) * FactData(theEnv)->namedFactHashTableSize;
+      rm(theEnv,FactData(theEnv)->namedFactHashTable,spaceNeeded);
+      FactData(theEnv)->namedFactHashTableSize = 0;
+      FactData(theEnv)->namedFactHashTable = NULL;
+      return;
+     }
+  
+   /*==============================*/
+   /* Create a smaller hash table. */
+   /*==============================*/
+   
+   theHashTableSize = DecreaseHashSize(FactData(theEnv)->namedFactHashTableSize);
+   UpdateHashMapSize(theEnv,theHashTableSize);
+  }
+
+/*****************************************/
+/* LookupFact: Finds a fact by searching */
+/*   for it in the hashmap.              */
+/*****************************************/
+Fact *LookupFact(
+  Environment *theEnv,
+  CLIPSLexeme *factName)
+  {
+   size_t theHashValue;
+   struct namedFactHashTableEntry *theEntry;
+     
+   if (FactData(theEnv)->namedFactCount == 0)
+     { return NULL; }
+
+   theHashValue = factName->hv % FactData(theEnv)->namedFactHashTableSize;
+        
+   for (theEntry = FactData(theEnv)->namedFactHashTable[theHashValue];
+        theEntry != NULL;
+        theEntry = theEntry->next)
+     {
+      if (theEntry->name == factName)
+        { return theEntry->item; }
+     }
+
+   return NULL;
+  }
+  
+/**********************/
+/* UpdateHashMapSize: */
+/**********************/
+static void UpdateHashMapSize(
+  Environment *theEnv,
+  size_t newHashTableSize)
+  {
+   size_t spaceNeeded;
+   struct namedFactHashTableEntry **newHashTable;
+   
+   /*============================*/
+   /* Create the new hash table. */
+   /*============================*/
+   
+   spaceNeeded = sizeof(struct namedFactHashTableEntry *) * newHashTableSize;
+   newHashTable = (struct namedFactHashTableEntry **) gm2(theEnv,spaceNeeded);
+   memset(newHashTable,0,spaceNeeded);
+
+   /*===================================*/
+   /* Copy the values from the old hash */
+   /* table to the new hash table.      */
+   /*===================================*/
+   
+   RehashValues(FactData(theEnv)->namedFactHashTable,FactData(theEnv)->namedFactHashTableSize,newHashTable,newHashTableSize);
+
+   /*===========================*/
+   /* Delete the old hash table */
+   /* and install the new one.  */
+   /*===========================*/
+   
+   spaceNeeded = sizeof(struct namedFactHashTableEntry *) * FactData(theEnv)->namedFactHashTableSize;
+   rm(theEnv,FactData(theEnv)->namedFactHashTable,spaceNeeded);
+   
+   FactData(theEnv)->namedFactHashTable = newHashTable;
+   FactData(theEnv)->namedFactHashTableSize = newHashTableSize;
+  }
+  
+/*****************************************/
+/* RehashValues: Copies hash values from */
+/*    one hash table to another.         */
+/*****************************************/
+static void RehashValues(
+  struct namedFactHashTableEntry **oldHashTable,
+  size_t oldHashTableSize,
+  struct namedFactHashTableEntry **newHashTable,
+  size_t newHashTableSize)
+  {
+   size_t i, theHashValue;
+   struct namedFactHashTableEntry *theEntry;
+
+   for (i = 0; i < oldHashTableSize; i++)
+     {
+      theEntry = oldHashTable[i];
+      while (theEntry != NULL)
+        {
+         oldHashTable[i] = theEntry->next;
+         
+         theHashValue = theEntry->name->hv % newHashTableSize;
+         theEntry->next = newHashTable[theHashValue];
+         newHashTable[theHashValue] = theEntry;
+         
+         theEntry = oldHashTable[i];
+        }
+     }
+  }
+
 #if DEVELOPER
 
 /****************************************************/
@@ -499,7 +1056,7 @@ void ShowFactHashTableCommand(
 
       if ((factCount != 0) || (goalCount != 0))
         {
-         gensnprintf(buffer,sizeof(buffer),"%5lu: f %4d   g %4d\n",i,factCount,goalCount);
+         snprintf(buffer,sizeof(buffer),"%5lu: f %4lu   g %4lu\n",i,factCount,goalCount);
          WriteString(theEnv,STDOUT,buffer);
         }
      }

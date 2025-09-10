@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  11/01/16            */
+   /*             CLIPS Version 7.00  07/03/24            */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -14,32 +14,32 @@
 /*                                                           */
 /* Contributing Programmer(s):                               */
 /*                                                           */
-/* Revision History:                                          */
-/*                                                            */
-/*      6.23: Correction for FalseSymbol/TrueSymbol. DR0859   */
-/*                                                            */
-/*            Changed name of variable log to logName         */
-/*            because of Unix compiler warnings of shadowed   */
-/*            definitions.                                    */
-/*                                                            */
-/*      6.24: Renamed BOOLEAN macro type to intBool.          */
-/*                                                            */
-/*            Added pragmas to remove compilation warnings.   */
-/*                                                            */
-/*      6.30: Updated ENTITY_RECORD definitions to include    */
-/*            additional NULL initializers.                   */
-/*                                                            */
-/*            Added ReleaseProcParameters call.               */
-/*                                                            */
-/*            Added tracked memory calls.                     */
-/*                                                            */
-/*            Removed conditional code for unsupported        */
-/*            compilers/operating systems (IBM_MCW,           */
-/*            MAC_MCW, and IBM_TBC).                          */
-/*                                                            */
-/*            Added const qualifiers to remove C++            */
-/*            deprecation warnings.                           */
-/*                                                            */
+/* Revision History:                                         */
+/*                                                           */
+/*      6.23: Correction for FalseSymbol/TrueSymbol. DR0859  */
+/*                                                           */
+/*            Changed name of variable log to logName        */
+/*            because of Unix compiler warnings of shadowed  */
+/*            definitions.                                   */
+/*                                                           */
+/*      6.24: Renamed BOOLEAN macro type to intBool.         */
+/*                                                           */
+/*            Added pragmas to remove compilation warnings.  */
+/*                                                           */
+/*      6.30: Updated ENTITY_RECORD definitions to include   */
+/*            additional NULL initializers.                  */
+/*                                                           */
+/*            Added ReleaseProcParameters call.              */
+/*                                                           */
+/*            Added tracked memory calls.                    */
+/*                                                           */
+/*            Removed conditional code for unsupported       */
+/*            compilers/operating systems (IBM_MCW,          */
+/*            MAC_MCW, and IBM_TBC).                         */
+/*                                                           */
+/*            Added const qualifiers to remove C++           */
+/*            deprecation warnings.                          */
+/*                                                           */
 /*      6.40: Removed LOCALE definition.                     */
 /*                                                           */
 /*            Pragma once and other inclusion changes.       */
@@ -50,6 +50,9 @@
 /*            data structures.                               */
 /*                                                           */
 /*            UDF redesign.                                  */
+/*                                                           */
+/*      7.00: Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
 /*                                                           */
 /*************************************************************/
 
@@ -140,6 +143,11 @@ struct proceduralPrimitiveData
                                                       UDFValue *,void (*)(Environment *,const char *));
    void                           PrintProcParamArray(Environment *,const char *);
    void                           GrabProcWildargs(Environment *,UDFValue *,unsigned int);
+   
+   
+   bool                           ReplaceProcBinds(Environment *,Expression *,
+                                                   int (*)(Environment *,Expression *,void *),void *);
+   int                            BindSlotReferenceDefault(Environment *,Expression *,void *);
 
 #endif /* _H_prccode */
 

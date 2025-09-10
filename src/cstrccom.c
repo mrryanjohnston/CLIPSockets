@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/22/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*              CONSTRUCT COMMANDS MODULE              */
    /*******************************************************/
@@ -351,7 +351,7 @@ void UndefconstructCommand(
    /* Get the name of the construct to be deleted. */
    /*==============================================*/
 
-   gensnprintf(buffer,sizeof(buffer),"%s name",constructClass->constructName);
+   snprintf(buffer,sizeof(buffer),"%s name",constructClass->constructName);
 
    constructName = GetConstructName(context,command,buffer);
    if (constructName == NULL) return;
@@ -412,7 +412,7 @@ void PPConstructCommand(
    /* to be "pretty printed."       */
    /*===============================*/
 
-   gensnprintf(buffer,sizeof(buffer),"%s name",constructClass->constructName);
+   snprintf(buffer,sizeof(buffer),"%s name",constructClass->constructName);
 
    constructName = GetConstructName(context,command,buffer);
    if (constructName == NULL) return;
@@ -552,7 +552,7 @@ CLIPSLexeme *GetConstructModuleCommand(
    /* we want to determine its module.        */
    /*=========================================*/
 
-   gensnprintf(buffer,sizeof(buffer),"%s name",constructClass->constructName);
+   snprintf(buffer,sizeof(buffer),"%s name",constructClass->constructName);
 
    constructName = GetConstructName(context,command,buffer);
    if (constructName == NULL) return FalseSymbol(theEnv);

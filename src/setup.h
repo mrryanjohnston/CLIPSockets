@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  01/08/24            */
+   /*             CLIPS Version 7.00  06/11/24            */
    /*                                                     */
    /*                  SETUP HEADER FILE                  */
    /*******************************************************/
@@ -95,6 +95,8 @@
 /*      6.41: Added SYSTEM_FUNCTION compiler flag.           */
 /*                                                           */
 /*      7.00: Deftable construct added.                      */
+/*                                                           */
+/*            Support for certainty factors.                 */
 /*                                                           */
 /*************************************************************/
 
@@ -219,7 +221,21 @@
 
 #if ! DEFTEMPLATE_CONSTRUCT
 #undef FACT_SET_QUERIES
-#define FACT_SET_QUERIES        0
+#define FACT_SET_QUERIES 0
+#endif
+
+/**********************************************/
+/* CERTAINTY_FACTORS: Determines if certainty */
+/*   factors can be used with facts.          */
+/**********************************************/
+
+#ifndef CERTAINTY_FACTORS
+#define CERTAINTY_FACTORS 1
+#endif
+
+#if ! DEFTEMPLATE_CONSTRUCT
+#undef CERTAINTY_FACTORS
+#define CERTAINTY_FACTORS 0
 #endif
 
 /****************************************************/

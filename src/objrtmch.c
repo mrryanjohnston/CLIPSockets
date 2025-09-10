@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 6.41  07/12/21             */
+   /*            CLIPS Version 7.00  11/19/24             */
    /*                                                     */
    /*          OBJECT PATTERN MATCHER MODULE              */
    /*******************************************************/
@@ -1371,7 +1371,7 @@ static void ObjectRetractAction(
    struct patternMatch *prvMatch,*tmpMatch,
                        *deleteMatch,*lastDeleteMatch;
    OBJECT_ALPHA_NODE *alphaPtr;
-   void *saveDependents;
+   struct dependency *saveDependents;
 
    if (slotNameIDs == NULL)
      {

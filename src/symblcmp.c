@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  09/18/24             */
    /*                                                     */
    /*           SYMBOL_TYPE CONSTRUCT COMPILER MODULE          */
    /*******************************************************/
@@ -38,6 +38,8 @@
 /*                                                           */
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
+/*                                                           */
+/*      7.00: Hash value stored with lexemes.                */
 /*                                                           */
 /*************************************************************/
 
@@ -184,6 +186,7 @@ static unsigned int SymbolHashNodesToCode(
 
          fprintf(fp,"%ld,1,0,0,%ld,",hashPtr->count + 1,i);
          PrintCString(fp,hashPtr->contents);
+         fprintf(fp,",%zuU",hashPtr->hv);
 
          count++;
          j++;

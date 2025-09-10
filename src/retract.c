@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/13/24             */
+   /*            CLIPS Version 7.00  06/28/24             */
    /*                                                     */
    /*                   RETRACT MODULE                    */
    /*******************************************************/
@@ -150,8 +150,11 @@ void PosEntryRetractAlpha(
   struct partialMatch *alphaMatch,
   int operation)
   {
-   struct partialMatch *betaMatch, *tempMatch, *goalMatch;
+   struct partialMatch *betaMatch, *tempMatch;
    struct joinNode *joinPtr, *lastJoin;
+#if DEFTEMPLATE_CONSTRUCT
+   struct partialMatch *goalMatch;
+#endif
 
    betaMatch = alphaMatch->children;
    
@@ -210,6 +213,7 @@ void PosEntryRetractAlpha(
       betaMatch = tempMatch;
      }
 
+#if DEFTEMPLATE_CONSTRUCT
    if ((lastJoin != NULL) &&
        (lastJoin->firstJoin == true) &&
        (lastJoin->goalExpression != NULL))
@@ -219,6 +223,7 @@ void PosEntryRetractAlpha(
           (tempMatch->nextInMemory == NULL))
         { AttachGoal(theEnv,lastJoin,NULL,lastJoin->leftMemory->beta[0],true); }
      }
+#endif
   }
 
 /*************************/
@@ -350,9 +355,11 @@ void PosEntryRetractBeta(
       else
         { UnlinkNonLeftLineage(theEnv,(struct joinNode *) betaMatch->owner,betaMatch,LHS); }
 
+#if DEFTEMPLATE_CONSTRUCT
       if (betaMatch->goalMarker && (betaMatch->marker != NULL))
         { UpdateGoalSupport(theEnv,betaMatch,true); }
-        
+#endif
+
       if (betaMatch->dependents != NULL) RemoveLogicalSupport(theEnv,betaMatch);
       ReturnPartialMatch(theEnv,betaMatch);
 
@@ -624,7 +631,9 @@ void ReturnPartialMatch(
    /* associated with this partial match.   */
    /*=======================================*/
    
+#if DEFTEMPLATE_CONSTRUCT
    if (waste->goalMarker) UpdateGoalSupport(theEnv,waste,true);
+#endif
 
    /*==============================================*/
    /* If the partial match is in use, then put it  */

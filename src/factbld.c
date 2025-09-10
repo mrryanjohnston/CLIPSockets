@@ -35,7 +35,7 @@
 /*                                                           */
 /*            Removed initial-fact support.                  */
 /*                                                           */
-/*      6.50: Data driven backward chaining.                 */
+/*      7.00: Data driven backward chaining.                 */
 /*                                                           */
 /*            Deftemplate inheritance.                       */
 /*                                                           */
@@ -548,7 +548,7 @@ static void RemoveGoalExpressions(
               {
                if (theJoin->leftMemory->beta[0]->goalMarker)
                  { UpdateGoalSupport(theEnv,theJoin->leftMemory->beta[0],false); }
-                 
+
                ReturnPartialMatch(theEnv,theJoin->leftMemory->beta[0]);
                
                genfree(theEnv,theJoin->leftMemory->beta,sizeof(struct partialMatch *) * theJoin->leftMemory->size);

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  12/24/23             */
+   /*            CLIPS Version 7.00  09/18/24             */
    /*                                                     */
    /*                 SYMBOL BSAVE MODULE                 */
    /*******************************************************/
@@ -35,7 +35,7 @@
 
 #include "setup.h"
 
-#if BLOAD || BLOAD_ONLY || BLOAD_AND_BSAVE || BLOAD_INSTANCES || BSAVE_INSTANCES
+#if BLOAD || BLOAD_ONLY || BLOAD_AND_BSAVE || BLOAD_INSTANCES || BSAVE_INSTANCES || DEFTEMPLATE_CONSTRUCT
 
 #include "argacces.h"
 #include "bload.h"
@@ -54,11 +54,11 @@
 /***************************************/
 
    static void                        ReadNeededBitMaps(Environment *);
-#if BLOAD_AND_BSAVE || BSAVE_INSTANCES
+#if BLOAD_AND_BSAVE || BSAVE_INSTANCES || DEFTEMPLATE_CONSTRUCT
    static void                        WriteNeededBitMaps(Environment *,FILE *);
 #endif
 
-#if BLOAD_AND_BSAVE || BSAVE_INSTANCES
+#if BLOAD_AND_BSAVE || BSAVE_INSTANCES || DEFTEMPLATE_CONSTRUCT
 
 /**********************************************/
 /* WriteNeededAtomicValues: Save all symbols, */

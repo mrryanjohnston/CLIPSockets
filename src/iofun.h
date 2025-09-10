@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 6.40  07/05/18            */
+   /*             CLIPS Version 6.42  01/05/25            */
    /*                                                     */
    /*               I/O FUNCTIONS HEADER FILE             */
    /*******************************************************/
@@ -74,6 +74,8 @@
 /*            Added flush, rewind, tell, seek, and chdir     */
 /*            functions.                                     */
 /*                                                           */
+/*      6.42: Added with-open-file function.                 */
+/*                                                           */
 /*************************************************************/
 
 #ifndef _H_iofun
@@ -105,6 +107,7 @@
    void                           RenameFunction(Environment *,UDFContext *,UDFValue *);
    void                           SetLocaleFunction(Environment *,UDFContext *,UDFValue *);
    void                           ReadNumberFunction(Environment *,UDFContext *,UDFValue *);
+   void                           WithOpenFileFunction(Environment *,UDFContext *,UDFValue *);
 #endif
 
 #endif /* _H_iofun */

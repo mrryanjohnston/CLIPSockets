@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -59,6 +59,10 @@
 /*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
 /*                                                           */
+/*            Generic function support for deftemplates.     */
+/*                                                           */
+/*            Support for named facts.                       */
+/*                                                           */
 /*************************************************************/
 
 /* =========================================
@@ -77,6 +81,10 @@
 #if OBJECT_SYSTEM
 #include "classcom.h"
 #include "classfun.h"
+#endif
+
+#if DEFTEMPLATE_CONSTRUCT
+#include "tmpltdef.h"
 #endif
 
 #include "argacces.h"
@@ -467,14 +475,28 @@ void DeleteMethodInfo(
       rptr = &meth->restrictions[j];
 
       for (k = 0 ; k < rptr->tcnt ; k++)
+        {
+         switch (rptr->types[k].type)
+           {
 #if OBJECT_SYSTEM
-        DecrementDefclassBusyCount(theEnv,(Defclass *) rptr->types[k]);
+            case DEFCLASS_PTR:
+              DecrementDefclassBusyCount(theEnv,rptr->types[k].theClass);
+              break;
 #else
-        ReleaseInteger(theEnv,(CLIPSInteger *) rptr->types[k]);
+            case INTEGER_TYPE:
+              ReleaseInteger(theEnv,rptr->types[k].theInteger);
+              break;
 #endif
 
+#if DEFTEMPLATE_CONSTRUCT
+            case DEFTEMPLATE_PTR:
+              DecrementDeftemplateBusyCount(theEnv,rptr->types[k].theTemplate);
+              break;
+#endif
+           }
+        }
       if (rptr->types != NULL)
-        rm(theEnv,rptr->types,(sizeof(void *) * rptr->tcnt));
+        rm(theEnv,rptr->types,(sizeof(struct restrictionType) * rptr->tcnt));
       ExpressionDeinstall(theEnv,rptr->query);
       ReturnPackedExpression(theEnv,rptr->query);
      }
@@ -516,7 +538,7 @@ void DestroyMethodInfo(
       rptr = &meth->restrictions[j];
 
       if (rptr->types != NULL)
-        rm(theEnv,rptr->types,(sizeof(void *) * rptr->tcnt));
+        rm(theEnv,rptr->types,(sizeof(struct restrictionType) * rptr->tcnt));
       ReturnPackedExpression(theEnv,rptr->query);
      }
 
@@ -637,7 +659,7 @@ void PrintMethod(
    SBReset(theSB);
    if (meth->system)
      SBAppend(theSB,"SYS");
-   gensnprintf(numbuf,sizeof(numbuf),"%-2hu ",meth->index);
+   snprintf(numbuf,sizeof(numbuf),"%-2hu ",meth->index);
    SBAppend(theSB,numbuf);
    for (j = 0 ; j < meth->restrictionCount ; j++)
      {
@@ -655,11 +677,24 @@ void PrintMethod(
         SBAppend(theSB,"(");
       for (k = 0 ; k < rptr->tcnt ; k++)
         {
+         switch (rptr->types[k].type)
+           {
 #if OBJECT_SYSTEM
-         SBAppend(theSB,DefclassName((Defclass *) rptr->types[k]));
+            case DEFCLASS_PTR:
+              SBAppend(theSB,DefclassName(rptr->types[k].theClass));
+              break;
 #else
-         SBAppend(theSB,TypeName(theEnv,((CLIPSInteger *) rptr->types[k])->contents));
+            case INTEGER_TYPE:
+              SBAppend(theSB,TypeName(theEnv,rptr->types[k].theInteger->contents));
+              break;
 #endif
+#if DEFTEMPLATE_CONSTRUCT
+            case DEFTEMPLATE_PTR:
+              SBAppend(theSB,DeftemplateName(rptr->types[k].theTemplate));
+              break;
+#endif
+           
+           }
          if ((k + 1) < rptr->tcnt)
            SBAppend(theSB," ");
         }

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/22/24             */
+   /*            CLIPS Version 7.00  01/29/25             */
    /*                                                     */
    /*                 RULE PARSING MODULE                 */
    /*******************************************************/
@@ -46,13 +46,18 @@
 /*            Removed use of void pointers for specific      */
 /*            data structures.                               */
 /*                                                           */
-/*      6.41: Used gensnprintf in place of gensprintf and.   */
+/*      6.41: Used gensnprintf in place of gensprintf and    */
 /*            sprintf.                                       */
 /*                                                           */
 /*      6.42: DumpRuleAnalysis was incorrectly using         */
 /*            gensprintf instead of gensnprintf.             */
 /*                                                           */
 /*      7.00: Support for non-reactive fact patterns.        */
+/*                                                           */
+/*            Support for certainty factors.                 */
+/*                                                           */
+/*            Support for ?var:slot references to facts in   */
+/*            methods and rule actions.                      */
 /*                                                           */
 /*************************************************************/
 
@@ -94,7 +99,10 @@
 #include "lgcldpnd.h"
 
 #if DEFTEMPLATE_CONSTRUCT
+#include "factgen.h"
 #include "tmpltfun.h"
+#include "tmpltpsr.h"
+#include "tmpltutl.h"
 #endif
 
 #if BLOAD || BLOAD_ONLY || BLOAD_AND_BSAVE
@@ -117,6 +125,7 @@
    static unsigned short          ExpressionComplexity(Environment *,struct expr *);
    static int                     LogicalAnalysis(Environment *,struct lhsParseNode *);
    static void                    AddToDefruleList(Defrule *);
+   static bool                    UpdateModifyDuplicate(Environment *,struct expr *,const char *,struct lhsParseNode *);
 #endif
 
 /****************************************************/
@@ -399,6 +408,15 @@ static Defrule *ProcessRuleLHS(
       /*=================================================*/
 
       newActions = CopyExpression(theEnv,actions);
+
+      if (ReplaceProcBinds(theEnv,newActions,BindSlotReferenceDefault,NULL))
+        {
+         *error = true;
+         ReturnDefrule(theEnv,topDisjunct);
+         ReturnExpression(theEnv,newActions);
+         return NULL;
+        }
+
       if (ReplaceProcVars(theEnv,"RHS of defrule",newActions,NULL,NULL,
                           ReplaceRHSVariable,tempNode))
         {
@@ -469,8 +487,8 @@ static Defrule *ProcessRuleLHS(
       /* and put it in the list of disjuncts for this rule.  */
       /*=====================================================*/
 
-      currentDisjunct = CreateNewDisjunct(theEnv,ruleName,localVarCnt,packPtr,complexity,
-                                          (unsigned) logicalJoin,lastJoin);
+      currentDisjunct = CreateNewDisjunct(theEnv,ruleName,localVarCnt,packPtr,
+                                          complexity,(unsigned) logicalJoin,lastJoin);
 
       /*============================================================*/
       /* Place the disjunct in the list of disjuncts for this rule. */
@@ -542,6 +560,7 @@ static Defrule *CreateNewDisjunct(
    newDisjunct->autoFocus = PatternData(theEnv)->GlobalAutoFocus;
    newDisjunct->dynamicSalience = PatternData(theEnv)->SalienceExpression;
    newDisjunct->localVarCnt = localVarCnt;
+   newDisjunct->certainty = PatternData(theEnv)->GlobalCertainty;
 
    /*=====================================*/
    /* Add a pointer to the rule's module. */
@@ -580,14 +599,14 @@ static Defrule *CreateNewDisjunct(
    return(newDisjunct);
   }
 
-/****************************************************************/
-/* ReplaceExpressionVariables: Replaces all symbolic references */
-/*   to variables (local and global) found in an expression on  */
-/*   the RHS of a rule with expressions containing function     */
-/*   calls to retrieve the variable's value. Makes the final    */
-/*   modifications necessary for handling the modify and        */
-/*   duplicate commands.                                        */
-/****************************************************************/
+/*************************************************************/
+/* ReplaceRHSVariable: Replaces all symbolic references to   */
+/*   variables (local and global) found in an expression on  */
+/*   the RHS of a rule with expressions containing function  */
+/*   calls to retrieve the variable's value. Makes the final */
+/*   modifications necessary for handling the modify and     */
+/*   duplicate commands.                                     */
+/*************************************************************/
 static int ReplaceRHSVariable(
   Environment *theEnv,
   struct expr *list,
@@ -595,6 +614,7 @@ static int ReplaceRHSVariable(
   {
    struct lhsParseNode *theVariable;
    struct lhsParseNode *theLHS = (struct lhsParseNode *) vTheLHS;
+   int factSlotReference;
 
    /*=======================================*/
    /* Handle modify and duplicate commands. */
@@ -627,6 +647,19 @@ static int ReplaceRHSVariable(
    if ((list->type != SF_VARIABLE) && (list->type != MF_VARIABLE))
      { return 0; }
 
+   /*==================================*/
+   /* Check for a ?var:slot reference. */
+   /*==================================*/
+
+#if DEFTEMPLATE_CONSTRUCT
+   factSlotReference = RuleFactSlotReferenceVar(theEnv,list,theLHS);
+
+   if (factSlotReference == 1)
+     { return 1; }
+   else if (factSlotReference == -1)
+     { return -1; }
+#endif
+
    /*===============================================================*/
    /* Check to see if the variable is bound on the LHS of the rule. */
    /*===============================================================*/
@@ -649,6 +682,155 @@ static int ReplaceRHSVariable(
    /*==============================================================*/
 
    return 1;
+  }
+
+/***************************************************************/
+/* UpdateModifyDuplicate: Changes the modify/duplicate command */
+/*   found on the RHS of a rule such that the positions of the */
+/*   slots for replacement are stored rather than the slot     */
+/*   name which allows quicker replacement of slots. This      */
+/*   substitution can only take place when the deftemplate     */
+/*   type is known (i.e. if a fact-index is used you don't     */
+/*   know which type of deftemplate is going to be replaced    */
+/*   until you actually do the replacement of slots).          */
+/***************************************************************/
+static bool UpdateModifyDuplicate(
+  Environment *theEnv,
+  struct expr *top,
+  const char *name,
+  struct lhsParseNode *theLHS)
+  {
+   struct expr *functionArgs, *tempArg, *slotArg, *oldArg;
+   CLIPSLexeme *templateName;
+   Deftemplate *theDeftemplate;
+   struct templateSlot *slotPtr;
+
+   /*========================================*/
+   /* Determine the fact-address or index to */
+   /* be retracted by the modify command.    */
+   /*========================================*/
+
+   functionArgs = top->argList;
+   if (functionArgs->type == SF_VARIABLE)
+     {
+      if (SearchParsedBindNames(theEnv,functionArgs->lexemeValue) != 0)
+        { return true; }
+      templateName = FindTemplateForFactAddress(functionArgs->lexemeValue,theLHS);
+      if (templateName == NULL) return true;
+     }
+   else
+     { return true; }
+
+   /*========================================*/
+   /* Make sure that the fact being modified */
+   /* has a corresponding deftemplate.       */
+   /*========================================*/
+
+   theDeftemplate = (Deftemplate *)
+                    LookupConstruct(theEnv,DeftemplateData(theEnv)->DeftemplateConstruct,
+                                    templateName->contents,
+                                    false);
+
+   if (theDeftemplate == NULL) return true;
+
+   if (theDeftemplate->implied) return true;
+
+   /*=============================================================*/
+   /* Make sure all the slot names are valid for the deftemplate. */
+   /*=============================================================*/
+
+   tempArg = functionArgs->nextArg;
+   while (tempArg != NULL)
+     {
+      /*=======================================================*/
+      /* If the slot name is a variable or function call, then */
+      /* we can't make any determinations for this argument.   */
+      /*=======================================================*/
+      
+      if (tempArg->type != SYMBOL_TYPE)
+      
+        {
+         tempArg = tempArg->nextArg->nextArg;
+         continue;
+        }
+        
+      /*======================*/
+      /* Does the slot exist? */
+      /*======================*/
+
+      if ((slotPtr = FindSlot(theDeftemplate,tempArg->lexemeValue,NULL)) == NULL)
+        {
+         InvalidDeftemplateSlotMessage(theEnv,tempArg->lexemeValue->contents,
+                                       theDeftemplate->header.name->contents,true);
+         return false;
+        }
+        
+      /*===========================================*/
+      /* The new slot value follows the slot name. */
+      /*===========================================*/
+      
+      slotArg = tempArg;
+      tempArg = tempArg->nextArg;
+      
+      /*=========================================================*/
+      /* Is a multifield value being put in a single field slot? */
+      /*=========================================================*/
+
+      if (slotPtr->multislot == false)
+        {
+         if (tempArg->type == FCALL)
+           {
+            if ((ExpressionUnknownFunctionType(tempArg) & SINGLEFIELD_BITS) == 0)
+              {
+               SingleFieldSlotCardinalityError(theEnv,slotPtr->slotName->contents);
+               return false;
+              }
+           }
+         else if (tempArg->type == MF_VARIABLE)
+           {
+            SingleFieldSlotCardinalityError(theEnv,slotPtr->slotName->contents);
+            return false;
+           }
+        }
+
+      /*======================================*/
+      /* Are the slot restrictions satisfied? */
+      /*======================================*/
+
+      oldArg = tempArg->nextArg;
+      tempArg->nextArg = NULL;
+      if (CheckRHSSlotTypes(theEnv,tempArg,slotPtr,name) == 0)
+        {
+         tempArg->nextArg = oldArg;
+         return false;
+        }
+      tempArg->nextArg = oldArg;
+              
+      /*=====================================*/
+      /* If the name slot is a symbol, check */
+      /* that it begins with an @ character. */
+      /*=====================================*/
+      
+      if ((theDeftemplate->named) &&
+          (strcmp(slotPtr->slotName->contents,TEMPLATE_NAME_STRING) == 0) &&
+          (tempArg->type == SYMBOL_TYPE) &&
+          (tempArg->lexemeValue->contents[0] != '@'))
+        {
+         InvalidFactNameError(theEnv);
+         return false;
+        }
+        
+      /*=============================================*/
+      /* Replace the slot with the integer position. */
+      /*=============================================*/
+
+      slotArg->type = INTEGER_TYPE;
+      slotArg->value = CreateInteger(theEnv,(long long) (FindSlotPosition(theDeftemplate,slotArg->lexemeValue) - 1));
+
+      tempArg = tempArg->nextArg;
+     }
+
+   return true;
   }
 
 /*******************************************************/
@@ -1023,9 +1205,9 @@ void DumpRuleAnalysis(
    for (traceNode = tempNode; traceNode != NULL; traceNode = traceNode->bottom)
      {
       if (traceNode->userCE)
-        { gensnprintf(buffer,sizeof(buffer),"UCE %2d (%2d %2d): ",traceNode->whichCE,traceNode->beginNandDepth,traceNode->endNandDepth); }
+        { snprintf(buffer,sizeof(buffer),"UCE %2d (%2d %2d): ",traceNode->whichCE,traceNode->beginNandDepth,traceNode->endNandDepth); }
       else
-        { gensnprintf(buffer,sizeof(buffer),"SCE %2d (%2d %2d): ",traceNode->whichCE,traceNode->beginNandDepth,traceNode->endNandDepth); }
+        { snprintf(buffer,sizeof(buffer),"SCE %2d (%2d %2d): ",traceNode->whichCE,traceNode->beginNandDepth,traceNode->endNandDepth); }
 
       WriteString(theEnv,STDOUT,buffer);
 

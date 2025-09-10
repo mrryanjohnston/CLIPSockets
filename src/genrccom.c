@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  05/10/24             */
+   /*            CLIPS Version 7.00  07/16/25             */
    /*                                                     */
    /*                                                     */
    /*******************************************************/
@@ -74,7 +74,12 @@
 /*      6.42: Bug fix for watching methods with a specific   */
 /*            method index.                                  */
 /*                                                           */
+/*      6.43: Fixed NULL pointer reference issue in          */
+/*            GetNextConstructItem calls.                    */
+/*                                                           */
 /*      7.00: Construct hashing for quick lookup.            */
+/*                                                           */
+/*            Generic function support for deftemplates.     */
 /*                                                           */
 /*************************************************************/
 
@@ -338,6 +343,8 @@ static void DeallocateDefgenericData(
                       GetModuleItem(theEnv,theModule,
                                     DefgenericData(theEnv)->DefgenericModuleIndex);
 
+      ClearDefmoduleHashMap(theEnv,&theModuleItem->header);
+
       rtn_struct(theEnv,defgenericModule,theModuleItem);
      }
 #else
@@ -467,7 +474,14 @@ Defgeneric *GetNextDefgeneric(
   Environment *theEnv,
   Defgeneric *theDefgeneric)
   {
-   return (Defgeneric *) GetNextConstructItem(theEnv,&theDefgeneric->header,DefgenericData(theEnv)->DefgenericModuleIndex);
+   ConstructHeader *theHeader;
+   
+   if (theDefgeneric == NULL)
+     { theHeader = NULL; }
+   else
+     { theHeader = &theDefgeneric->header; }
+
+   return (Defgeneric *) GetNextConstructItem(theEnv,theHeader,DefgenericData(theEnv)->DefgenericModuleIndex);
   }
 
 /***********************************************************
@@ -1396,11 +1410,24 @@ void GetMethodRestrictions(
       theList->contents[roffset++].integerValue = CreateInteger(theEnv,(long long) rptr->tcnt);
       for (j = 0 ; j < rptr->tcnt ; j++)
         {
+         switch(rptr->types[j].type)
+           {
 #if OBJECT_SYSTEM
-         theList->contents[roffset++].lexemeValue = CreateSymbol(theEnv,DefclassName((Defclass *) rptr->types[j]));
+            case DEFCLASS_PTR:
+              theList->contents[roffset++].lexemeValue = CreateSymbol(theEnv,DefclassName(rptr->types[j].theClass));
+              break;
 #else
-         theList->contents[roffset++].lexemeValue = CreateSymbol(theEnv,TypeName(theEnv,((CLIPSInteger *) rptr->types[j])->contents));
+            case INTEGER_TYPE:
+              theList->contents[roffset++].lexemeValue = CreateSymbol(theEnv,TypeName(theEnv,rptr->types[j].theInteger->contents));
+              break;
 #endif
+
+#if DEFTEMPLATE_CONSTRUCT
+            case DEFTEMPLATE_PTR:
+              theList->contents[roffset++].lexemeValue = CreateSymbol(theEnv,DeftemplateName(rptr->types[j].theTemplate));
+              break;
+#endif
+           }
         }
      }
   }

@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*            CLIPS Version 7.00  01/23/24             */
+   /*            CLIPS Version 7.00  06/28/24             */
    /*                                                     */
    /*                    DRIVE MODULE                     */
    /*******************************************************/
@@ -301,9 +301,10 @@ void NetworkAssertRight(
            }
          else
            {
+#if DEFTEMPLATE_CONSTRUCT
             if ((join->goalExpression != NULL) && lhsBinds->goalMarker)
               { UpdateGoalSupport(theEnv,lhsBinds,true); }
-
+#endif
             PPDrive(theEnv,lhsBinds,rhsBinds,join,operation);
            }
         }

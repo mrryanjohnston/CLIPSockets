@@ -1,7 +1,7 @@
    /*******************************************************/
    /*      "C" Language Integrated Production System      */
    /*                                                     */
-   /*             CLIPS Version 7.00  03/02/24            */
+   /*             CLIPS Version 7.00  11/19/24            */
    /*                                                     */
    /*                DEFMODULE HEADER FILE                */
    /*******************************************************/
@@ -56,6 +56,8 @@
 /*      7.00: Deftable construct added.                      */
 /*                                                           */
 /*            Construct hashing for quick lookup.            */
+/*                                                           */
+/*            Support for named facts.                       */
 /*                                                           */
 /*************************************************************/
 
@@ -133,16 +135,11 @@ struct defmoduleItemHeaderHM
    Defmodule *theModule;
    ConstructHeader *firstItem;
    ConstructHeader *lastItem;
-   size_t itemCount;
+   unsigned long itemCount;
    size_t hashTableSize;
    struct itemHashTableEntry **hashTable;
   };
   
-typedef ConstructHeader *FindConstructFunction(Environment *,const char *);
-typedef ConstructHeader *GetNextConstructFunction(Environment *,ConstructHeader *);
-typedef bool IsConstructDeletableFunction(ConstructHeader *);
-typedef bool DeleteConstructFunction(ConstructHeader *,Environment *);
-typedef void FreeConstructFunction(Environment *,ConstructHeader *);
 typedef ConstructHeader *LookupConstructFunction(Environment *,CLIPSLexeme *);
 
 /**********************************************************************/
@@ -305,6 +302,5 @@ struct defmoduleData
    void                           AddConstructToHashMap(Environment *theEnv,ConstructHeader *,struct defmoduleItemHeader *);
    Defmodule                     *LookupDefmodule(Environment *,CLIPSLexeme *);
    void                           AssignHashMapSize(Environment *,struct defmoduleItemHeaderHM *,size_t);
-   bool                           IsPrime(size_t);
 
 #endif /* _H_moduldef */
