@@ -65,7 +65,7 @@
 				&:(not (member$ 32 ?path))
 			32
 			$?HTTP10|$?HTTP11
-			$?rest))
+			$?rest 13 10))
 	(not (begin-client-directory-request ?c ?))
 	(not (served ?c))
 	=>
@@ -129,17 +129,14 @@
 	(printout ?name
 		"HTTP/1.1 200 OK" crlf "Content-Type: text/html" crlf crlf
 		"<!DOCTYPE html>"
-		"<html><head><link rel=\"stylesheet\" type=\"text/css\" href=\"/styles.css\" /></head><body><ul>"
-	)
-	(loop-for-count (?cnt 1 (length$ ?entries))
-		(bind ?entry (nth$ ?cnt ?entries))
+		"<html><head><link rel=\"stylesheet\" type=\"text/css\" href=\"/styles.css\" /></head><body><ul>")
+	(foreach ?entry ?entries
 		(if
 			(and
 				(neq . ?entry)
 				(neq .. ?entry))
 			then
-			(printout ?name "<li><a href=\"./" ?entry "\">" ?entry "</a></li>" crlf))
-	)
+			(printout ?name "<li><a href=\"./" ?entry "\">" ?entry "</a></li>" crlf)))
 	(printout ?name "</ul></body></html>")
 	(assert (served ?c)))
 

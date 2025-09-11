@@ -49,10 +49,7 @@
 		(client-waiting nil))
 	=>
 	;(println "[SERVER] Polling socket " ?bound "...")
-	(modify ?f
-		(current-time (time))
-		(client-waiting
-		(poll ?bound 0 POLLIN))))
+	(modify ?f (client-waiting (poll ?bound 0 POLLIN))))
 
 (defrule block-and-wait-indefinitely
 	"There is no waiting client, we don't have any clients waiting to be served"
@@ -60,8 +57,7 @@
 		(fd ?socketfd)
 		(listening TRUE)
 		(client-waiting FALSE)
-		(clients-connected 0)
-		(current-time ?currentTime))
+		(clients-connected 0))
 	=>
 	;(println "[SERVER] Waiting for connection... (ctrl+z and kill to exit)")
 	; setting this to 0 sets this back to waiting indefinitely
@@ -72,16 +68,17 @@
 	(fcntl-add-status-flags ?clientfd O_NONBLOCK)
 	(setsockopt ?clientfd IPPROTO_TCP TCP_NODELAY 1)
 
+	(modify ?f
+		(client-waiting nil)
+		(clients-connected 1)
+		(current-time ?time))
+
 	(assert (client
 	 	(socketfd ?socketfd)
 		(name (get-socket-logical-name ?clientfd))
 		(created-at ?time)
 		(delayed-until ?time)
-		(fd ?clientfd)))
-	(modify ?f
-		(client-waiting nil)
-		(clients-connected 1)
-		(current-time ?time)))
+		(fd ?clientfd))))
 
 (defrule accept-pending-client
 	"If a client is waiting to be accepted and we're below max threshold, accept them"
@@ -136,8 +133,7 @@
 	(bind ?time (time))
 	(modify ?f
 		(current-time ?time)
-		(client-waiting ?waiting))
-)
+		(client-waiting ?waiting)))
 
 (defrule could-not-accept-client
 	?f <- (socket
@@ -150,7 +146,7 @@
 	=>
 	;(println "[SERVER] Client failed to accepted")
 	(retract ?c)
-	(modify ?f (current-time (time))))
+	(modify ?f (current-time (time)) (clients-connected (- ?clientsConnected 1))))
 
 (defrule check-client-ready-to-read
 	?f <- (socket
@@ -174,9 +170,7 @@
 		(and (eq ?waiting TRUE) (= ?clientsConnected ?maxClients))))
 	=>
 	;(println "[SERVER] Check if client " ?name " is ready to be read...")
-	(modify ?c (ready-to-read
-		(poll ?name 0 POLLIN)))
-	(modify ?f (current-time (time))))
+	(modify ?c (ready-to-read (poll ?name 0 POLLIN))))
 
 (defrule failed-ready-to-read
 "Increase timeout counter for client who is not ready to read"
@@ -191,13 +185,14 @@
 		(fd ?clientfd)
 		(socketfd ?socketfd)
 		(name ?name&~nil)
-		(delayed-until ?delayedUntil&:(< ?delayedUntil ?currentTime))
+		(delayed-until ?delayedUntil&:(<= ?delayedUntil ?currentTime))
 		(delayed-until-increment ?delayedUntilIncrement)
 		(ready-to-read FALSE)
 		(timeouts ?timeouts)
 		(max-timeouts ?maxTimeouts&:(< ?timeouts ?maxTimeouts))
 		(max-life-time ?maxLifeTime)
-		(created-at ?createdAt&:(<= (- ?currentTime ?createdAt) ?maxLifeTime)))
+		(created-at ?createdAt&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
+		(raw-ascii-codes $?rawAsciiCodes&:(= 0 (length$ ?rawAsciiCodes))|:(<> 10 (nth$ (length$ ?rawAsciiCodes) ?rawAsciiCodes))))
 	(not (client (socketfd ?socketfd) (delayed-until ?d&:(> ?delayedUntil ?d))))
 	(test (or
 		(eq ?waiting FALSE)
@@ -205,14 +200,14 @@
 	=>
 	;(println "[SERVER] Client " ?name " failed to get ready to read before " ?timeout "ms")
 	(bind ?time (time))
+	(modify ?f (client-waiting nil) (current-time ?time))
 	(modify ?c
 		(ready-to-read nil)
 		(timeouts (+ 1 ?timeouts))
 		(delayed-until (+ ?time ?delayedUntilIncrement))
-		(delayed-until-increment (+ 0.001 ?delayedUntilIncrement)))
-	(modify ?f (client-waiting nil) (current-time ?time)))
+		(delayed-until-increment (+ 0.001 ?delayedUntilIncrement))))
 
-(defrule check-ready-to-write
+(defrule check-client-ready-to-write
 	?f <- (socket
 		(fd ?socketfd)
 		(listening TRUE)
@@ -249,7 +244,7 @@
 	?c <- (client
 		(fd ?clientfd)
 		(socketfd ?socketfd)
-		(delayed-until ?delayedUntil&:(< ?delayedUntil ?currentTime))
+		(delayed-until ?delayedUntil&:(<= ?delayedUntil ?currentTime))
 		(delayed-until-increment ?delayedUntilIncrement)
 		(name ?name&~nil)
 		(ready-to-read TRUE)
@@ -266,34 +261,6 @@
 	;(println "[SERVER] Client " ?name " failed to get ready to write before " ?timeout "ms")
 	(modify ?c
 		(ready-to-write nil)
-		(timeouts (+ 1 ?timeouts))
-		(delayed-until (+ ?time ?delayedUntilIncrement))
-		(delayed-until-increment (* 2 ?delayedUntilIncrement)))
-	(modify ?f
-		(client-waiting nil)
-		(current-time ?time)))
-
-(defrule got-eof-from-client-before-getting-line-feed
-	?f <- (socket
-		(fd ?sfd)
-		(current-time ?currentTime)
-		(clients-connected ?clientsConnected))
-	?c <- (client
-		(socketfd ?sfd)
-		(name ?name) 
-		(timeouts ?timeouts)
-		(delayed-until-increment ?delayedUntilIncrement)
-		(max-life-time ?maxLifeTime)
-		(max-timeouts ?maxTimeouts&:(< ?timeouts ?maxTimeouts))
-		(created-at ?createdAt&:(<= (- ?currentTime ?createdAt) ?maxLifeTime))
-		(raw-ascii-codes
-			$?rawAsciiCodes&:(eq ?rawAsciiCodes (create$))|:(<> 10 (nth$ (length$ ?rawAsciiCodes) ?rawAsciiCodes))
-			-1))
-	=>
-	(bind ?time (time))
-	;(println "[SERVER] Client " ?name " failed to send an END_OF_MESSAGE character (newline) before " ?timeout "ms")
-	(modify ?c
-		(raw-ascii-codes ?rawAsciiCodes)
 		(timeouts (+ 1 ?timeouts))
 		(delayed-until (+ ?time ?delayedUntilIncrement))
 		(delayed-until-increment (* 2 ?delayedUntilIncrement)))
@@ -327,8 +294,7 @@
 	(modify ?f
 		(current-time (time))
 		(client-waiting nil)
-		(clients-connected (- ?clientsConnected 1)))
-)
+		(clients-connected (- ?clientsConnected 1))))
 
 (defrule timeout-client
 "We timeout the client when the client's age is bigger than its maxLifeTime"
@@ -396,14 +362,12 @@
 	;(println "[SERVER] Client " ?name " is ready to be read!")
 	;(println "[SERVER] Setting client " ?name " to not buffered: " (set-not-buffered ?clientfd))
 	;(println "[SERVER] Reading client " ?name "...")
-	(bind ?time (time))
 	(set-not-buffered ?clientfd)
+	(bind ?char (get-char ?name))
 	(modify ?c
-		(delayed-until ?time)
-		(raw-ascii-codes (get-char ?name)))
-	(modify ?f
-		(client-waiting nil)
-		(current-time ?time)))
+		(delayed-until ?currentTime)
+		(ready-to-read (poll ?name 0 POLLIN))
+		(raw-ascii-codes ?char)))
 
 (defrule get-next-char-while-message-not-done
 "continue reading for a client"
@@ -443,11 +407,10 @@
 			(eq ?waiting TRUE)
 			(= ?clientsConnected ?maxClients))))
 	=>
+	(bind ?char (get-char ?name))
 	(modify ?c
-		(raw-ascii-codes ?rawAsciiCodes ?last
-			(get-char ?name)))
-	(modify ?f
-		(current-time (time))))
+		(ready-to-read (poll ?name 0 POLLIN))
+		(raw-ascii-codes ?rawAsciiCodes ?last ?char)))
 
 (defrule message-too-long
 "We disconnect a client when message is too long"
