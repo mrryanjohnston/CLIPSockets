@@ -40,14 +40,21 @@ A client that would connect to that server would look like this:
 CLIPS> (create-socket AF_INET SOCK_STREAM)
 3
 CLIPS> (connect 3 127.0.0.1 8889)
-127.0.0.1:8889
-CLIPS> (printout 127.0.0.1:8889 "Hello, server :)" crlf)
-CLIPS> (flush-connection 3) ; NOTE: 127.0.0.1:8889 would work here, too
+127.0.0.1:8889#3
+CLIPS> (printout 127.0.0.1:8889#3 "Hello, server :)" crlf)
+CLIPS> (flush-connection 3) ; NOTE: 127.0.0.1:8889#3 would work here, too
 TRUE
 ```
 
 You should see the message from the client in the previously mentioned server's rules engine
 when the client flushes their connection!
+
+The `#3` on the end of that name is the socket's file descriptor. `printout` and
+`readline` reach a socket only through its logical name, so each connection
+needs a name of its own: without the descriptor, every connection to
+`127.0.0.1:8889` would answer to the same name and all of them would end up
+reading and writing the same socket. Bind whatever `connect` hands back and use
+that, rather than writing the name out by hand.
 
 ## Immediate Purpose
 
@@ -355,6 +362,24 @@ Flushes the buffer to the recipient.
 Converts an integer representing a socket file descriptor
 to a symbol representing the name of the I/O router.
 Use this name to read and write to the socket.
+
+What the name looks like depends on how the socket got one. A socket bound with
+`(bind-socket)` is named for the address it is bound to, one returned by
+`(accept)` is named for the client that connected, and one returned by
+`(connect)` is named for the peer it reached with its own file descriptor
+appended:
+
+```
+CLIPS> (get-socket-logical-name 3)   ; a socket bound to 127.0.0.1:8889
+127.0.0.1:8889
+CLIPS> (get-socket-logical-name 4)   ; a client accepted on it
+127.0.0.1:42616
+CLIPS> (get-socket-logical-name 5)   ; a connection made out to 127.0.0.1:8889
+127.0.0.1:8889#5
+```
+
+Returns FALSE for a descriptor that is not a socket, and for a socket that has
+not been bound, connected or accepted yet -- until then it has no name.
 
 #### `(get-timeout ?socketfdOrLogicalName)`
 #### `(set-timeout ?socketfdOrLogicalName ?microseconds)`
