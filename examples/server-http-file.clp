@@ -26,12 +26,12 @@
 			$?rest))
 	=>
 	(printout ?name
-		"HTTP/1.1 200 OK" crlf "Content-Type: text/css" crlf crlf
+		"HTTP/1.1 200 OK" cr lf "Content-Type: text/css" cr lf cr lf
 	)
 	(open examples/server-http-file.css server-http-file.css)
 	(bind ?styles (readline server-http-file.css))
 	(while (neq EOF ?styles)
-		(printout ?name ?styles crlf)
+		(printout ?name ?styles cr lf)
 		(bind ?styles (readline server-http-file.css)))
 	(close server-http-file.css)
 	(flush-connection ?name)
@@ -113,11 +113,11 @@
 	(not (served ?c))
 	=>
 	(printout ?name
-		"HTTP/1.1 301 Moved Permanently" crlf "Content-Length: 0" crlf "Location: "
+		"HTTP/1.1 301 Moved Permanently" cr lf "Content-Length: 0" cr lf "Location: "
 	)
 	(loop-for-count (?cnt 1 (length$ ?path))
 		(format ?name "%c" (nth$ ?cnt ?path)))
-	(printout ?name "/" crlf crlf)
+	(printout ?name "/" cr lf cr lf)
 	(assert (served ?c)))
 
 (defrule display-directory
@@ -127,7 +127,7 @@
 	(not (served ?c))
 	=>
 	(printout ?name
-		"HTTP/1.1 200 OK" crlf "Content-Type: text/html" crlf crlf
+		"HTTP/1.1 200 OK" cr lf "Content-Type: text/html" cr lf cr lf
 		"<!DOCTYPE html>"
 		"<html><head><link rel=\"stylesheet\" type=\"text/css\" href=\"/styles.css\" /></head><body><ul>")
 	(foreach ?entry ?entries
@@ -136,7 +136,7 @@
 				(neq . ?entry)
 				(neq .. ?entry))
 			then
-			(printout ?name "<li><a href=\"./" ?entry "\">" ?entry "</a></li>" crlf)))
+			(printout ?name "<li><a href=\"./" ?entry "\">" ?entry "</a></li>" cr lf)))
 	(printout ?name "</ul></body></html>")
 	(assert (served ?c)))
 
@@ -148,11 +148,11 @@
 	(not (served ?c))
 	=>
 	(printout ?name
-		"HTTP/1.1 200 OK" crlf "Content-Type: " (mimetype ?filepath) crlf crlf
+		"HTTP/1.1 200 OK" cr lf "Content-Type: " (mimetype ?filepath) cr lf cr lf
 	)
 	(bind ?file-contents (readline ?filepath))
 	(while (neq EOF ?file-contents)
-		(printout ?name ?file-contents crlf)
+		(printout ?name ?file-contents cr lf)
 		(bind ?file-contents (readline ?filepath)))
 	(assert (served ?c)))
 
@@ -163,7 +163,7 @@
 	?f <- (file-exists FALSE ?path)
 	(not (served ?c))
 	=>
-	(printout ?name "HTTP/1.1 404 Not Found" crlf crlf)
+	(printout ?name "HTTP/1.1 404 Not Found" cr lf cr lf)
 	(assert (served ?c)))
 
 (defrule end-request

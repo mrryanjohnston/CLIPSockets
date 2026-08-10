@@ -1,3 +1,5 @@
+; A client that hangs up mid-response would otherwise kill this server.
+(signal SIGPIPE SIG_IGN)
 (watch all)
 (defrule always =>
 	(assert (socket (create-socket AF_INET6 SOCK_STREAM))))

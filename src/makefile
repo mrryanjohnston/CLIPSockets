@@ -60,37 +60,60 @@ OBJS = agenda.o analysis.o argacces.o bload.o bmathfun.o bsave.o \
  	tmpltpsr.o tmpltrhs.o tmpltutl.o userdata.o userfunctions.o \
  	utility.o watch.o
 
+# libmagic (the "file" command's library) is an optional dependency. It is
+# only used by the (mimetype) function and is left out by default so that no
+# extra libraries are needed to build. To build with it:
+#
+#   make MAGIC=1
+MAGIC ?= 0
+
+ifeq ($(MAGIC),0)
+MAGIC_CFLAGS =
+MAGIC_LDLIBS =
+else
+MAGIC_CFLAGS = -DUSE_LIBMAGIC
+MAGIC_LDLIBS = -lmagic
+endif
+
 all: release
 
-NO_IMAGE_MAGICK: CC = gcc
-NO_IMAGE_MAGICK: CFLAGS = -DNO_IMAGE_MAGICK -std=c99 -O3 -fno-strict-aliasing
-NO_IMAGE_MAGICK: LDLIBS = -lm -lc
-NO_IMAGE_MAGICK: clips
+# Deprecated: the default build already leaves libmagic out. Kept so existing
+# instructions and scripts keep working.
+NO_IMAGE_MAGICK: release
 
 debug : CC = gcc
-debug : CFLAGS = -std=c99 -O0 -g
-debug : LDLIBS = -lm
+debug : CFLAGS = $(MAGIC_CFLAGS) -std=c99 -O0 -g
+debug : LDLIBS = -lm $(MAGIC_LDLIBS)
 debug : clips
 
 release : CC = gcc
-release : CFLAGS = -std=c99 -O3 -fno-strict-aliasing
-release : LDLIBS = -lm -lc -lmagic
+release : CFLAGS = $(MAGIC_CFLAGS) -std=c99 -O3 -fno-strict-aliasing
+release : LDLIBS = -lm -lc $(MAGIC_LDLIBS)
 release : clips
 
+# Instrumented build for tests/coverage.sh. -O0 is required: at -O3 inlining
+# scrambles the line attribution gcov reports. Always build this from clean --
+# the tree compiles objects in place, so a coverage build would otherwise
+# silently reuse uninstrumented objects from a previous make.
+coverage : CC = gcc
+coverage : CFLAGS = $(MAGIC_CFLAGS) -std=c99 -O0 -g --coverage
+coverage : LDLIBS = -lm -lc --coverage $(MAGIC_LDLIBS)
+coverage : clips
+
 debug_cpp : CC = g++
-debug_cpp : CFLAGS = -x c++ -std=c++11 -O0 -g
+debug_cpp : CFLAGS = $(MAGIC_CFLAGS) -x c++ -std=c++11 -O0 -g
 ifeq ($(PLATFORM),Darwin) # macOS
 debug_cpp : WARNINGS += -Wcast-qual
 endif
-debug_cpp : LDLIBS = -lstdc++
+debug_cpp : LDLIBS = -lstdc++ $(MAGIC_LDLIBS)
 debug_cpp : clips
 
 release_cpp : CC = g++
-release_cpp : CFLAGS = -x c++ -std=c++11 -O3 -fno-strict-aliasing
+release_cpp : CFLAGS = $(MAGIC_CFLAGS) -x c++ -std=c++11 -O3 -fno-strict-aliasing
 ifeq ($(PLATFORM),Darwin) # macOS
 release_cpp : WARNINGS += -Wcast-qual
 endif
-release_cpp : LDLIBS = -lstdc++
+release_cpp : LDLIBS = -lstdc++ $(MAGIC_LDLIBS)
 release_cpp : clips
 
 .c.o :
@@ -103,11 +126,12 @@ libclips.a : $(OBJS)
 	rm -f $@   
 	ar cq $@ $(OBJS)   
 
-clean : 
+clean :
 	-rm -f main.o $(OBJS)
 	-rm -f clips libclips.a
+	-rm -f *.gcda *.gcno *.gcov
 	
-.PHONY : all clips clean debug release debug_cpp release_cpp
+.PHONY : all clips clean debug release coverage debug_cpp release_cpp NO_IMAGE_MAGICK
 
 # Dependencies generated using "gcc -MM *.c"
 

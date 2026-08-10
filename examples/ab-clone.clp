@@ -3,7 +3,9 @@
 	;(ip 0.0.0.0)
 	(port 8888)
 	;(port 8000)
-	(max-simultaneous-requests 50)
+	(max-simultaneous-requests 0)
+	(max-simultaneous-requests-allowed 50)
+	(start-time (time))
 	(current-time (time))
 	(unstarted-requests 1234)
 	(started-requests 0)
@@ -12,10 +14,17 @@
 	(message-to-send "GET / HTTP/1.1")
 	(max-lifetime 5)); seconds
 
+(defrule track-highest-running-requests
+	?m <- (max-simultaneous-requests ?max)
+	(running-requests ?running&:(> ?running ?max))
+	=>
+	(retract ?m)
+	(assert (max-simultaneous-requests ?running)))
+
 (defrule start-request
 	(ip ?ip)
 	(port ?port)
-	(max-simultaneous-requests ?maxTotal)
+	(max-simultaneous-requests-allowed ?maxTotal)
 	?currentTime <-
 		(current-time ?time)
 	?unstartedRequests <-
@@ -50,7 +59,7 @@
 
 (defrule backoff-and-sleep
 "when there are no requests that can be acted upon, sleep"
-	(max-simultaneous-requests ?maxTotal)
+	(max-simultaneous-requests-allowed ?maxTotal)
 	?currentTime <-
 		(current-time ?time)
 	?fact <- (request
@@ -60,6 +69,8 @@
 		?previousRetryDelay
 		?retryDelay
 		?delayUntil&:(< ?time ?delayUntil))
+	(max-simultaneous-requests ?max)
+	(running-requests ?running&:(<= ?running ?max))
 	(not (request ? ? ? ? ? ?d&:(< ?d ?delayUntil)))
 	(not (message-from-server ?id $?))
 	=>
@@ -79,6 +90,8 @@
 		?previousRetryDelay
 		?retryDelay
 		?delayUntil&:(>= ?time ?delayUntil))
+	(max-simultaneous-requests ?max)
+	(running-requests ?running&:(<= ?running ?max))
 	(not (request ? ? ? ? ? ?d&:(< ?d ?delayUntil)))
 	(not (ready-to-write ?id ?))
 	=>
@@ -100,6 +113,8 @@
 		?previousRetryDelay
 		?retryDelay
 		?delayUntil&:(< ?time ?delayUntil))
+	(max-simultaneous-requests ?max)
+	(running-requests ?running&:(<= ?running ?max))
 	(not (request ? ? ? ? ? ?d&:(< ?d ?delayUntil)))
 	(not (ready-to-write ?id ? ?))
 	=>
@@ -120,6 +135,8 @@
 		?previousRetryDelay
 		?retryDelay
 		?delayUntil)
+	(max-simultaneous-requests ?max)
+	(running-requests ?running&:(<= ?running ?max))
 	(not (request ? ? ? ? ? ?d&:(< ?d ?delayUntil)))
 	?fail <- (ready-to-write
 		?id
@@ -148,12 +165,17 @@
 		?previousRetryDelay
 		?retryDelay
 		?delayUntil&:(>= ?time ?delayUntil))
+	(max-simultaneous-requests ?max)
+	(running-requests ?running&:(<= ?running ?max))
 	(not (request ? ? ? ? ? ?d&:(< ?d ?delayUntil)))
 	(ready-to-write ?id TRUE ?)
 	(not (written-at ?id ?))
 	=>
 	;(println "[DEBUG] Request " ?id ": server responded that it was ready to write. Writing...")
-	(printout ?name ?messageToSend crlf crlf)
+	; HTTP wants CRLF, but crlf emits LF alone unless CLIPS was built with
+	; useFullCRLF. cr and lf are written separately so the request is correct
+	; either way.
+	(printout ?name ?messageToSend cr lf cr lf)
 	(flush-connection ?name)
 	(retract ?currentTime ?fact)
 	(bind ?now (time))
@@ -177,6 +199,8 @@
 		?previousRetryDelay
 		?retryDelay
 		?delayUntil&:(>= ?time ?delayUntil))
+	(max-simultaneous-requests ?max)
+	(running-requests ?running&:(<= ?running ?max))
 	(not (request ? ? ? ? ? ?d&:(< ?d ?delayUntil)))
 	(ready-to-write ?id TRUE ?)
 	(written-at ?id ?)
@@ -201,6 +225,8 @@
 		?previousRetryDelay
 		?retryDelay
 		?delayUntil&:(< ?time ?delayUntil))
+	(max-simultaneous-requests ?max)
+	(running-requests ?running&:(<= ?running ?max))
 	(not (request ? ? ? ? ? ?d&:(< ?d ?delayUntil)))
 	(written-at ?id ?)
 	(not (has-data-to-read ?id ? ?))
@@ -222,6 +248,8 @@
 		?previousRetryDelay
 		?retryDelay
 		?delayUntil)
+	(max-simultaneous-requests ?max)
+	(running-requests ?running&:(<= ?running ?max))
 	(not (request ? ? ? ? ? ?d&:(< ?d ?delayUntil)))
 	(written-at ?id ?)
 	?fail <- (has-data-to-read ?id FALSE ?)
@@ -250,6 +278,7 @@
 		?previousRetryDelay
 		?retryDelay
 		?delayUntil&:(>= ?time ?delayUntil))
+	(max-simultaneous-requests ?max&:(<= ?running ?max))
 	(not (request ? ? ? ? ? ?d&:(< ?d ?delayUntil)))
 	(request-started-at ?id ?started)
 	(ready-to-write ?id TRUE ?)
@@ -259,6 +288,7 @@
 	=>
 	;(println "[DEBUG] Request " ?id ": server responded. Reading...")
 	(bind ?messageFromServer (readline ?name))
+	(if (not (stringp ?messageFromServer)) then (bind ?messageFromServer "EOF 0 EOF"))
 	;(println "[DEBUG] Request " ?id ": " ?messageFromServer)
 	(empty-connection ?name)
 	(close-connection ?name)
@@ -275,9 +305,11 @@
 		(finished-requests (+ ?finished 1))))
 
 (defrule report
+	(start-time ?start-time)
 	(ip ?ip)
 	(port ?port)
 	(max-simultaneous-requests ?max)
+	(max-simultaneous-requests-allowed ?maxAllowed)
 	(unstarted-requests 0)
 	(running-requests 0)
 	(finished-requests ?finished)
@@ -289,7 +321,7 @@
 	=>
 	(println "Test results for " ?ip ":" ?port)
 	(println "Total requests: " ?finished)
-	(println "Maximum simultaneous requests: " ?max)
+	(println "Maximum simultaneous requests: " ?max "/" ?maxAllowed)
 	(bind ?successes (find-all-facts ((?message message-from-server)) (and (eq (nth$ 5 ?message:implied) OK) (= (nth$ 4 ?message:implied) 200))))
 	(bind ?failures (find-all-facts ((?message message-from-server)) (or (neq (nth$ 5 ?message:implied) OK) (<> (nth$ 4 ?message:implied) 200))))
 	(bind ?all (create$ ?successes ?failures))
@@ -303,5 +335,6 @@
 	(println "Avg request time: " (/ ?totalElapsed ?finished) " seconds")
 	(println "Fastest request time: " ?fastest " seconds")
 	(println "Slowest request time: " ?slowest " seconds")
-	(println "Total time taken by requests: " ?totalElapsed " seconds")
+	(println "Cummulative time taken by requests: " ?totalElapsed " seconds")
+	(println "Total time taken for test: " (- (time) ?start-time) " seconds")
 	(assert (reported)))

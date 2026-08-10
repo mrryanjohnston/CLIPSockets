@@ -49,7 +49,9 @@
 		(client-waiting nil))
 	=>
 	;(println "[SERVER] Polling socket " ?bound "...")
-	(modify ?f (client-waiting (poll ?bound 0 POLLIN))))
+	(modify ?f
+		(current-time (time))
+		(client-waiting (poll ?bound 0 POLLIN))))
 
 (defrule block-and-wait-indefinitely
 	"There is no waiting client, we don't have any clients waiting to be served"
@@ -170,6 +172,7 @@
 		(and (eq ?waiting TRUE) (= ?clientsConnected ?maxClients))))
 	=>
 	;(println "[SERVER] Check if client " ?name " is ready to be read...")
+	(modify ?f (current-time (time)))
 	(modify ?c (ready-to-read (poll ?name 0 POLLIN))))
 
 (defrule failed-ready-to-read
@@ -230,8 +233,8 @@
 		(and (eq ?waiting TRUE) (= ?clientsConnected ?maxClients))))
 	=>
 	;(println "[SERVER] Read message from client: " ?message)
+	(modify ?f (current-time (time)))
 	(modify ?c (ready-to-write (poll ?name 0 POLLOUT))))
-	;(modify ?f (client-waiting nil) (current-time (time))))
 
 (defrule failed-ready-to-write-check
 	?f <- (socket
@@ -364,6 +367,7 @@
 	;(println "[SERVER] Reading client " ?name "...")
 	(set-not-buffered ?clientfd)
 	(bind ?char (get-char ?name))
+	(modify ?f (current-time (time)))
 	(modify ?c
 		(delayed-until ?currentTime)
 		(ready-to-read (poll ?name 0 POLLIN))
@@ -408,6 +412,7 @@
 			(= ?clientsConnected ?maxClients))))
 	=>
 	(bind ?char (get-char ?name))
+	(modify ?f (current-time (time)))
 	(modify ?c
 		(ready-to-read (poll ?name 0 POLLIN))
 		(raw-ascii-codes ?rawAsciiCodes ?last ?char)))
@@ -507,3 +512,25 @@
 		(current-time (time))
 		(client-waiting nil)
 		(clients-connected (- ?clientsconnected 1))))
+
+(defrule client-disconnected
+"get-char returns -1 at end of file, meaning the client hung up. No other rule
+ matches a -1, so without this the client fact stays forever, clients-connected
+ never returns to 0, block-and-wait-indefinitely can never fire again, and the
+ run ends with the server still holding dead connections."
+	?f <- (socket
+		(fd ?socketfd)
+		(listening TRUE)
+		(clients-connected ?clientsConnected))
+	?c <- (client
+		(socketfd ?socketfd)
+		(name ?name)
+		(raw-ascii-codes $? -1))
+	=>
+	;(println "[SERVER] Client " ?name " hung up. Cleaning up...")
+	(close-connection ?name)
+	(retract ?c)
+	(modify ?f
+		(current-time (time))
+		(client-waiting nil)
+		(clients-connected (- ?clientsConnected 1))))

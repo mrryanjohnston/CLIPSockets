@@ -5,3 +5,6 @@ libclips.a
 *.so
 ._*
 *.swp
+src/*.gcda
+src/*.gcno
+src/*.gcov

@@ -1,11 +1,13 @@
 # CLIPSockets
 
+The missing networking library for
+[CLIPS](https://www.clipsrules.net/).
 Write CLIPS code that can talk to the internet!
 
 ## Forward
 
 * This repository is for educational purposes only :)
-* I have only tested this codebase in Ubuntu 23.10 so far
+* I have only tested this codebase in Ubuntu 23.10 and 24.04 so far
 * the library is only built for linux-based systems for now
 * Don't know CLIPS? Try the
   [Tour of CLIPS](https://ryjo.codes/tour-of-clips.html)
@@ -81,21 +83,72 @@ The project can be built from the root directory with `make`:
 make
 ```
 
-Note that this requires image magick header files on your system.
-If you do not want it or otherwise do not need to use the `(mimetype` function
-in your clips code, you can run:
+This needs no libraries beyond the C standard library.
+
+The `(mimetype)` function is optional and depends on libmagic (the library
+behind the `file` command, packaged as `libmagic-dev` on Debian/Ubuntu and
+`file-devel` on Fedora). If you want it, install those headers and run:
 
 ```
-make NO_IMAGE_MAGICK
+make magic
 ```
 
 This will create the binary `clips` file in the root directory.
 Use this to run the example server and client network applications
 provided by the files in the `examples` directory.
 
+## Tests
+
+```
+make test
+```
+
+Each file under `tests/` is run in its own `clips` process and reports its own
+pass/fail counts. Tests needing a peer create both ends inside one process over
+loopback, so nothing depends on timing between two invocations. Tests that
+require libmagic are skipped automatically when the binary was built without it.
+
+To write one, wrap the body in a `deffunction` -- top-level `(bind ?x ...)` does
+not persist from one batch command to the next -- and declare how many checks
+the file runs:
+
+```
+(load* "tests/lib/expect.clp")
+(test-suite "my-suite")
+(test-plan 2)
+
+(deffunction run-tests ()
+   (expect-eq   "two plus two" 4 (+ 2 2))
+   (expect-true "sockets can be created" (create-socket AF_INET SOCK_STREAM)))
+
+(run-tests)
+(test-summary)
+```
+
+The plan matters: a CLIPS evaluation error halts the enclosing deffunction
+without failing any assertion, so without a declared count the checks that never
+ran would look like a pass.
+
+### Coverage
+
+```
+make coverage
+```
+
+Builds instrumented, runs the suite, and reports line coverage for everything
+in `socketrtr.c` and `userfunctions.c`, in two groups.
+
+The UDFs are listed by their CLIPS name, read from the `AddUDF` table in
+`userfunctions.c`, so a newly registered function appears in the report
+automatically -- at 0% until someone tests it. The supporting functions follow:
+the router callbacks, the syscall wrappers and the lookup helpers that are not
+callable from CLIPS but are just as much a part of this library. Each group gets
+a subtotal, and the combined total is what `MIN_COVERAGE` gates on (currently
+95%).
+
 ### Example Servers
 
-There are 4 example servers provided in this repository and 3 clients.
+There are 7 example servers in this repository and 6 clients.
 
 The simplest server
 receives a single tcp connection and then exits.
@@ -112,11 +165,31 @@ or
 ./clips -f2 examples/server-complex.bat
 ```
 
+`server-simple-ipv6.bat` and `server-simple-unix.bat` are the same server over
+IPv6 and over a UNIX domain socket. `server-udp.bat` and `server-udp-sendto.bat`
+echo a single datagram, the first replying through `connect` and `printout`, the
+second replying with `sendto` directly.
+
+`server-http-file.bat` serves the working directory over HTTP. It reports each
+file's content type with `(mimetype)`, so it needs the optional libmagic build:
+
+```
+make magic
+./clips -f2 examples/server-http-file.bat
+```
+
+Under a default build that rule fails to load and only the directory listing
+works.
+
 ### Example Client
 
 ```
 ./clips -f2 examples/client.bat
 ```
+
+`client-udp.bat` and `client-udp-sendto.bat` pair with the UDP servers, and
+`ab-clone.bat` is a small benchmarking client that makes repeated requests
+against a server on port 8888.
 
 ### Other ways to test things out
 
@@ -173,6 +246,27 @@ Connects a socket to a given IP/PORT or directory (in case of unix sockets).
 Returns the logical name of the connection that can be read/written,
 or FALSE if it fails.
 
+The name is the peer followed by `#` and this socket's file descriptor, so it
+says both what the connection reached and which connection it is:
+
+```
+CLIPS> (connect 4 127.0.0.1 8888)
+127.0.0.1:8888#4
+CLIPS> (connect 5 127.0.0.1 8888)
+127.0.0.1:8888#5
+CLIPS> (connect 6 ::1 8888)
+[::1]:8888#6
+CLIPS> (connect 7 /tmp/CLIPSockets-tmp-socket)
+/tmp/CLIPSockets-tmp-socket#7
+```
+
+`printout` and `readline` address a socket only by its logical name, so the
+descriptor is what lets a program hold several connections to the same server
+at once. Without it every one of them would answer to the same name and all
+traffic would land on whichever the router found first.
+
+Do not build the name by hand: bind whatever `connect` returns and use that.
+
 #### `(close-connection ?socketfdOrLogicalName)`
 
 Closes a socket bound or connected on a given IP/PORT or directory (in case of unix sockets).
@@ -226,6 +320,20 @@ CLIPS> (errno)
 CLIPS> (errno-sym)                                                                                                                                                                                                                                                            
 EINVAL
 ```
+
+`(errno-sym)` also accepts an optional integer, in which case it names that
+value instead of reading the current `errno`. This is useful when an error
+number was stored earlier and is only translated later, after further calls
+have overwritten `errno`:
+
+```
+CLIPS> (errno-sym 13)
+EACCES
+CLIPS> (errno-sym 111)
+ECONNREFUSED
+```
+
+Values that do not correspond to a known error, `0` included, return nothing.
 
 #### `(fcntl-add-status-flags ?socketfdOrLogicalName $?flags)`
 #### `(fcntl-remove-status-flags ?socketfdOrLogicalName $?flags)`
@@ -305,6 +413,41 @@ Changes the buffering style for a connection.
 As a means of example, stderr is "not buffered,"
 stdout via your terminal is probably "line buffered," 
 and files are normally "block buffered."
+
+#### `(signal ?signal ?disposition)`
+
+Sets what this process does with a signal. Returns `TRUE`, or `FALSE` with
+`(errno)` set if the system refuses.
+
+`?disposition` is either `SIG_IGN` to ignore the signal or `SIG_DFL` to restore
+the default behaviour. There is no third option: a signal handler runs
+asynchronously and may only call async-signal-safe functions, so a CLIPS
+deffunction cannot be one.
+
+The signal every server wants is `SIGPIPE`. Writing to a socket whose peer has
+closed raises it, and its default action terminates the process, so a client
+that hangs up mid-response would otherwise be able to kill your server:
+
+```
+(signal SIGPIPE SIG_IGN)
+```
+
+With that in place the write fails with `EPIPE` instead, readable through
+`(errno-sym)`. The example servers begin with this line.
+
+Recognised signals are `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGKILL`, `SIGPIPE`,
+`SIGALRM`, `SIGTERM`, `SIGUSR1`, `SIGUSR2`, `SIGCHLD`, `SIGCONT`, `SIGSTOP`,
+`SIGTSTP` and `SIGWINCH`. `SIGKILL` and `SIGSTOP` are listed so that asking for
+them fails with the system's own `EINVAL` rather than being reported as unknown
+names -- neither can be caught or ignored. The fault signals (`SIGSEGV`,
+`SIGBUS`, `SIGFPE`, `SIGILL`) are not offered, because ignoring one of those
+simply re-runs the faulting instruction forever.
+
+Two things to keep in mind. Ignoring `SIGINT` disables `ctrl+c`, and
+`(signal SIGINT SIG_DFL)` restores the *system* default of terminating rather
+than the handler CLIPS installs at startup. And because ordinary output travels
+the same path, ignoring `SIGPIPE` also means a command such as
+`./clips -f2 foo.bat | head -1` no longer stops early.
 
 #### `(shutdown-connection ?socketfdOrLogicalName ?optionalHow)`
 

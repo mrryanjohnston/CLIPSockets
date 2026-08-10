@@ -180,10 +180,16 @@ struct socketRouter *LogicalNameToSocketRouter(
 	struct socketRouter *sptr;
 
 	sptr = SocketRouterData(theEnv)->ListOfSocketRouters;
-	while ((sptr != NULL) ? 0 != strcmp(logicalName, sptr->logicalName) : false)
-	{ sptr = sptr->next; }
+	// Sockets that have been created but not yet bound, connected or accepted
+	// carry no logical name and can never match one. This runs on every router
+	// query, so it has to tolerate them rather than dereference a NULL name.
+	while (sptr != NULL)
+	{
+		if (sptr->logicalName != NULL && 0 == strcmp(logicalName, sptr->logicalName))
+		{ return sptr; }
 
-	if (sptr != NULL) return sptr;
+		sptr = sptr->next;
+	}
 
 	return NULL;
 }
@@ -671,6 +677,8 @@ void CreateSocketFunction(
 	newRouter = get_struct(theEnv,socketRouter);
 	newRouter->domain = domain;
 	newRouter->type = type;
+	// A socket has no logical name until it is bound, connected or accepted.
+	newRouter->logicalName = NULL;
 	newRouter->stream = fdopen(sock, "r+");
 
 	/*=========================================*/
@@ -679,10 +687,10 @@ void CreateSocketFunction(
 	/*=========================================*/
 	if (NULL == (newRouter->stream))
 	{
-		WriteString(theEnv,STDERR,"Could not fdopen ");
-		WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
-		WriteString(theEnv,STDERR,"\n");
+		WriteString(theEnv,STDERR,"Could not fdopen socket\n");
 		perror("perror");
+		GenCloseSocket(theEnv,sock);
+		rm(theEnv,newRouter,sizeof(struct socketRouter));
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
@@ -763,6 +771,7 @@ EmptyConnectionFunction(
 	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
 		WriteString(theEnv,STDERR,"empty-connection: Could not find socket; are you sure it's accepted or connected?\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
 
@@ -787,7 +796,10 @@ bool CloseFileDescriptorConnection(
 		if (fileno(sptr->stream) == socketfd)
 		{
 			GenClose(theEnv,sptr->stream);
-			rm(theEnv,(void *) sptr->logicalName,strlen(sptr->logicalName) + 1);
+			// A socket that was created but never bound, connected or
+			// accepted has no logical name to release.
+			if (sptr->logicalName != NULL)
+			{ rm(theEnv,(void *) sptr->logicalName,strlen(sptr->logicalName) + 1); }
 
 			if (prev == NULL)
 			{ SocketRouterData(theEnv)->ListOfSocketRouters = sptr->next; }
@@ -819,7 +831,7 @@ bool CloseNamedConnection(
 			sptr != NULL;
 			sptr = sptr->next)
 	{
-		if (strcmp(sptr->logicalName,logicalName) == 0)
+		if (sptr->logicalName != NULL && strcmp(sptr->logicalName,logicalName) == 0)
 		{
 			GenClose(theEnv,sptr->stream);
 			rm(theEnv,(void *) sptr->logicalName,strlen(sptr->logicalName) + 1);
@@ -855,13 +867,9 @@ void CloseConnectionFunction(
 	{
 		returnValue->lexemeValue = CreateBoolean(theEnv, CloseFileDescriptorConnection(theEnv, theArg.integerValue->contents));
 	}
-	else if (theArg.header->type == STRING_TYPE || theArg.header->type == SYMBOL_TYPE)
-	{
-		returnValue->lexemeValue = CreateBoolean(theEnv, CloseNamedConnection(theEnv, theArg.lexemeValue->contents));
-	}
 	else
 	{
-		returnValue->lexemeValue = FalseSymbol(theEnv);
+		returnValue->lexemeValue = CreateBoolean(theEnv, CloseNamedConnection(theEnv, theArg.lexemeValue->contents));
 	}
 }
 
@@ -882,7 +890,7 @@ void ShutdownConnectionFunction(
 	int sockfd, how;
 	if (-1 == (sockfd = GetFilenoFromArgument(theEnv,context,&theArg)))
 	{
-		WriteString(theEnv,STDERR,"get-timeout: could not find router for socket file descriptor\n");
+		WriteString(theEnv,STDERR,"shutdown-connection: could not find router for socket file descriptor\n");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
@@ -905,7 +913,10 @@ void ShutdownConnectionFunction(
 			how = SHUT_RDWR;
 		}
 	}
-	returnValue->lexemeValue = CreateBoolean(theEnv,GenShutdown(theEnv,sockfd,how));
+	// shutdown() reports success as 0, so the return value has to be compared
+	// rather than handed to CreateBoolean directly -- otherwise success comes
+	// back as FALSE and failure as TRUE.
+	returnValue->lexemeValue = CreateBoolean(theEnv,0 == GenShutdown(theEnv,sockfd,how));
 }
 
 /****************************************************/
@@ -1003,7 +1014,13 @@ void BindSocketFunction(
 	char *theName;
 
 	UDFNextArgument(context,INTEGER_BIT,&theArg);
-	sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents);
+	if (NULL == (sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents)))
+	{
+		WriteString(theEnv,STDERR,"bind-socket: argument was not recognized as a socket file descriptor\n");
+		SBDispose(logicalNameStringBuilder);
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
 
 	// address
 	UDFNextArgument(context,LEXEME_BITS,&theArg);
@@ -1096,6 +1113,7 @@ void ListenFunction(
 	if (NULL == (socketStream = GetBoundOrConnectedFilenoFromArgument(theEnv,context,&theArg)))
 	{
 		WriteString(theEnv,STDERR,"listen: Could not find bound socket; are you sure it's bound?\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
 
@@ -1144,7 +1162,20 @@ void GetSocketLogicalNameFunction(
 	int sockfd = theArg.integerValue->contents;
 
 	struct socketRouter *sptr;
-	sptr = FileDescriptorToSocketRouter(theEnv, sockfd);
+	if (NULL == (sptr = FileDescriptorToSocketRouter(theEnv, sockfd)))
+	{
+		WriteString(theEnv,STDERR,"get-socket-logical-name: argument was not recognized as a socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
+
+	if (NULL == sptr->logicalName)
+	{
+		WriteString(theEnv,STDERR,"get-socket-logical-name: socket has no logical name until it is bound, connected or accepted\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
+
 	returnValue->lexemeValue = CreateSymbol(theEnv, sptr->logicalName);
 }
 
@@ -1171,6 +1202,7 @@ void AcceptFunction(
 	if (NULL == (sptr = GetSocketRouterFromArgument(theEnv, context, &theArg)))
 	{
 		WriteString(theEnv,STDERR,"accept: argument was not recognized as a socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
 
@@ -1183,7 +1215,7 @@ void AcceptFunction(
 	if ((connection_fd = accept(fileno(sptr->stream), (struct sockaddr *)&client_addr, &client_addr_len)) < 0)
 	{
 		WriteString(theEnv,STDERR,"Could not accept connection on socket '");
-		WriteString(theEnv,STDERR,sptr->logicalName);
+		WriteString(theEnv,STDERR,sptr->logicalName != NULL ? sptr->logicalName : "(unnamed socket)");
 		WriteString(theEnv,STDERR,"'\n");
 		perror("perror");
 		returnValue->lexemeValue = FalseSymbol(theEnv);
@@ -1244,6 +1276,7 @@ void AcceptFunction(
 		WriteString(theEnv,STDERR,"\n");
 		perror("perror");
 		SBDispose(logicalNameStringBuilder);
+		GenCloseSocket(theEnv,connection_fd);
 		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
@@ -1258,6 +1291,11 @@ void AcceptFunction(
 	newRouter->logicalName = theName;
 	SBDispose(logicalNameStringBuilder);
 	newRouter->stream = newstream;
+	// An accepted connection is in the same domain and of the same type as the
+	// socket that was listening. Without this the fields hold whatever was in
+	// the recycled struct, and every switch on sptr->domain reads garbage.
+	newRouter->domain = sptr->domain;
+	newRouter->type = sptr->type;
 
 	/*==========================================*/
 	/* Add the newly opened file to the list of */
@@ -1376,7 +1414,8 @@ void ConnectFunction(
 	UDFNextArgument(context,INTEGER_BIT,&theArg);
 	if (NULL == (sptr = FileDescriptorToSocketRouter(theEnv, theArg.integerValue->contents)))
 	{
-		WriteString(theEnv,STDERR,"accept: argument was not recognized as a socket file descriptor\n");
+		WriteString(theEnv,STDERR,"connect: argument was not recognized as a socket file descriptor\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
 		return;
 	}
 
@@ -1441,6 +1480,19 @@ void ConnectFunction(
 		return;
 	}
 
+	// The name built above is the peer's, which every connection to the same
+	// server would share. A logical name has to identify one socket, so the
+	// connection is named after this end instead -- the way accept names an
+	// incoming connection after the end that is unique to it.
+	// So far the name is the peer's, which every connection to the same peer
+	// would share, and a logical name has to identify one socket. Appending
+	// the descriptor, which is unique within the process, keeps the peer
+	// readable in the name while telling connections apart. Naming the socket
+	// after its own address instead would collide with the accepted end when
+	// both live in one process, since that end is named for this one.
+	SBAddChar(logicalNameStringBuilder, '#');
+	SBAppendInteger(logicalNameStringBuilder, fileno(sptr->stream));
+
 	theName = (char *) gm2(theEnv,strlen(logicalNameStringBuilder->contents) + 1);
 	genstrcpy(theName,logicalNameStringBuilder->contents);
 	sptr->logicalName = theName;
@@ -1490,7 +1542,9 @@ void SetNotBufferedFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
-	GenSetBuffered(theEnv, context, returnValue, _IONBF, "not");
+	// The UDF is registered as returning a boolean, so the result of
+	// GenSetBuffered has to reach returnValue rather than be discarded.
+	returnValue->lexemeValue = CreateBoolean(theEnv, GenSetBuffered(theEnv, context, returnValue, _IONBF, "not"));
 }
 
 /***********************************************************************/
@@ -1505,7 +1559,9 @@ void SetLineBufferedFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
-	GenSetBuffered(theEnv, context, returnValue, _IOLBF, "line");
+	// The UDF is registered as returning a boolean, so the result of
+	// GenSetBuffered has to reach returnValue rather than be discarded.
+	returnValue->lexemeValue = CreateBoolean(theEnv, GenSetBuffered(theEnv, context, returnValue, _IOLBF, "line"));
 }
 
 /*************************************************************************/
@@ -1519,7 +1575,9 @@ void SetFullyBufferedFunction(
 		UDFContext *context,
 		UDFValue *returnValue)
 {
-	GenSetBuffered(theEnv, context, returnValue, _IOFBF, "fully");
+	// The UDF is registered as returning a boolean, so the result of
+	// GenSetBuffered has to reach returnValue rather than be discarded.
+	returnValue->lexemeValue = CreateBoolean(theEnv, GenSetBuffered(theEnv, context, returnValue, _IOFBF, "fully"));
 }
 
 /*******************************************************************/
@@ -1563,7 +1621,7 @@ void FcntlAddStatusFlagsFunction(
 		}
 		else
 		{
-			WriteString(theEnv,STDERR,"Unsupported flag for poll ");
+			WriteString(theEnv,STDERR,"Unsupported flag for fcntl-add-status-flags ");
 			WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
 			WriteString(theEnv,STDERR,"\n");
 			perror("perror");
@@ -1626,7 +1684,7 @@ void FcntlRemoveStatusFlagsFunction(
 		}
 		else
 		{
-			WriteString(theEnv,STDERR,"Unsupported flag for poll ");
+			WriteString(theEnv,STDERR,"Unsupported flag for fcntl-remove-status-flags ");
 			WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
 			WriteString(theEnv,STDERR,"\n");
 			perror("perror");
@@ -1705,7 +1763,10 @@ void CloseAllSockets(Environment *theEnv)
 	{
 		GenClose(theEnv,sptr->stream);
 		prev = sptr;
-		rm(theEnv,(void *) sptr->logicalName,strlen(sptr->logicalName) + 1);
+		// Unnamed sockets (created but never bound/connected/accepted) have
+		// no logical name allocation to release.
+		if (sptr->logicalName != NULL)
+		{ rm(theEnv,(void *) sptr->logicalName,strlen(sptr->logicalName) + 1); }
 		sptr = sptr->next;
 		rm(theEnv,prev,sizeof(struct socketRouter));
 	}
@@ -1739,6 +1800,7 @@ void RecvfromFunction(
         if (NULL == (sptr = GetSocketRouterFromArgument(theEnv, context, &theArg)))
         {
                 WriteString(theEnv,STDERR,"recvfrom: argument was not recognized as a socket file descriptor\n");
+                returnValue->lexemeValue = FalseSymbol(theEnv);
                 return;
         }
 
@@ -1785,7 +1847,7 @@ void RecvfromFunction(
         if (nread < 0)
         {
                 WriteString(theEnv,STDERR,"recvfrom failed on '");
-                WriteString(theEnv,STDERR,sptr->logicalName);
+                WriteString(theEnv,STDERR,sptr->logicalName != NULL ? sptr->logicalName : "(unnamed socket)");
                 WriteString(theEnv,STDERR,"'\n");
                 perror("perror");
                 returnValue->lexemeValue = FalseSymbol(theEnv);
@@ -2029,7 +2091,7 @@ void SendtoFunction(
         if (nsent < 0)
         {
                 WriteString(theEnv,STDERR,"sendto failed on '");
-                WriteString(theEnv,STDERR,sptr->logicalName);
+                WriteString(theEnv,STDERR,sptr->logicalName != NULL ? sptr->logicalName : "(unnamed socket)");
                 WriteString(theEnv,STDERR,"'\n");
                 perror("perror");
                 returnValue->lexemeValue = FalseSymbol(theEnv);

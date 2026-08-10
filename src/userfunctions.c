@@ -53,11 +53,14 @@
 #include <dirent.h>
 #include <errno.h>
 
-#ifndef NO_IMAGE_MAGICK
+/* libmagic is optional. Build with USE_LIBMAGIC defined (make MAGIC=1) to
+   get the (mimetype) function. */
+#ifdef USE_LIBMAGIC
 #include <magic.h>
 #endif
 
 #include <math.h>
+#include <signal.h>
 #include <time.h>
 
 #include "clips.h"
@@ -65,13 +68,30 @@
 
 void UserFunctions(Environment *);
 
+/* Translates an errno to its symbolic name. With no argument the current
+   errno is used; with an integer argument that value is translated instead,
+   which lets a saved errno be named later. Unrecognised values, including 0,
+   return void. */
 void ErrnoSymFunction(
 		Environment *theEnv,
 		UDFContext *context,
 		UDFValue *returnValue)
 {
 	CLIPSLexeme *err;
-	switch(errno)
+	UDFValue theArg;
+	int theError;
+
+	if (UDFHasNextArgument(context))
+	{
+		UDFNextArgument(context,INTEGER_BIT,&theArg);
+		theError = (int) theArg.integerValue->contents;
+	}
+	else
+	{
+		theError = errno;
+	}
+
+	switch(theError)
 	{
 		case EPERM:
 			err = CreateSymbol(theEnv, "EPERM");
@@ -488,8 +508,17 @@ void SleepFunction(
 	struct timespec ts;
 	UDFValue theArg;
 
-	UDFNextArgument(context,FLOAT_BIT,&theArg);
-	seconds = theArg.floatValue->contents;
+	/* Accept both integers and floats: (sleep 1) and (sleep 0.25) are both
+	   reasonable things to write, and the UDF is registered as "ld". */
+	UDFNextArgument(context,NUMBER_BITS,&theArg);
+	if (theArg.header->type == FLOAT_TYPE)
+	{
+		seconds = theArg.floatValue->contents;
+	}
+	else
+	{
+		seconds = (double) theArg.integerValue->contents;
+	}
 
 	if (seconds < 0)
 	{
@@ -499,13 +528,111 @@ void SleepFunction(
 	}
 
 	ts.tv_sec = floor(seconds);
-	ts.tv_nsec = (seconds - ts.tv_sec) * 1000000;
+	ts.tv_nsec = (seconds - ts.tv_sec) * 1000000000;
 
 	do {
 		res = nanosleep(&ts, &ts);
 	} while (res && errno == EINTR);
 
 	returnValue->integerValue = CreateInteger(theEnv, res);
+}
+
+/* SIGKILL and SIGSTOP are listed so that asking for them fails the way the
+   kernel says it does rather than as an unknown name. The fault signals
+   (SIGSEGV, SIGBUS, SIGFPE, SIGILL) are deliberately absent: ignoring one of
+   those re-runs the faulting instruction forever. */
+static const char *SignalNumberToSymbol(
+		int sig)
+{
+	switch(sig)
+	{
+		case SIGHUP:    return "SIGHUP";
+		case SIGINT:    return "SIGINT";
+		case SIGQUIT:   return "SIGQUIT";
+		case SIGKILL:   return "SIGKILL";
+		case SIGPIPE:   return "SIGPIPE";
+		case SIGALRM:   return "SIGALRM";
+		case SIGTERM:   return "SIGTERM";
+		case SIGUSR1:   return "SIGUSR1";
+		case SIGUSR2:   return "SIGUSR2";
+		case SIGCHLD:   return "SIGCHLD";
+		case SIGCONT:   return "SIGCONT";
+		case SIGSTOP:   return "SIGSTOP";
+		case SIGTSTP:   return "SIGTSTP";
+		case SIGWINCH:  return "SIGWINCH";
+		default:        return NULL;
+	}
+}
+
+/* Reverse of the above, driven by the same switch so the two directions
+   cannot disagree. */
+static int SignalSymbolToNumber(
+		const char *sym)
+{
+	int sig;
+	const char *name;
+
+	for (sig = 1; sig < NSIG; sig++)
+	{
+		name = SignalNumberToSymbol(sig);
+		if (name != NULL && 0 == strcmp(name,sym)) return sig;
+	}
+
+	return -1;
+}
+
+/* (signal <signal-symbol> SIG_IGN|SIG_DFL)
+   Sets what the process does with a signal. Only the two dispositions are
+   available: a handler would have to run CLIPS from an asynchronous context,
+   which is not safe. */
+void SignalFunction(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *returnValue)
+{
+	UDFValue theArg;
+	int sig;
+	void (*disposition)(int);
+
+	UDFNextArgument(context,SYMBOL_BIT,&theArg);
+	if (-1 == (sig = SignalSymbolToNumber(theArg.lexemeValue->contents)))
+	{
+		WriteString(theEnv,STDERR,"signal: unsupported signal '");
+		WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
+		WriteString(theEnv,STDERR,"'.\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
+
+	UDFNextArgument(context,SYMBOL_BIT,&theArg);
+	if (0 == strcmp(theArg.lexemeValue->contents,"SIG_IGN"))
+	{
+		disposition = SIG_IGN;
+	}
+	else if (0 == strcmp(theArg.lexemeValue->contents,"SIG_DFL"))
+	{
+		disposition = SIG_DFL;
+	}
+	else
+	{
+		WriteString(theEnv,STDERR,"signal: disposition must be SIG_IGN or SIG_DFL, not '");
+		WriteString(theEnv,STDERR,theArg.lexemeValue->contents);
+		WriteString(theEnv,STDERR,"'.\n");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
+
+	if (SIG_ERR == signal(sig,disposition))
+	{
+		WriteString(theEnv,STDERR,"signal: could not set disposition for ");
+		WriteString(theEnv,STDERR,SignalNumberToSymbol(sig));
+		WriteString(theEnv,STDERR,"\n");
+		perror("signal");
+		returnValue->lexemeValue = FalseSymbol(theEnv);
+		return;
+	}
+
+	returnValue->lexemeValue = CreateBoolean(theEnv,true);
 }
 
 void ScandirFunction(
@@ -537,7 +664,7 @@ void ScandirFunction(
 	}
 }
 
-#ifndef NO_IMAGE_MAGICK
+#ifdef USE_LIBMAGIC
 void MimetypeFunction(
 		Environment *theEnv,
 		UDFContext *context,
@@ -575,7 +702,7 @@ void UserFunctions(
 	  AddUDF(env,"bind-socket","bsy",2,3,";l;sy;l",BindSocketFunction,"BindSocketFunction",NULL);
 	  AddUDF(env,"connect","bl",2,3,";l;sy;l",ConnectFunction,"ConnectFunction",NULL);
 	  AddUDF(env,"close-connection","b",1,1,";lsy",CloseConnectionFunction,"CloseConnectionFunction",NULL);
-	  AddUDF(env,"create-socket","bl",2,3,"sy",CreateSocketFunction,"CreateSocketFunction",NULL);
+	  AddUDF(env,"create-socket","bl",2,3,";sy;sy;l",CreateSocketFunction,"CreateSocketFunction",NULL);
 	  AddUDF(env,"empty-connection","bl",1,1,"lsy",EmptyConnectionFunction,"EmptyConnectionFunction",NULL);
 	  AddUDF(env,"fcntl-add-status-flags","bl",2,UNBOUNDED,"sy;syl;",FcntlAddStatusFlagsFunction,"FcntlAddStatusFlagsFunction",NULL);
 	  AddUDF(env,"fcntl-remove-status-flags","bl",2,UNBOUNDED,"sy;syl;",FcntlRemoveStatusFlagsFunction,"FcntlRemoveStatusFlagsFunction",NULL);
@@ -590,18 +717,19 @@ void UserFunctions(
 	  AddUDF(env,"set-line-buffered","b",1,1,"lsy",SetLineBufferedFunction,"SetLineBufferedFunction",NULL);
 	  AddUDF(env,"set-timeout","l",2,2,";lsy;l",SetTimeoutFunction,"SetTimeoutFunction",NULL);
 	  AddUDF(env,"setsockopt","l",4,4,";lsy;sy;sy;l",SetsockoptFunction,"SetsockoptFunction",NULL);
-	  AddUDF(env,"shutdown-connection","l",1,1,"lsy",ShutdownConnectionFunction,"ShutdownConnectionFunction",NULL);
+	  AddUDF(env,"shutdown-connection","b",1,2,";lsy;y",ShutdownConnectionFunction,"ShutdownConnectionFunction",NULL);
 	  AddUDF(env,"resolve-domain-name","bm",1,1,"sy",ResolveDomainNameFunction,"ResolveDomainNameFunction",NULL);
 
 	  AddUDF(env,"errno","l",0,0,NULL,ErrnoFunction,"ErrnoFunction",NULL);
-	  AddUDF(env,"errno-sym","yv",0,0,NULL,ErrnoSymFunction,"ErrnoSymFunction",NULL);
+	  AddUDF(env,"errno-sym","yv",0,1,"l",ErrnoSymFunction,"ErrnoSymFunction",NULL);
 
-#ifndef NO_IMAGE_MAGICK
+#ifdef USE_LIBMAGIC
 	  AddUDF(env,"mimetype","by",1,1,"sy",MimetypeFunction,"MimetypeFunction",NULL);
 #endif
 	  AddUDF(env,"scandir","bm",1,1,"sy",ScandirFunction,"ScandirFunction",NULL);
-	  AddUDF(env,"sleep","bl",1,1,"l",SleepFunction,"SleepFunction",NULL);
+	  AddUDF(env,"signal","b",2,2,";y;y",SignalFunction,"SignalFunction",NULL);
+	  AddUDF(env,"sleep","bl",1,1,"ld",SleepFunction,"SleepFunction",NULL);
 
-	  AddUDF(env,"rcvfrom","mv",1,3,";lsy;lmsy;l",RecvfromFunction,"RecvfromFunction",NULL);
-	  AddUDF(env,"sendto","l",3,5,";l;sy;lmsy;l;lmsy",SendtoFunction,"SendtoFunction",NULL);
+	  AddUDF(env,"rcvfrom","bm",1,3,";lsy;lmsy;l",RecvfromFunction,"RecvfromFunction",NULL);
+	  AddUDF(env,"sendto","bl",3,6,";lsy;sy;sy;lsy;lmsy;lmsy",SendtoFunction,"SendtoFunction",NULL);
   }
