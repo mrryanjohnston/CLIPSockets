@@ -14,10 +14,30 @@
 set -u
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cd "$ROOT/src" || exit 1
 
+# These two directories come from the caller, and a relative one names a
+# directory beside the caller. This script works in src/, where gcov keeps its
+# data, and the same relative name there is a different directory. As a result,
+# the script makes each of them absolute before it moves.
+#
+# tests/coverage-all.sh passes the path of a temporary directory, which is
+# absolute, and never met this. The CI job passes "coverage-data". Without
+# these two lines the data goes to src/coverage-data, and the job that adds it
+# all together looks in the directory that it named and finds nothing.
 COVERAGE_COLLECT=${COVERAGE_COLLECT:-}
 COVERAGE_MERGE=${COVERAGE_MERGE:-}
+
+case $COVERAGE_COLLECT in
+	""|/*) ;;
+	*) COVERAGE_COLLECT=$PWD/$COVERAGE_COLLECT ;;
+esac
+
+case $COVERAGE_MERGE in
+	""|/*) ;;
+	*) COVERAGE_MERGE=$PWD/$COVERAGE_MERGE ;;
+esac
+
+cd "$ROOT/src" || exit 1
 
 # One build has one TLS backend. As a result, the sources to measure are the
 # sources that this build made coverage data for. A list with each source would

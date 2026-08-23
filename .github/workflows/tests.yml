@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: make
       - run: make test
 
@@ -62,12 +62,12 @@ jobs:
           - s2n
           - boringssl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # A library changes only when the version in provision.sh changes. As a
       # result, the content of that file is the cache key. A new version
       # clears the cache, and that is the correct behaviour.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/opt
           key: tls-${{ runner.os }}-${{ matrix.backend }}-${{ hashFiles('tests/provision.sh') }}
@@ -139,9 +139,9 @@ jobs:
           - s2n
           - boringssl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/opt
           key: tls-${{ runner.os }}-${{ matrix.backend }}-${{ hashFiles('tests/provision.sh') }}
@@ -186,9 +186,9 @@ jobs:
           - s2n
           - boringssl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/opt
           key: tls-${{ runner.os }}-${{ matrix.backend }}-${{ hashFiles('tests/provision.sh') }}
@@ -212,10 +212,15 @@ jobs:
       - name: Measure
         run: ./tests/backend.sh "${{ matrix.backend }}" --magic --coverage coverage-data
 
-      - uses: actions/upload-artifact@v4
+      # if-no-files-found is an error and not the default warning. A step that
+      # measured nothing is a broken job, and the report job below is where
+      # that shows otherwise: it downloads no data and fails there, one job
+      # away from the cause.
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.backend }}
           path: coverage-data
+          if-no-files-found: error
           retention-days: 7
 
   coverage-report:
@@ -223,9 +228,9 @@ jobs:
     timeout-minutes: 15
     needs: coverage
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: coverage-*
           path: coverage-data

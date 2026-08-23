@@ -20,3 +20,6 @@ tests/fixtures/*.srl
 # of the real certificate and the real key.
 tests/fixtures/bad/
 tests/fixtures/trust/
+# The coverage jobs collect the gcov data of each configuration here.
+# tests/coverage-all.sh uses a temporary directory and leaves nothing behind.
+coverage-data/
