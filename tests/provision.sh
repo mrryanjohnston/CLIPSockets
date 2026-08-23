@@ -481,8 +481,9 @@ verify_sha256 () {
 	return 1
 }
 
-# A clone gets the current commit of the tag. This value is the commit of that
-# tag at the time of this script.
+# The fetch below asks for this commit by name, and git checks the hash of
+# what arrives. This is the second check of the same value. It costs nothing,
+# and it names the file and both commits when something is wrong.
 verify_commit () {
 	got=$(git -C "$1" rev-parse HEAD 2>/dev/null)
 	[ "$got" = "$2" ] && return 0
@@ -524,26 +525,42 @@ build_gnutls () {
 	cd "$ROOT"
 }
 
-# clone_pinned <name> <url> <tag or ""> <commit> <submodules: yes|no>
+# clone_pinned <name> <url> <version name or ""> <commit> <submodules: yes|no>
 #
-# The script uses a commit and not a tag, because someone can move a tag and a
-# commit is a hash of its own content. For the same cause, a checkout needs no
-# separate digest: git checks it.
+# The script fetches the commit itself. It does not clone a branch or a tag and
+# then look at what it got. Both of those move. s2n-tls and BoringSSL publish
+# no release, so the only name for them is their default branch, and the tip of
+# that branch is a different commit most weeks. A clone of the tip fails the
+# check below on the day after upstream pushes, and until that day it tests
+# whatever arrived and not the pinned version. A fetch of the commit gets that
+# commit on any day.
+#
+# The third argument names the version for the report. The fetch uses the
+# commit and not that name.
+#
+# A fetch of a single commit needs the server to allow it. GitHub and
+# boringssl.googlesource.com both do. A host that does not fails here, and does
+# not build a source that nobody pinned.
 #
 # The caller asks for the submodules, and the script does not fetch them by
 # default. mbedTLS 3.6 keeps part of its build system in a submodule and does
 # not configure without it. The eleven submodules of OpenSSL are all test data,
 # and to fetch them costs much more than their value.
 clone_pinned () {
-	name=$1; url=$2; ref=$3; commit=$4; subs=$5
+	name=$1; url=$2; commit=$4; subs=$5
 
 	rm -rf "$SRC/$name"
 
-	set -- --depth 1
-	[ "$subs" = yes ] && set -- "$@" --recurse-submodules --shallow-submodules
-	[ -n "$ref" ] && set -- "$@" --branch "$ref"
+	run_quietly git init -q "$SRC/$name" || return 1
+	run_quietly git -C "$SRC/$name" remote add origin "$url" || return 1
+	run_quietly git -C "$SRC/$name" fetch --depth 1 origin "$commit" || return 1
+	run_quietly git -C "$SRC/$name" checkout -q FETCH_HEAD || return 1
 
-	run_quietly git clone "$@" "$url" "$SRC/$name" || return 1
+	if [ "$subs" = yes ]; then
+		run_quietly git -C "$SRC/$name" submodule update \
+			--init --recursive --depth 1 || return 1
+	fi
+
 	verify_commit "$SRC/$name" "$commit" || return 1
 }
 

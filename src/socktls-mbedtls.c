@@ -38,6 +38,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 #include "setup.h"
 
@@ -373,6 +374,35 @@ static bool ApplyOwnCertificate(
 }
 
 /****************************************************************/
+/* RegularFile: mbedtls_x509_crt_parse_file and                 */
+/*   mbedtls_pk_parse_keyfile open the path, seek to its end    */
+/*   and allocate the length that the seek reports. On Linux a  */
+/*   directory opens, and that seek reports LONG_MAX. The       */
+/*   library then asks the allocator for eight exabytes.        */
+/*                                                              */
+/*   The answer stays correct, because the allocation fails and */
+/*   the call returns an error. But AddressSanitizer ends the   */
+/*   process at a request of that size. That build is where the */
+/*   suite finds the defects no check in CLIPS can see, and one */
+/*   directory in one test would end the run before the tests   */
+/*   after it.                                                  */
+/*                                                              */
+/*   As a result, this backend looks at the path before mbedTLS */
+/*   opens it, and reports the same file error that the library */
+/*   gives for a path it cannot read. The other libraries       */
+/*   refuse a directory themselves.                             */
+/****************************************************************/
+static bool RegularFile(
+		const char *path)
+{
+	struct stat info;
+
+	if (0 != stat(path,&info)) return false;
+
+	return S_ISREG(info.st_mode) ? true : false;
+}
+
+/****************************************************************/
 /* TLSBackendLoadVerifyLocations: A positive result from the    */
 /*   parse functions is the number of certificates that they    */
 /*   could not read. It is not a failure code. As a result,     */
@@ -395,6 +425,12 @@ bool TLSBackendLoadVerifyLocations(
 
 	if ((caFile != NULL) && (caFile[0] != '\0'))
 	{
+		if (! RegularFile(caFile))
+		{
+			LastError = MBEDTLS_ERR_X509_FILE_IO_ERROR;
+			return false;
+		}
+
 		if (0 != (LastError = mbedtls_x509_crt_parse_file(&ctx->ca,caFile)))
 		{ return false; }
 		loaded = true;
@@ -499,6 +535,12 @@ bool TLSBackendUseCertificateFile(
 		ctx->haveCert = false;
 	}
 
+	if (! RegularFile(path))
+	{
+		LastError = MBEDTLS_ERR_X509_FILE_IO_ERROR;
+		return false;
+	}
+
 	if (0 != (LastError = mbedtls_x509_crt_parse_file(&ctx->ownCert,path)))
 	{ return false; }
 
@@ -525,6 +567,12 @@ bool TLSBackendUsePrivateKeyFile(
 		mbedtls_pk_free(&ctx->ownKey);
 		mbedtls_pk_init(&ctx->ownKey);
 		ctx->haveKey = false;
+	}
+
+	if (! RegularFile(path))
+	{
+		LastError = MBEDTLS_ERR_PK_FILE_IO_ERROR;
+		return false;
 	}
 
 	// As for mbedtls_pk_check_pair, only 3.x has the generator argument.
