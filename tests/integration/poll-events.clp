@@ -1,20 +1,19 @@
 ;;; (poll) argument forms and every event symbol it accepts.
 
 (load* "tests/lib/expect.clp")
+(load* "tests/lib/socket.clp")
 (test-suite "poll-events")
 (test-plan 12)
 
 (defglobal ?*port* = 18920)
 
 (deffunction run-tests ()
-   (bind ?srv (create-socket AF_INET SOCK_STREAM))
-   (setsockopt ?srv SOL_SOCKET SO_REUSEADDR 1)
-   (bind-socket ?srv 127.0.0.1 ?*port*)
-   (listen ?srv)
-   (bind ?cli (create-socket AF_INET SOCK_STREAM))
-   (bind ?conn (connect ?cli 127.0.0.1 ?*port*))
-   (bind ?cfd (accept ?srv))
-   (bind ?cname (get-socket-logical-name ?cfd))
+   (bind ?pair (tcp-connected-pair ?*port*))
+   (bind ?srv (nth$ 1 ?pair))
+   (bind ?cli (nth$ 2 ?pair))
+   (bind ?cfd (nth$ 3 ?pair))
+   (bind ?conn (nth$ 4 ?pair))
+   (bind ?cname (nth$ 5 ?pair))
 
    ;; With no event named, poll watches for anything at all. An idle socket has
    ;; nothing readable but is writable, so the two-argument form reports TRUE.

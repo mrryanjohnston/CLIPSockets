@@ -5,7 +5,7 @@
 
 (load* "tests/lib/expect.clp")
 (test-suite "tcp-ipv6")
-(test-plan 11)
+(test-plan 14)
 
 (defglobal ?*port* = 18902)
 
@@ -27,6 +27,23 @@
    (bind ?cfd (accept ?srv))
    (expect-gte "accept returns a descriptor" 0 ?cfd)
    (bind ?cname (get-socket-logical-name ?cfd))
+
+   ;; accept makes its name from the peer address in the same manner as
+   ;; bind-socket and connect. As a result, it must use the brackets in the
+   ;; same manner: the address inside the brackets and the port after them. A
+   ;; port inside the brackets makes the full text one address. [::1:33108] is
+   ;; such a text, and it is a correct and different IPv6 address.
+   ;;
+   ;; The port is not known before the test, because the kernel gives the
+   ;; client a port. As a result, the test checks the start and the end of the
+   ;; name and not the middle.
+   (expect-eq   "accept brackets the address and leaves the port outside"
+                1 (str-index "[::1]:" ?cname))
+   (expect-true "and appends the descriptor to tell connections apart"
+                (str-index (str-cat "#" ?cfd) ?cname))
+   (expect-false "the address is closed once and not again"
+                 (str-index "]" (sub-string (+ 1 (str-index "]" ?cname))
+                                            (str-length ?cname) ?cname)))
 
    (printout ?conn "ping over v6" crlf)
    (flush-connection ?cli)

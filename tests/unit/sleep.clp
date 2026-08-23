@@ -1,8 +1,6 @@
 ;;; (sleep)
 ;;;
 ;;; The UDF is registered as "ld" so both integers and floats are accepted.
-;;; It previously declared "l" while reading the argument as a float, which
-;;; made every call fail one check or the other.
 
 (load* "tests/lib/expect.clp")
 (test-suite "sleep")

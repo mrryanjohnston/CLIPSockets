@@ -1,0 +1,237 @@
+# Each job here runs the same scripts that you run by hand, against the same
+# libraries. This file has no logic that tests/ does not have, and that is on
+# purpose. You must be able to repeat a failure here with one command on your
+# own machine, and a change to the suite must need no change to this file.
+#
+#   ./tests/backend.sh list          the available configurations
+#   ./tests/backend.sh gnutls        one of them, as the job runs it
+#   ./tests/provision.sh             what is present and what is absent
+#   make matrix                      each of them, one after the other
+#
+# The jobs build the TLS libraries from source and do not install them from
+# apt. That is the purpose of this design. tests/provision.sh gives each
+# version, and it checks each download against a digest or a commit. As a
+# result, these jobs test the same library that you test on your own machine.
+# An apt install would test the version of that week, and that version is
+# neither fixed nor the same at the next run.
+#
+# "system" is the exception. It uses the library that the machine has, and on a
+# runner that is the library in the image. For that cause it needs a row of its
+# own.
+#
+# The jobs use apt for two items that are not TLS libraries. The first is
+# libmagic, which this project can link. The second is the small set of
+# libraries that GnuTLS needs to build. Neither of them changes the TLS version
+# under test.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # A quick result: the build that a contributor gets from "make".
+  suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: make
+      - run: make test
+
+  backends:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        backend:
+          - no-tls
+          - system
+          - openssl
+          - libressl
+          - wolfssl
+          - mbedtls
+          - mbedtls3
+          - mbedtls4
+          - gnutls
+          - s2n
+          - boringssl
+    steps:
+      - uses: actions/checkout@v4
+
+      # A library changes only when the version in provision.sh changes. As a
+      # result, the content of that file is the cache key. A new version
+      # clears the cache, and that is the correct behaviour.
+      - uses: actions/cache@v4
+        with:
+          path: ~/opt
+          key: tls-${{ runner.os }}-${{ matrix.backend }}-${{ hashFiles('tests/provision.sh') }}
+
+      - name: Build dependencies that are not TLS libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmagic-dev
+          if [ "${{ matrix.backend }}" = gnutls ]; then
+            sudo apt-get install -y nettle-dev libtasn1-6-dev libgmp-dev
+          fi
+          # mbedTLS 4 makes its PSA driver wrappers at build time with a
+          # Python script, and that script imports these modules.
+          if [ "${{ matrix.backend }}" = mbedtls4 ]; then
+            sudo apt-get install -y python3-jsonschema python3-jinja2
+          fi
+
+      # This step does nothing for "system", for "no-tls", and for a library
+      # that is already in the cache.
+      - name: Provide the pinned library
+        run: ./tests/provision.sh --build "${{ matrix.backend }}"
+
+      - name: Without libmagic
+        run: ./tests/backend.sh "${{ matrix.backend }}"
+
+      - name: With libmagic
+        run: ./tests/backend.sh "${{ matrix.backend }}" --magic
+
+  # AddressSanitizer. It fails tests that no other job here can fail.
+  #
+  # A read after the end of an allocation gives the next value in memory. That
+  # value is usually a zero, and a zero looks like the correct answer. The
+  # suite then passes, and the defect stays until the memory beside the
+  # allocation holds a different value. No check in CLIPS can see that defect.
+  # Only a build that checks each access can see it.
+  #
+  # This job runs each configuration, as the backends job above does. A build
+  # compiles one backend object only. See TLS_OBJS in src/makefile. As a
+  # result, a sanitized build checks the backend that it selected and no other
+  # backend. Two rows would leave socktls-mbedtls.c and socktls-s2n.c with no
+  # sanitizer at all, and those two files are more than two thousand lines with
+  # the most fixed-size buffers in the tree.
+  #
+  # The backends share the generic code in socktls.c, and any one row would
+  # cover it. But that file is not where the memory work is. It has one memcpy
+  # and the backends have six, across twice the length.
+  #
+  # The OpenSSL family shares socktls-openssl.c. As a result, those rows repeat
+  # a file and do not repeat a library. wolfSSL reaches that file through a
+  # compatibility layer, and LibreSSL and BoringSSL reach it through their own
+  # forks. As a result, a rule about memory lifetime that is correct for
+  # OpenSSL can still fail there.
+  asan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        backend:
+          - no-tls
+          - system
+          - openssl
+          - libressl
+          - wolfssl
+          - mbedtls
+          - mbedtls3
+          - mbedtls4
+          - gnutls
+          - s2n
+          - boringssl
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/opt
+          key: tls-${{ runner.os }}-${{ matrix.backend }}-${{ hashFiles('tests/provision.sh') }}
+
+      - name: Build dependencies that are not TLS libraries
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.backend }}" = gnutls ]; then
+            sudo apt-get install -y nettle-dev libtasn1-6-dev libgmp-dev
+          fi
+          # mbedTLS 4 makes its PSA driver wrappers at build time with a
+          # Python script, and that script imports these modules.
+          if [ "${{ matrix.backend }}" = mbedtls4 ]; then
+            sudo apt-get install -y python3-jsonschema python3-jinja2
+          fi
+
+      - name: Provide the pinned library
+        run: ./tests/provision.sh --build "${{ matrix.backend }}"
+
+      - name: Sanitized build and suite
+        run: ./tests/asan.sh "${{ matrix.backend }}"
+
+  # One instrumented run for each configuration. A binary has one TLS backend
+  # only. As a result, no single run can measure each backend. Each run sends
+  # the data for its own lines, and the job below adds the data together.
+  coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        backend:
+          - no-tls
+          - system
+          - openssl
+          - libressl
+          - wolfssl
+          - mbedtls
+          - mbedtls3
+          - mbedtls4
+          - gnutls
+          - s2n
+          - boringssl
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/opt
+          key: tls-${{ runner.os }}-${{ matrix.backend }}-${{ hashFiles('tests/provision.sh') }}
+
+      - name: Build dependencies that are not TLS libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmagic-dev
+          if [ "${{ matrix.backend }}" = gnutls ]; then
+            sudo apt-get install -y nettle-dev libtasn1-6-dev libgmp-dev
+          fi
+          # mbedTLS 4 makes its PSA driver wrappers at build time with a
+          # Python script, and that script imports these modules.
+          if [ "${{ matrix.backend }}" = mbedtls4 ]; then
+            sudo apt-get install -y python3-jsonschema python3-jinja2
+          fi
+
+      - name: Provide the pinned library
+        run: ./tests/provision.sh --build "${{ matrix.backend }}"
+
+      - name: Measure
+        run: ./tests/backend.sh "${{ matrix.backend }}" --magic --coverage coverage-data
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.backend }}
+          path: coverage-data
+          retention-days: 7
+
+  coverage-report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: coverage
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage-data
+          merge-multiple: true
+
+      # This report needs no build. It reads the line data from those jobs and
+      # does not read the source tree.
+      - name: Merged coverage over every configuration
+        run: COVERAGE_MERGE=coverage-data ./tests/coverage.sh

@@ -4,13 +4,12 @@
 ;;;   (sendto <socket> AF_INET  <ip> <port-int> <data> [flags])
 ;;;   (sendto <socket> AF_INET6 <ip> <port-int> <data> [flags])
 ;;;
-;;; The AF_UNIX form and the flags argument were both unreachable until the
-;;; registration was widened: argument 4 only accepted integers, and flags
-;;; would have been argument 6 against a declared maximum of 5.
+;;; The AF_UNIX form reaches argument 4 with a lexeme, and the flags argument
+;;; is argument 6. The registration must accept both.
 
 (load* "tests/lib/expect.clp")
 (test-suite "sendto-forms")
-(test-plan 19)
+(test-plan 23)
 
 (defglobal ?*port*  = 18922)
 (defglobal ?*port6* = 18923)
@@ -88,14 +87,44 @@
    (close-connection ?srv)
    (remove ?*path*))
 
+;;; The family argument gives the arguments after it, and the caller must
+;;; supply it. But the family must also agree with the socket. The kernel
+;;; refuses a sockaddr of one family on a socket of another family, and it
+;;; gives EINVAL. That message does not say which of the two values is
+;;; incorrect. A refusal here can name both of them.
 (deffunction run-family-tests ()
    (bind ?fd (create-socket AF_INET SOCK_DGRAM))
    (expect-false "an unsupported family is rejected"
                  (sendto ?fd AF_PACKET "127.0.0.1" 18999 "hi"))
+   (expect-false "an AF_INET6 destination on an AF_INET socket is rejected"
+                 (sendto ?fd AF_INET6 "::1" 18999 "hi"))
+   (expect-false "an AF_UNIX destination on an AF_INET socket is rejected"
+                 (sendto ?fd AF_UNIX "/tmp/clipsockets-no-such.sock" "hi"))
+   (close-connection ?fd)
+
+   (bind ?fd6 (create-socket AF_INET6 SOCK_DGRAM))
+   (expect-false "an AF_INET destination on an AF_INET6 socket is rejected"
+                 (sendto ?fd6 AF_INET "127.0.0.1" 18999 "hi"))
+   (close-connection ?fd6))
+
+;;; A unix path that is longer than sun_path. A shorter form of that path names
+;;; a different socket, or no socket, and the call would report that it sent the
+;;; datagram. No later check can find that error. sun_path is 108 bytes on
+;;; Linux, and 200 characters is above the limit on each platform that
+;;; builds this library.
+(deffunction run-long-path-tests ()
+   (bind ?long "/tmp/")
+   (while (< (str-length ?long) 200) do
+      (bind ?long (str-cat ?long "0123456789")))
+
+   (bind ?fd (create-socket AF_UNIX SOCK_DGRAM))
+   (expect-false "a unix path too long to hold is refused rather than truncated"
+                 (sendto ?fd AF_UNIX ?long "hi"))
    (close-connection ?fd))
 
 (run-inet-tests)
 (run-inet6-tests)
 (run-unix-tests)
 (run-family-tests)
+(run-long-path-tests)
 (test-summary)

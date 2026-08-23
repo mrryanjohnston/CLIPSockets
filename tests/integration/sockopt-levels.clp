@@ -3,7 +3,7 @@
 
 (load* "tests/lib/expect.clp")
 (test-suite "sockopt-levels")
-(test-plan 11)
+(test-plan 17)
 
 (deffunction run-tests ()
    (bind ?tcp (create-socket AF_INET SOCK_STREAM))
@@ -17,6 +17,31 @@
                 (getsockopt ?tcp IPPROTO_TCP TCP_NODELAY))
    (expect-true "set TCP_NODELAY" (setsockopt ?tcp IPPROTO_TCP TCP_NODELAY 1))
    (expect-eq   "get TCP_NODELAY" 1 (getsockopt ?tcp IPPROTO_TCP TCP_NODELAY))
+
+   ;; SOL_SOCKET with SO_SNDBUF and SO_RCVBUF. Neither of them gives the same
+   ;; value back, and the cause is important. Linux keeps two times the given
+   ;; value, and it uses the second half for its own data. It then limits the
+   ;; result to net.core.wmem_max. As a result, the value that comes back is a
+   ;; maximum of two times the given value, or it is the limit. A check for
+   ;; equality would be a check of a sysctl. Each kernel does promise one item:
+   ;; the buffer is at least as large as the request. A caller depends on that
+   ;; promise.
+   ;;
+   ;; A smaller buffer has no limit in the way. As a result, the test uses that
+   ;; direction to check for a real change. A smaller send buffer gives a
+   ;; writer backpressure sooner, and a program that asks for a smaller buffer
+   ;; usually wants that.
+   (bind ?before (getsockopt ?tcp SOL_SOCKET SO_SNDBUF))
+   (expect-gte "SO_SNDBUF starts positive" 1 ?before)
+   (expect-true "set SO_SNDBUF" (setsockopt ?tcp SOL_SOCKET SO_SNDBUF 65536))
+   (expect-gte "SO_SNDBUF is at least what was asked" 65536
+               (getsockopt ?tcp SOL_SOCKET SO_SNDBUF))
+
+   (expect-gte "SO_RCVBUF starts positive" 1
+               (getsockopt ?tcp SOL_SOCKET SO_RCVBUF))
+   (expect-true "set SO_RCVBUF" (setsockopt ?tcp SOL_SOCKET SO_RCVBUF 65536))
+   (expect-gte "SO_RCVBUF is at least what was asked" 65536
+               (getsockopt ?tcp SOL_SOCKET SO_RCVBUF))
 
    ;; Names the UDF does not know.
    (expect-false "unknown level on get" (getsockopt ?tcp NOT_A_LEVEL SO_REUSEADDR))

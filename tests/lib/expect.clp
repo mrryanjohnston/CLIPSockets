@@ -15,10 +15,11 @@
 ;;; prints the sentinel line that run.sh looks for and exits 1 if anything
 ;;; failed, so a test file that dies early cannot be mistaken for a pass.
 
-(defglobal ?*tests-run*    = 0)
-(defglobal ?*tests-failed* = 0)
-(defglobal ?*planned*      = 0)
-(defglobal ?*suite*        = "unnamed")
+(defglobal ?*tests-run*     = 0)
+(defglobal ?*tests-failed*  = 0)
+(defglobal ?*tests-skipped* = 0)
+(defglobal ?*planned*       = 0)
+(defglobal ?*suite*         = "unnamed")
 
 (deffunction test-suite (?name)
    (bind ?*suite* ?name)
@@ -34,6 +35,23 @@
 
 (deffunction test-pass ()
    (bind ?*tests-run* (+ ?*tests-run* 1))
+   (return TRUE))
+
+;; A check that the library cannot do. Examples are a protocol version that the
+;; build does not have, and a failure that the library reports through a
+;; channel that it does not have. The count includes a skipped check as a check
+;; that ran, because the plan finds a run that stopped early and a skipped check
+;; stopped nothing. A skipped check never fails.
+;;
+;; No code in this file decides which checks are skippable. That decision
+;; belongs with the code under test, and tests/lib/tls.clp makes it for the TLS
+;; backends. Each test loads this file, and some builds do not have those
+;; functions.
+(deffunction test-skip (?label ?why)
+   (bind ?*tests-run* (+ ?*tests-run* 1))
+   (bind ?*tests-skipped* (+ ?*tests-skipped* 1))
+   (printout t "  SKIP [" ?*suite* "] " ?label crlf)
+   (printout t "       " ?why crlf)
    (return TRUE))
 
 (deffunction test-fail (?label ?detail)
@@ -102,6 +120,49 @@
       then (test-pass)
       else (test-fail ?label (str-cat "expected errno " ?sym ", got <" ?actual ">"))))
 
+;; Captures the text that a UDF writes to STDERR.
+;;
+;; A message is part of what these functions give. Most of them answer a bad
+;; argument with FALSE, and FALSE alone does not name the argument and does not
+;; give the cause. The message on STDERR does that, and it needs a test of
+;; its own. A message that names the incorrect function, or that has no newline
+;; at the end, is a defect that the return value alone cannot show.
+;;
+;; (dribble-on) makes this capture possible. Its router answers for STDERR and
+;; also for STDOUT. As a result, each write to either channel goes into the
+;; file and also goes to its usual destination. No other function in CLIPS can
+;; see STDERR from inside the process.
+;;
+;; Use it in this manner:
+;;
+;;   (capture-start)
+;;   (getsockopt not-a-socket SOL_SOCKET SO_REUSEADDR)
+;;   (bind ?said (capture-lines))
+;;   (expect-contains "getsockopt names itself" "getsockopt: ..." ?said)
+;;
+;; No code between the two calls can print, and that includes the expect-*
+;; functions. The capture takes that output also. Keep the call under test
+;; alone.
+;;
+;; The function gives lines and not one string, because the division into lines
+;; is the check. A message with no newline is not a line of its own. As a
+;; result, an exact match against a line shows the terminator and also the
+;; text.
+(defglobal ?*capture-path* = "/tmp/clipsockets-test-capture.txt")
+
+(deffunction capture-start ()
+   (return (dribble-on ?*capture-path*)))
+
+(deffunction capture-lines ()
+   (dribble-off)
+   (bind ?lines (create$))
+   (if (open ?*capture-path* capture-file "r") then
+      (while (neq (bind ?line (readline capture-file)) EOF) do
+         (bind ?lines (create$ ?lines ?line)))
+      (close capture-file))
+   (remove ?*capture-path*)
+   (return ?lines))
+
 ;; Ends the run. The ##SUMMARY line is the sentinel run.sh requires: without
 ;; it the file is reported as incomplete rather than passing.
 (deffunction test-summary ()
@@ -115,7 +176,8 @@
    (printout t "##SUMMARY suite=" ?*suite*
                " run=" ?*tests-run*
                " planned=" ?*planned*
-               " failed=" ?*tests-failed* crlf)
+               " failed=" ?*tests-failed*
+               " skipped=" ?*tests-skipped* crlf)
    (if (> ?*tests-failed* 0)
       then (exit 1)
       else (exit 0)))

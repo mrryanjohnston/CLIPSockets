@@ -65,6 +65,7 @@
 
 #include "clips.h"
 #include "socketrtr.h"
+#include "socktls.h"
 
 void UserFunctions(Environment *);
 
@@ -72,6 +73,8 @@ void UserFunctions(Environment *);
    errno is used; with an integer argument that value is translated instead,
    which lets a saved errno be named later. Unrecognised values, including 0,
    return void. */
+#define ERRNO_SYM(code) case code: err = CreateSymbol(theEnv,#code); break
+
 void ErrnoSymFunction(
 		Environment *theEnv,
 		UDFContext *context,
@@ -93,401 +96,146 @@ void ErrnoSymFunction(
 
 	switch(theError)
 	{
-		case EPERM:
-			err = CreateSymbol(theEnv, "EPERM");
-			break;
-		case ENOENT:
-			err = CreateSymbol(theEnv, "ENOENT");
-			break;
-		case ESRCH:
-			err = CreateSymbol(theEnv, "ESRCH");
-			break;
-		case EINTR:
-			err = CreateSymbol(theEnv, "EINTR");
-			break;
-		case EIO:
-			err = CreateSymbol(theEnv, "EIO");
-			break;
-		case ENXIO:
-			err = CreateSymbol(theEnv, "ENXIO");
-			break;
-		case E2BIG:
-			err = CreateSymbol(theEnv, "E2BIG");
-			break;
-		case ENOEXEC:
-			err = CreateSymbol(theEnv, "ENOEXEC");
-			break;
-		case EBADF:
-			err = CreateSymbol(theEnv, "EBADF");
-			break;
-		case ECHILD:
-			err = CreateSymbol(theEnv, "ECHILD");
-			break;
-		case EAGAIN:
-			err = CreateSymbol(theEnv, "EAGAIN");
-			break;
-		case ENOMEM:
-			err = CreateSymbol(theEnv, "ENOMEM");
-			break;
-		case EACCES:
-			err = CreateSymbol(theEnv, "EACCES");
-			break;
-		case EFAULT:
-			err = CreateSymbol(theEnv, "EFAULT");
-			break;
-		case ENOTBLK:
-			err = CreateSymbol(theEnv, "ENOTBLK");
-			break;
-		case EBUSY:
-			err = CreateSymbol(theEnv, "EBUSY");
-			break;
-		case EEXIST:
-			err = CreateSymbol(theEnv, "EEXIST");
-			break;
-		case EXDEV:
-			err = CreateSymbol(theEnv, "EXDEV");
-			break;
-		case ENODEV:
-			err = CreateSymbol(theEnv, "ENODEV");
-			break;
-		case ENOTDIR:
-			err = CreateSymbol(theEnv, "ENOTDIR");
-			break;
-		case EISDIR:
-			err = CreateSymbol(theEnv, "EISDIR");
-			break;
-		case EINVAL:
-			err = CreateSymbol(theEnv, "EINVAL");
-			break;
-		case ENFILE:
-			err = CreateSymbol(theEnv, "ENFILE");
-			break;
-		case EMFILE:
-			err = CreateSymbol(theEnv, "EMFILE");
-			break;
-		case ENOTTY:
-			err = CreateSymbol(theEnv, "ENOTTY");
-			break;
-		case ETXTBSY:
-			err = CreateSymbol(theEnv, "ETXTBSY");
-			break;
-		case EFBIG:
-			err = CreateSymbol(theEnv, "EFBIG");
-			break;
-		case ENOSPC:
-			err = CreateSymbol(theEnv, "ENOSPC");
-			break;
-		case ESPIPE:
-			err = CreateSymbol(theEnv, "ESPIPE");
-			break;
-		case EROFS:
-			err = CreateSymbol(theEnv, "EROFS");
-			break;
-		case EMLINK:
-			err = CreateSymbol(theEnv, "EMLINK");
-			break;
-		case EPIPE:
-			err = CreateSymbol(theEnv, "EPIPE");
-			break;
-		case EDOM:
-			err = CreateSymbol(theEnv, "EDOM");
-			break;
-		case ERANGE:
-			err = CreateSymbol(theEnv, "ERANGE");
-			break;
-		case EDEADLK:
-			err = CreateSymbol(theEnv, "EDEADLK");
-			break;
-		case ENAMETOOLONG:
-			err = CreateSymbol(theEnv, "ENAMETOOLONG");
-			break;
-		case ENOLCK:
-			err = CreateSymbol(theEnv, "ENOLCK");
-			break;
-		case ENOSYS:
-			err = CreateSymbol(theEnv, "ENOSYS");
-			break;
-		case ENOTEMPTY:
-			err = CreateSymbol(theEnv, "ENOTEMPTY");
-			break;
-		case ELOOP:
-			err = CreateSymbol(theEnv, "ELOOP");
-			break;
-		case ENOMSG:
-			err = CreateSymbol(theEnv, "ENOMSG");
-			break;
-		case EIDRM:
-			err = CreateSymbol(theEnv, "EIDRM");
-			break;
-		case ECHRNG:
-			err = CreateSymbol(theEnv, "ECHRNG");
-			break;
-		case EL2NSYNC:
-			err = CreateSymbol(theEnv, "EL2NSYNC");
-			break;
-		case EL3HLT:
-			err = CreateSymbol(theEnv, "EL3HLT");
-			break;
-		case EL3RST:
-			err = CreateSymbol(theEnv, "EL3RST");
-			break;
-		case ELNRNG:
-			err = CreateSymbol(theEnv, "ELNRNG");
-			break;
-		case EUNATCH:
-			err = CreateSymbol(theEnv, "EUNATCH");
-			break;
-		case ENOCSI:
-			err = CreateSymbol(theEnv, "ENOCSI");
-			break;
-		case EL2HLT:
-			err = CreateSymbol(theEnv, "EL2HLT");
-			break;
-		case EBADE:
-			err = CreateSymbol(theEnv, "EBADE");
-			break;
-		case EBADR:
-			err = CreateSymbol(theEnv, "EBADR");
-			break;
-		case EXFULL:
-			err = CreateSymbol(theEnv, "EXFULL");
-			break;
-		case ENOANO:
-			err = CreateSymbol(theEnv, "ENOANO");
-			break;
-		case EBADRQC:
-			err = CreateSymbol(theEnv, "EBADRQC");
-			break;
-		case EBADSLT:
-			err = CreateSymbol(theEnv, "EBADSLT");
-			break;
-		case EBFONT:
-			err = CreateSymbol(theEnv, "EBFONT");
-			break;
-		case ENOSTR:
-			err = CreateSymbol(theEnv, "ENOSTR");
-			break;
-		case ENODATA:
-			err = CreateSymbol(theEnv, "ENODATA");
-			break;
-		case ETIME:
-			err = CreateSymbol(theEnv, "ETIME");
-			break;
-		case ENOSR:
-			err = CreateSymbol(theEnv, "ENOSR");
-			break;
-		case ENONET:
-			err = CreateSymbol(theEnv, "ENONET");
-			break;
-		case ENOPKG:
-			err = CreateSymbol(theEnv, "ENOPKG");
-			break;
-		case EREMOTE:
-			err = CreateSymbol(theEnv, "EREMOTE");
-			break;
-		case ENOLINK:
-			err = CreateSymbol(theEnv, "ENOLINK");
-			break;
-		case EADV:
-			err = CreateSymbol(theEnv, "EADV");
-			break;
-		case ESRMNT:
-			err = CreateSymbol(theEnv, "ESRMNT");
-			break;
-		case ECOMM:
-			err = CreateSymbol(theEnv, "ECOMM");
-			break;
-		case EPROTO:
-			err = CreateSymbol(theEnv, "EPROTO");
-			break;
-		case EMULTIHOP:
-			err = CreateSymbol(theEnv, "EMULTIHOP");
-			break;
-		case EDOTDOT:
-			err = CreateSymbol(theEnv, "EDOTDOT");
-			break;
-		case EBADMSG:
-			err = CreateSymbol(theEnv, "EBADMSG");
-			break;
-		case EOVERFLOW:
-			err = CreateSymbol(theEnv, "EOVERFLOW");
-			break;
-		case ENOTUNIQ:
-			err = CreateSymbol(theEnv, "ENOTUNIQ");
-			break;
-		case EBADFD:
-			err = CreateSymbol(theEnv, "EBADFD");
-			break;
-		case EREMCHG:
-			err = CreateSymbol(theEnv, "EREMCHG");
-			break;
-		case ELIBACC:
-			err = CreateSymbol(theEnv, "ELIBACC");
-			break;
-		case ELIBBAD:
-			err = CreateSymbol(theEnv, "ELIBBAD");
-			break;
-		case ELIBSCN:
-			err = CreateSymbol(theEnv, "ELIBSCN");
-			break;
-		case ELIBMAX:
-			err = CreateSymbol(theEnv, "ELIBMAX");
-			break;
-		case EILSEQ:
-			err = CreateSymbol(theEnv, "EILSEQ");
-			break;
-		case ERESTART:
-			err = CreateSymbol(theEnv, "ERESTART");
-			break;
-		case ESTRPIPE:
-			err = CreateSymbol(theEnv, "ESTRPIPE");
-			break;
-		case EUSERS:
-			err = CreateSymbol(theEnv, "EUSERS");
-			break;
-		case ENOTSOCK:
-			err = CreateSymbol(theEnv, "ENOTSOCK");
-			break;
-		case EDESTADDRREQ:
-			err = CreateSymbol(theEnv, "EDESTADDRREQ");
-			break;
-		case EMSGSIZE:
-			err = CreateSymbol(theEnv, "EMSGSIZE");
-			break;
-		case EPROTOTYPE:
-			err = CreateSymbol(theEnv, "EPROTOTYPE");
-			break;
-		case ENOPROTOOPT:
-			err = CreateSymbol(theEnv, "ENOPROTOOPT");
-			break;
-		case EPROTONOSUPPORT:
-			err = CreateSymbol(theEnv, "EPROTONOSUPPORT");
-			break;
-		case ESOCKTNOSUPPORT:
-			err = CreateSymbol(theEnv, "ESOCKTNOSUPPORT");
-			break;
-		case EOPNOTSUPP:
-			err = CreateSymbol(theEnv, "EOPNOTSUPP");
-			break;
-		case EPFNOSUPPORT:
-			err = CreateSymbol(theEnv, "EPFNOSUPPORT");
-			break;
-		case EAFNOSUPPORT:
-			err = CreateSymbol(theEnv, "EAFNOSUPPORT");
-			break;
-		case EADDRINUSE:
-			err = CreateSymbol(theEnv, "EADDRINUSE");
-			break;
-		case EADDRNOTAVAIL:
-			err = CreateSymbol(theEnv, "EADDRNOTAVAIL");
-			break;
-		case ENETDOWN:
-			err = CreateSymbol(theEnv, "ENETDOWN");
-			break;
-		case ENETUNREACH:
-			err = CreateSymbol(theEnv, "ENETUNREACH");
-			break;
-		case ENETRESET:
-			err = CreateSymbol(theEnv, "ENETRESET");
-			break;
-		case ECONNABORTED:
-			err = CreateSymbol(theEnv, "ECONNABORTED");
-			break;
-		case ECONNRESET:
-			err = CreateSymbol(theEnv, "ECONNRESET");
-			break;
-		case ENOBUFS:
-			err = CreateSymbol(theEnv, "ENOBUFS");
-			break;
-		case EISCONN:
-			err = CreateSymbol(theEnv, "EISCONN");
-			break;
-		case ENOTCONN:
-			err = CreateSymbol(theEnv, "ENOTCONN");
-			break;
-		case ESHUTDOWN:
-			err = CreateSymbol(theEnv, "ESHUTDOWN");
-			break;
-		case ETOOMANYREFS:
-			err = CreateSymbol(theEnv, "ETOOMANYREFS");
-			break;
-		case ETIMEDOUT:
-			err = CreateSymbol(theEnv, "ETIMEDOUT");
-			break;
-		case ECONNREFUSED:
-			err = CreateSymbol(theEnv, "ECONNREFUSED");
-			break;
-		case EHOSTDOWN:
-			err = CreateSymbol(theEnv, "EHOSTDOWN");
-			break;
-		case EHOSTUNREACH:
-			err = CreateSymbol(theEnv, "EHOSTUNREACH");
-			break;
-		case EALREADY:
-			err = CreateSymbol(theEnv, "EALREADY");
-			break;
-		case EINPROGRESS:
-			err = CreateSymbol(theEnv, "EINPROGRESS");
-			break;
-		case ESTALE:
-			err = CreateSymbol(theEnv, "ESTALE");
-			break;
-		case EUCLEAN:
-			err = CreateSymbol(theEnv, "EUCLEAN");
-			break;
-		case ENOTNAM:
-			err = CreateSymbol(theEnv, "ENOTNAM");
-			break;
-		case ENAVAIL:
-			err = CreateSymbol(theEnv, "ENAVAIL");
-			break;
-		case EISNAM:
-			err = CreateSymbol(theEnv, "EISNAM");
-			break;
-		case EREMOTEIO:
-			err = CreateSymbol(theEnv, "EREMOTEIO");
-			break;
-		case EDQUOT:
-			err = CreateSymbol(theEnv, "EDQUOT");
-			break;
-		case ENOMEDIUM:
-			err = CreateSymbol(theEnv, "ENOMEDIUM");
-			break;
-		case EMEDIUMTYPE:
-			err = CreateSymbol(theEnv, "EMEDIUMTYPE");
-			break;
-		case ECANCELED:
-			err = CreateSymbol(theEnv, "ECANCELED");
-			break;
-		case ENOKEY:
-			err = CreateSymbol(theEnv, "ENOKEY");
-			break;
-		case EKEYEXPIRED:
-			err = CreateSymbol(theEnv, "EKEYEXPIRED");
-			break;
-		case EKEYREVOKED:
-			err = CreateSymbol(theEnv, "EKEYREVOKED");
-			break;
-		case EKEYREJECTED:
-			err = CreateSymbol(theEnv, "EKEYREJECTED");
-			break;
-		case EOWNERDEAD:
-			err = CreateSymbol(theEnv, "EOWNERDEAD");
-			break;
-		case ENOTRECOVERABLE:
-			err = CreateSymbol(theEnv, "ENOTRECOVERABLE");
-			break;
-		case ERFKILL:
-			err = CreateSymbol(theEnv, "ERFKILL");
-			break;
-		case EHWPOISON:
-			err = CreateSymbol(theEnv, "EHWPOISON");
-			break;
+		ERRNO_SYM(EPERM);
+		ERRNO_SYM(ENOENT);
+		ERRNO_SYM(ESRCH);
+		ERRNO_SYM(EINTR);
+		ERRNO_SYM(EIO);
+		ERRNO_SYM(ENXIO);
+		ERRNO_SYM(E2BIG);
+		ERRNO_SYM(ENOEXEC);
+		ERRNO_SYM(EBADF);
+		ERRNO_SYM(ECHILD);
+		ERRNO_SYM(EAGAIN);
+		ERRNO_SYM(ENOMEM);
+		ERRNO_SYM(EACCES);
+		ERRNO_SYM(EFAULT);
+		ERRNO_SYM(ENOTBLK);
+		ERRNO_SYM(EBUSY);
+		ERRNO_SYM(EEXIST);
+		ERRNO_SYM(EXDEV);
+		ERRNO_SYM(ENODEV);
+		ERRNO_SYM(ENOTDIR);
+		ERRNO_SYM(EISDIR);
+		ERRNO_SYM(EINVAL);
+		ERRNO_SYM(ENFILE);
+		ERRNO_SYM(EMFILE);
+		ERRNO_SYM(ENOTTY);
+		ERRNO_SYM(ETXTBSY);
+		ERRNO_SYM(EFBIG);
+		ERRNO_SYM(ENOSPC);
+		ERRNO_SYM(ESPIPE);
+		ERRNO_SYM(EROFS);
+		ERRNO_SYM(EMLINK);
+		ERRNO_SYM(EPIPE);
+		ERRNO_SYM(EDOM);
+		ERRNO_SYM(ERANGE);
+		ERRNO_SYM(EDEADLK);
+		ERRNO_SYM(ENAMETOOLONG);
+		ERRNO_SYM(ENOLCK);
+		ERRNO_SYM(ENOSYS);
+		ERRNO_SYM(ENOTEMPTY);
+		ERRNO_SYM(ELOOP);
+		ERRNO_SYM(ENOMSG);
+		ERRNO_SYM(EIDRM);
+		ERRNO_SYM(ECHRNG);
+		ERRNO_SYM(EL2NSYNC);
+		ERRNO_SYM(EL3HLT);
+		ERRNO_SYM(EL3RST);
+		ERRNO_SYM(ELNRNG);
+		ERRNO_SYM(EUNATCH);
+		ERRNO_SYM(ENOCSI);
+		ERRNO_SYM(EL2HLT);
+		ERRNO_SYM(EBADE);
+		ERRNO_SYM(EBADR);
+		ERRNO_SYM(EXFULL);
+		ERRNO_SYM(ENOANO);
+		ERRNO_SYM(EBADRQC);
+		ERRNO_SYM(EBADSLT);
+		ERRNO_SYM(EBFONT);
+		ERRNO_SYM(ENOSTR);
+		ERRNO_SYM(ENODATA);
+		ERRNO_SYM(ETIME);
+		ERRNO_SYM(ENOSR);
+		ERRNO_SYM(ENONET);
+		ERRNO_SYM(ENOPKG);
+		ERRNO_SYM(EREMOTE);
+		ERRNO_SYM(ENOLINK);
+		ERRNO_SYM(EADV);
+		ERRNO_SYM(ESRMNT);
+		ERRNO_SYM(ECOMM);
+		ERRNO_SYM(EPROTO);
+		ERRNO_SYM(EMULTIHOP);
+		ERRNO_SYM(EDOTDOT);
+		ERRNO_SYM(EBADMSG);
+		ERRNO_SYM(EOVERFLOW);
+		ERRNO_SYM(ENOTUNIQ);
+		ERRNO_SYM(EBADFD);
+		ERRNO_SYM(EREMCHG);
+		ERRNO_SYM(ELIBACC);
+		ERRNO_SYM(ELIBBAD);
+		ERRNO_SYM(ELIBSCN);
+		ERRNO_SYM(ELIBMAX);
+		ERRNO_SYM(EILSEQ);
+		ERRNO_SYM(ERESTART);
+		ERRNO_SYM(ESTRPIPE);
+		ERRNO_SYM(EUSERS);
+		ERRNO_SYM(ENOTSOCK);
+		ERRNO_SYM(EDESTADDRREQ);
+		ERRNO_SYM(EMSGSIZE);
+		ERRNO_SYM(EPROTOTYPE);
+		ERRNO_SYM(ENOPROTOOPT);
+		ERRNO_SYM(EPROTONOSUPPORT);
+		ERRNO_SYM(ESOCKTNOSUPPORT);
+		ERRNO_SYM(EOPNOTSUPP);
+		ERRNO_SYM(EPFNOSUPPORT);
+		ERRNO_SYM(EAFNOSUPPORT);
+		ERRNO_SYM(EADDRINUSE);
+		ERRNO_SYM(EADDRNOTAVAIL);
+		ERRNO_SYM(ENETDOWN);
+		ERRNO_SYM(ENETUNREACH);
+		ERRNO_SYM(ENETRESET);
+		ERRNO_SYM(ECONNABORTED);
+		ERRNO_SYM(ECONNRESET);
+		ERRNO_SYM(ENOBUFS);
+		ERRNO_SYM(EISCONN);
+		ERRNO_SYM(ENOTCONN);
+		ERRNO_SYM(ESHUTDOWN);
+		ERRNO_SYM(ETOOMANYREFS);
+		ERRNO_SYM(ETIMEDOUT);
+		ERRNO_SYM(ECONNREFUSED);
+		ERRNO_SYM(EHOSTDOWN);
+		ERRNO_SYM(EHOSTUNREACH);
+		ERRNO_SYM(EALREADY);
+		ERRNO_SYM(EINPROGRESS);
+		ERRNO_SYM(ESTALE);
+		ERRNO_SYM(EUCLEAN);
+		ERRNO_SYM(ENOTNAM);
+		ERRNO_SYM(ENAVAIL);
+		ERRNO_SYM(EISNAM);
+		ERRNO_SYM(EREMOTEIO);
+		ERRNO_SYM(EDQUOT);
+		ERRNO_SYM(ENOMEDIUM);
+		ERRNO_SYM(EMEDIUMTYPE);
+		ERRNO_SYM(ECANCELED);
+		ERRNO_SYM(ENOKEY);
+		ERRNO_SYM(EKEYEXPIRED);
+		ERRNO_SYM(EKEYREVOKED);
+		ERRNO_SYM(EKEYREJECTED);
+		ERRNO_SYM(EOWNERDEAD);
+		ERRNO_SYM(ENOTRECOVERABLE);
+		ERRNO_SYM(ERFKILL);
+		ERRNO_SYM(EHWPOISON);
+
+		/* The value 0 is not an error and has no name. Each other value is an
+		   errno of this platform that this list does not have, and the integer
+		   from (errno) still gives that value. */
 		case 0:
 		default:
 			returnValue->voidValue = VoidConstant(theEnv);
 			return;
 	}
+
 	returnValue->lexemeValue = err;
 }
 
@@ -508,8 +256,6 @@ void SleepFunction(
 	struct timespec ts;
 	UDFValue theArg;
 
-	/* Accept both integers and floats: (sleep 1) and (sleep 0.25) are both
-	   reasonable things to write, and the UDF is registered as "ld". */
 	UDFNextArgument(context,NUMBER_BITS,&theArg);
 	if (theArg.header->type == FLOAT_TYPE)
 	{
@@ -708,6 +454,8 @@ void UserFunctions(
 	  AddUDF(env,"fcntl-remove-status-flags","bl",2,UNBOUNDED,"sy;syl;",FcntlRemoveStatusFlagsFunction,"FcntlRemoveStatusFlagsFunction",NULL);
 	  AddUDF(env,"flush-connection","l",1,1,"lsy",FlushConnectionFunction,"FlushConnectionFunction",NULL);
 	  AddUDF(env,"get-socket-logical-name","y",1,1,"l",GetSocketLogicalNameFunction,"GetSocketLogicalNameFunction",NULL);
+	  AddUDF(env,"get-retained-bytes","bl",1,1,"lsy",GetRetainedBytesFunction,"GetRetainedBytesFunction",NULL);
+	  AddUDF(env,"get-retained-limit","bl",1,1,"lsy",GetRetainedLimitFunction,"GetRetainedLimitFunction",NULL);
 	  AddUDF(env,"get-timeout","l",1,1,"lsy",GetTimeoutFunction,"GetTimeoutFunction",NULL);
 	  AddUDF(env,"getsockopt","bl",3,3,";lsy;sy;sy",GetsockoptFunction,"GetsockoptFunction",NULL);
 	  AddUDF(env,"listen","b",1,2,";lsy;l",ListenFunction,"ListenFunction",NULL);
@@ -715,7 +463,8 @@ void UserFunctions(
 	  AddUDF(env,"set-fully-buffered","b",1,1,"lsy",SetFullyBufferedFunction,"SetFullyBufferedFunction",NULL);
 	  AddUDF(env,"set-not-buffered","b",1,1,"lsy",SetNotBufferedFunction,"SetNotBufferedFunction",NULL);
 	  AddUDF(env,"set-line-buffered","b",1,1,"lsy",SetLineBufferedFunction,"SetLineBufferedFunction",NULL);
-	  AddUDF(env,"set-timeout","l",2,2,";lsy;l",SetTimeoutFunction,"SetTimeoutFunction",NULL);
+	  AddUDF(env,"set-retained-limit","b",2,2,";lsy;l",SetRetainedLimitFunction,"SetRetainedLimitFunction",NULL);
+	  AddUDF(env,"set-timeout","b",2,3,";lsy;l;l",SetTimeoutFunction,"SetTimeoutFunction",NULL);
 	  AddUDF(env,"setsockopt","l",4,4,";lsy;sy;sy;l",SetsockoptFunction,"SetsockoptFunction",NULL);
 	  AddUDF(env,"shutdown-connection","b",1,2,";lsy;y",ShutdownConnectionFunction,"ShutdownConnectionFunction",NULL);
 	  AddUDF(env,"resolve-domain-name","bm",1,1,"sy",ResolveDomainNameFunction,"ResolveDomainNameFunction",NULL);
@@ -729,6 +478,36 @@ void UserFunctions(
 	  AddUDF(env,"scandir","bm",1,1,"sy",ScandirFunction,"ScandirFunction",NULL);
 	  AddUDF(env,"signal","b",2,2,";y;y",SignalFunction,"SignalFunction",NULL);
 	  AddUDF(env,"sleep","bl",1,1,"ld",SleepFunction,"SleepFunction",NULL);
+
+#ifdef USE_TLS
+	  AddUDF(env,"tls-create-context","bl",1,1,"y",TLSCreateContextFunction,"TLSCreateContextFunction",NULL);
+	  AddUDF(env,"tls-free-context","b",1,1,"l",TLSFreeContextFunction,"TLSFreeContextFunction",NULL);
+	  AddUDF(env,"tls-context-load-verify-locations","b",2,3,";l;sy;sy",TLSContextLoadVerifyLocationsFunction,"TLSContextLoadVerifyLocationsFunction",NULL);
+	  AddUDF(env,"tls-context-set-default-verify-paths","b",1,1,"l",TLSContextSetDefaultVerifyPathsFunction,"TLSContextSetDefaultVerifyPathsFunction",NULL);
+	  AddUDF(env,"tls-context-use-certificate-file","b",2,2,";l;sy",TLSContextUseCertificateFileFunction,"TLSContextUseCertificateFileFunction",NULL);
+	  AddUDF(env,"tls-context-use-private-key-file","b",2,2,";l;sy",TLSContextUsePrivateKeyFileFunction,"TLSContextUsePrivateKeyFileFunction",NULL);
+	  AddUDF(env,"tls-context-set-verify","b",2,2,";l;y",TLSContextSetVerifyFunction,"TLSContextSetVerifyFunction",NULL);
+	  AddUDF(env,"tls-context-set-min-proto-version","b",2,2,";l;y",TLSContextSetMinProtoVersionFunction,"TLSContextSetMinProtoVersionFunction",NULL);
+	  AddUDF(env,"tls-connect","b",3,3,";l;lsy;sy",TLSConnectFunction,"TLSConnectFunction",NULL);
+	  AddUDF(env,"tls-accept","b",2,2,";l;lsy",TLSAcceptFunction,"TLSAcceptFunction",NULL);
+	  AddUDF(env,"tls-handshake","b",1,1,"lsy",TLSHandshakeFunction,"TLSHandshakeFunction",NULL);
+	  AddUDF(env,"tls-shutdown","b",1,1,"lsy",TLSShutdownFunction,"TLSShutdownFunction",NULL);
+	  AddUDF(env,"tls-pending","bl",1,1,"lsy",TLSPendingFunction,"TLSPendingFunction",NULL);
+	  AddUDF(env,"tls-cipher","by",1,1,"lsy",TLSCipherFunction,"TLSCipherFunction",NULL);
+	  AddUDF(env,"tls-version","by",1,1,"lsy",TLSVersionFunction,"TLSVersionFunction",NULL);
+	  AddUDF(env,"tls-verify-result","bs",1,1,"lsy",TLSVerifyResultFunction,"TLSVerifyResultFunction",NULL);
+	  AddUDF(env,"tls-peer-subject","bs",1,1,"lsy",TLSPeerSubjectFunction,"TLSPeerSubjectFunction",NULL);
+	  AddUDF(env,"tls-backend","y",0,0,NULL,TLSBackendFunction,"TLSBackendFunction",NULL);
+	  AddUDF(env,"tls-backend-version","s",0,0,NULL,TLSBackendVersionFunction,"TLSBackendVersionFunction",NULL);
+	  AddUDF(env,"tls-supports-dtls","b",0,1,"y",TLSSupportsDTLSFunction,"TLSSupportsDTLSFunction",NULL);
+	  AddUDF(env,"dtls-connect","b",3,3,";l;lsy;sy",DTLSConnectFunction,"DTLSConnectFunction",NULL);
+	  AddUDF(env,"dtls-accept","b",2,2,";l;lsy",DTLSAcceptFunction,"DTLSAcceptFunction",NULL);
+	  AddUDF(env,"dtls-send","bl",2,2,";lsy;sy",DTLSSendFunction,"DTLSSendFunction",NULL);
+	  AddUDF(env,"dtls-recv","bm",1,2,";lsy;l",DTLSRecvFunction,"DTLSRecvFunction",NULL);
+	  AddUDF(env,"dtls-timeout","bl",1,1,"lsy",DTLSTimeoutFunction,"DTLSTimeoutFunction",NULL);
+	  AddUDF(env,"dtls-handle-timeout","b",1,1,"lsy",DTLSHandleTimeoutFunction,"DTLSHandleTimeoutFunction",NULL);
+	  AddUDF(env,"dtls-set-mtu","b",2,2,";lsy;l",DTLSSetMTUFunction,"DTLSSetMTUFunction",NULL);
+#endif
 
 	  AddUDF(env,"rcvfrom","bm",1,3,";lsy;lmsy;l",RecvfromFunction,"RecvfromFunction",NULL);
 	  AddUDF(env,"sendto","bl",3,6,";lsy;sy;sy;lsy;lmsy;lmsy",SendtoFunction,"SendtoFunction",NULL);

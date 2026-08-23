@@ -8,3 +8,15 @@ libclips.a
 src/*.gcda
 src/*.gcno
 src/*.gcov
+# TLS certificates. tests/fixtures/regenerate.sh makes them. The repository
+# never holds them. If a repository holds the private key of a certificate
+# authority, then anyone with a copy of that repository can sign with that key.
+# A machine that trusted such an authority, for example a browser, would then
+# accept a certificate for any site.
+tests/fixtures/*.pem
+tests/fixtures/*.csr
+tests/fixtures/*.srl
+# The incorrect files also stay out of the repository. Two of them are copies
+# of the real certificate and the real key.
+tests/fixtures/bad/
+tests/fixtures/trust/

@@ -19,8 +19,12 @@
    (expect-contains "includes .." .. (scandir "."))
 
    (expect-contains "reads a subdirectory" expect.clp (scandir "tests/lib"))
-   (expect-length   "subdirectory has exactly one file plus . and .."
-                    3 (scandir "tests/lib"))
+   ;; This is not an exact count. This directory holds the helper files of
+   ;; the suite, and it gets more files as the suite grows. That number says
+   ;; nothing about scandir. scandir must list each entry that is there, and
+   ;; that includes the entries that start with a dot.
+   (expect-gte      "subdirectory lists its files plus . and .."
+                    3 (length$ (scandir "tests/lib")))
 
    (expect-false "missing directory returns FALSE" (scandir "/no/such/dir"))
    (expect-false "a regular file is not a directory" (scandir "makefile")))

@@ -7,7 +7,7 @@
 
 (load* "tests/lib/expect.clp")
 (test-suite "lookup-failures")
-(test-plan 16)
+(test-plan 19)
 
 (deffunction run-tests ()
    (expect-false "get-timeout" (get-timeout no-such-name))
@@ -23,6 +23,9 @@
    (expect-false "flush-connection" (flush-connection no-such-name))
    (expect-false "empty-connection" (empty-connection no-such-name))
    (expect-false "set-not-buffered" (set-not-buffered no-such-name))
+   (expect-false "set-retained-limit" (set-retained-limit no-such-name 1024))
+   (expect-false "get-retained-limit" (get-retained-limit no-such-name))
+   (expect-false "get-retained-bytes" (get-retained-bytes no-such-name))
    (expect-false "rcvfrom" (rcvfrom no-such-name))
    (expect-false "sendto" (sendto no-such-name AF_INET "127.0.0.1" 18999 "x"))
 

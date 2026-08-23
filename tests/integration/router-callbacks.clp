@@ -10,20 +10,19 @@
 ;;; than closing by descriptor, so both are worth exercising.
 
 (load* "tests/lib/expect.clp")
+(load* "tests/lib/socket.clp")
 (test-suite "router-callbacks")
 (test-plan 11)
 
 (defglobal ?*port* = 18991)
 
 (deffunction run-tests ()
-   (bind ?srv (create-socket AF_INET SOCK_STREAM))
-   (setsockopt ?srv SOL_SOCKET SO_REUSEADDR 1)
-   (bind-socket ?srv 127.0.0.1 ?*port*)
-   (listen ?srv)
-   (bind ?cli (create-socket AF_INET SOCK_STREAM))
-   (bind ?conn (connect ?cli 127.0.0.1 ?*port*))
-   (bind ?acc (accept ?srv))
-   (bind ?aname (get-socket-logical-name ?acc))
+   (bind ?pair (tcp-connected-pair ?*port*))
+   (bind ?srv (nth$ 1 ?pair))
+   (bind ?cli (nth$ 2 ?pair))
+   (bind ?acc (nth$ 3 ?pair))
+   (bind ?conn (nth$ 4 ?pair))
+   (bind ?aname (nth$ 5 ?pair))
 
    ;; A line of separate tokens: reading them one at a time makes the scanner
    ;; push back each delimiter it reads past.

@@ -10,6 +10,7 @@
 ;;; assertion, because the process dies before it can report anything.
 
 (load* "tests/lib/expect.clp")
+(load* "tests/lib/socket.clp")
 (test-suite "closed-peer")
 (test-plan 3)
 
@@ -18,14 +19,11 @@
 (deffunction run-tests ()
    (expect-true "SIGPIPE can be ignored" (signal SIGPIPE SIG_IGN))
 
-   (bind ?srv (create-socket AF_INET SOCK_STREAM))
-   (setsockopt ?srv SOL_SOCKET SO_REUSEADDR 1)
-   (bind-socket ?srv 127.0.0.1 ?*port*)
-   (listen ?srv)
-   (bind ?cli (create-socket AF_INET SOCK_STREAM))
-   (connect ?cli 127.0.0.1 ?*port*)
-   (bind ?acc (accept ?srv))
-   (bind ?name (get-socket-logical-name ?acc))
+   (bind ?pair (tcp-connected-pair ?*port*))
+   (bind ?srv (nth$ 1 ?pair))
+   (bind ?cli (nth$ 2 ?pair))
+   (bind ?acc (nth$ 3 ?pair))
+   (bind ?name (nth$ 5 ?pair))
 
    ;; The peer goes away without reading anything.
    (close-connection ?cli)

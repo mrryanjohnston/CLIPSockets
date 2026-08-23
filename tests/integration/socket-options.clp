@@ -35,8 +35,7 @@
                  (fcntl-remove-status-flags ?cfd NOT_A_REAL_FLAG))
 
    ;; All three stdio buffering modes. These are registered as returning a
-   ;; boolean; they used to fall off the end returning void, which made them
-   ;; illegal as arguments to anything.
+   ;; boolean, and each must give that value.
    (expect-true "line buffering" (set-line-buffered ?cfd))
    (expect-true "full buffering" (set-fully-buffered ?cfd))
    (expect-true "no buffering" (set-not-buffered ?cfd))
