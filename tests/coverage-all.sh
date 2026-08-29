@@ -57,6 +57,6 @@ echo
 COVERAGE_MERGE="$data" ./tests/coverage.sh
 status=$?
 
-make -C src/ clean >/dev/null 2>&1
+make clean >/dev/null 2>&1
 
 exit $status

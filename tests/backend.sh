@@ -83,7 +83,7 @@ fi
 name=$label
 [ "$magic" -eq 1 ] && name="$label+magic"
 
-make -C src/ clean >/dev/null 2>&1
+make clean >/dev/null 2>&1
 
 if [ -n "$coverage_dir" ]; then
 	# The build always sets MAGIC=1. As a result, the coverage data includes
@@ -93,7 +93,7 @@ else
 	buildargs="$args"
 fi
 
-if ! make -C src/ $buildargs > "${TMPDIR:-/tmp}/backend-build.$$" 2>&1; then
+if ! make $buildargs > "${TMPDIR:-/tmp}/backend-build.$$" 2>&1; then
 	echo "$name: BUILD FAILED"
 	grep -E 'Error|error:|not the same implementation|run time' \
 		"${TMPDIR:-/tmp}/backend-build.$$" | head -4 | sed 's/^/  /'
@@ -137,7 +137,7 @@ if [ -n "$coverage_dir" ]; then
 	fi
 	# An instrumented tree would make the next usual build use the -O0
 	# coverage objects again.
-	make -C src/ clean >/dev/null 2>&1
+	make clean >/dev/null 2>&1
 fi
 
 # One row for the script that collects the results, if such a script runs.

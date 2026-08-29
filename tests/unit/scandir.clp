@@ -10,7 +10,7 @@
    ;; Entries this repository is guaranteed to have.
    (expect-contains "lists makefile"  makefile  (scandir "."))
    (expect-contains "lists README.md" README.md (scandir "."))
-   (expect-contains "lists src"       src       (scandir "."))
+   (expect-contains "lists examples"  examples  (scandir "."))
    (expect-contains "lists tests"     tests     (scandir "."))
 
    ;; scandir is a thin wrapper over the syscall, so the dot entries come back

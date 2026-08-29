@@ -67,16 +67,16 @@ fi
 # defines and the include paths. The script asks the makefile for those flags
 # and does not write them here. As a result, they cannot become different from
 # the flags of a usual build.
-tls_cflags=$(make -C src/ $args --no-print-directory print-TLS_CFLAGS 2>/dev/null | tail -1)
-tls_ldlibs=$(make -C src/ $args --no-print-directory print-TLS_LDLIBS 2>/dev/null | tail -1)
+tls_cflags=$(make $args --no-print-directory print-TLS_CFLAGS 2>/dev/null | tail -1)
+tls_ldlibs=$(make $args --no-print-directory print-TLS_LDLIBS 2>/dev/null | tail -1)
 
 SAN="-fsanitize=address -fno-omit-frame-pointer"
 
 echo "asan: building ${label:-default} ..."
-make -C src/ clean >/dev/null 2>&1
+make clean >/dev/null 2>&1
 
 log=${TMPDIR:-/tmp}/asan-build.$$
-if ! make -C src/ debug $args \
+if ! make debug $args \
 	CFLAGS="$tls_cflags -std=c99 -O1 -g $SAN" \
 	LDLIBS="-lm $tls_ldlibs $SAN" > "$log" 2>&1
 then
@@ -107,11 +107,11 @@ if grep -q 'ERROR: AddressSanitizer' "$out"; then
 	# An instrumented tree would make the next usual build use the -O1
 	# objects again. Those objects have no coverage data and have a sanitizer
 	# that the build does not link.
-	make -C src/ clean >/dev/null 2>&1
+	make clean >/dev/null 2>&1
 	exit 1
 fi
 
 rm -f "$out"
-make -C src/ clean >/dev/null 2>&1
+make clean >/dev/null 2>&1
 
 exit $timeout_status

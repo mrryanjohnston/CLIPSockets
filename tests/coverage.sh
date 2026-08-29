@@ -15,15 +15,20 @@ set -u
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
+# The directory the build happens in. The CLIPS source is downloaded there and
+# this project's files are copied over it, so that is where gcov keeps its
+# data and where the compiled copies of our sources are.
+BUILD_DIR=${BUILD_DIR:-$ROOT/vendor/clips}
+
 # These two directories come from the caller, and a relative one names a
-# directory beside the caller. This script works in src/, where gcov keeps its
-# data, and the same relative name there is a different directory. As a result,
-# the script makes each of them absolute before it moves.
+# directory beside the caller. Collecting the data means moving into the build
+# directory, and the same relative name there is a different directory. As a
+# result, the script makes each of them absolute before it moves.
 #
 # tests/coverage-all.sh passes the path of a temporary directory, which is
 # absolute, and never met this. The CI job passes "coverage-data". Without
-# these two lines the data goes to src/coverage-data, and the job that adds it
-# all together looks in the directory that it named and finds nothing.
+# these two lines the data goes to vendor/clips/coverage-data, and the job that
+# adds it all together looks in the directory that it named and finds nothing.
 COVERAGE_COLLECT=${COVERAGE_COLLECT:-}
 COVERAGE_MERGE=${COVERAGE_MERGE:-}
 
@@ -37,17 +42,6 @@ case $COVERAGE_MERGE in
 	*) COVERAGE_MERGE=$PWD/$COVERAGE_MERGE ;;
 esac
 
-cd "$ROOT/src" || exit 1
-
-# One build has one TLS backend. As a result, the sources to measure are the
-# sources that this build made coverage data for. A list with each source would
-# report the absent backends as zero per cent, and that would count code that
-# the build correctly left out.
-SOURCES="socketrtr.c userfunctions.c"
-for candidate in socktls.c socktls-openssl.c socktls-mbedtls.c socktls-gnutls.c socktls-s2n.c; do
-	[ -f "${candidate%.c}.gcda" ] && SOURCES="$SOURCES $candidate"
-done
-
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
 
@@ -57,10 +51,24 @@ trap 'rm -rf "$work"' EXIT INT TERM
 # result, a line is covered when any build covered it. A backend that one build
 # leaves out is measured in the build that has it.
 collect_json () {
+	cd "$BUILD_DIR" 2>/dev/null || {
+		echo "coverage.sh: no build directory at $BUILD_DIR -- build with 'make coverage' first" >&2
+		exit 2
+	}
+
 	if ! ls *.gcda >/dev/null 2>&1; then
-		echo "coverage.sh: no .gcda files in src/ -- build with 'make coverage' first" >&2
+		echo "coverage.sh: no .gcda files in $BUILD_DIR -- build with 'make coverage' first" >&2
 		exit 2
 	fi
+
+	# One build has one TLS backend. As a result, the sources to measure are
+	# the sources that this build made coverage data for. A list with each
+	# source would report the absent backends as zero per cent, and that would
+	# count code that the build correctly left out.
+	SOURCES="socketrtr.c userfunctions.c"
+	for candidate in socktls.c socktls-openssl.c socktls-mbedtls.c socktls-gnutls.c socktls-s2n.c; do
+		[ -f "${candidate%.c}.gcda" ] && SOURCES="$SOURCES $candidate"
+	done
 
 	rm -f *.gcov.json.gz
 	gcov --json-format $SOURCES >/dev/null 2>&1
@@ -71,6 +79,7 @@ collect_json () {
 		cp "$j" "$1/"
 	done
 	rm -f *.gcov.json.gz
+	cd "$ROOT" || exit 1
 }
 
 if [ -n "$COVERAGE_COLLECT" ]; then
@@ -97,7 +106,7 @@ awk -F'"' '/AddUDF\(env,/ {
 	cfn = p[n-2]
 	gsub(/^[ \t]+|[ \t]+$/, "", cfn)
 	print cfn "\t" $2
-}' userfunctions.c | sort > "$work/roster"
+}' "$ROOT/userfunctions.c" | sort > "$work/roster"
 
 # Changes each collected run into two types of record: one execution count for
 # each source line, and one line range for each function.

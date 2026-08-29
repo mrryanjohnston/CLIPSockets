@@ -5,9 +5,16 @@ libclips.a
 *.so
 ._*
 *.swp
-src/*.gcda
-src/*.gcno
-src/*.gcov
+# The CLIPS source and the trees built from it. They are downloaded by the
+# build, never committed: which version is in there is a build option, and a
+# checked-in copy would answer that question once and for everyone.
+# "make clips-source" fetches it, "make print-clips" says what is in there,
+# and "make distclean" removes it.
+vendor/
+# The release tarball, kept beside the repository so that a second build, or a
+# build of another version, does not download it again. "make distclean"
+# removes this too.
+*.tar.gz
 # TLS certificates. tests/fixtures/regenerate.sh makes them. The repository
 # never holds them. If a repository holds the private key of a certificate
 # authority, then anyone with a copy of that repository can sign with that key.

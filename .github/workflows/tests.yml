@@ -43,6 +43,48 @@ jobs:
       - run: make
       - run: make test
 
+  # The three versions of CLIPS this project builds against. No file of the
+  # CLIPS source is edited -- what this project adds is copied in beside it and
+  # reached through UserFunctions, the hook CLIPS provides -- so one tree
+  # builds against all three, and this job is what says so.
+  #
+  # All three are fixed: the release is checked against its digest, and the two
+  # branches are pinned to the revisions the makefile names. A red row here is
+  # therefore a change in this repository, the same as any other job. Moving a
+  # pin is a commit, and that commit is where a change upstream shows up.
+  clips-versions:
+    name: clips-versions (${{ matrix.clips }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        clips: ['6.4.2', svn-6x, svn-7x]
+    steps:
+      - uses: actions/checkout@v7
+
+      # The two branch legs are Subversion exports. The release leg is a
+      # tarball and needs nothing installed.
+      - name: Subversion, for the branch legs
+        if: startsWith(matrix.clips, 'svn-')
+        run: sudo apt-get update && sudo apt-get install -y subversion
+
+      # The fetched source, not the tree built from it. The key is the makefile,
+      # because that is where the revision of a branch and the digest of the
+      # release are written: moving a pin fetches again, and nothing else does.
+      - name: Cache the CLIPS source
+        uses: actions/cache@v6
+        with:
+          path: |
+            clips_core_source_642.tar.gz
+            vendor/clips-source
+          key: clips-${{ matrix.clips }}-${{ hashFiles('makefile') }}
+          restore-keys: clips-${{ matrix.clips }}-
+
+      - run: make CLIPS_VERSION=${{ matrix.clips }}
+      - run: make CLIPS_VERSION=${{ matrix.clips }} print-clips
+      - run: make test
+
   backends:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -105,7 +147,7 @@ jobs:
   # Only a build that checks each access can see it.
   #
   # This job runs each configuration, as the backends job above does. A build
-  # compiles one backend object only. See TLS_OBJS in src/makefile. As a
+  # compiles one backend object only. See TLS_OBJS in clips.mk. As a
   # result, a sanitized build checks the backend that it selected and no other
   # backend. Two rows would leave socktls-mbedtls.c and socktls-s2n.c with no
   # sanitizer at all, and those two files are more than two thousand lines with

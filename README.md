@@ -29,7 +29,7 @@ is, a CLIPS application can *receive* network requests and *make* network
 requests.
 
 ```clips
-         CLIPS (Forge Alpha 5/28/25)
+         CLIPS (6.4.2 1/14/25)
 CLIPS> (create-socket AF_INET SOCK_STREAM)
 3
 CLIPS> (bind-socket 3 127.0.0.1 8889)
@@ -47,7 +47,7 @@ CLIPS> (readline 127.0.0.1:42616#4)
 A client for that server looks like this:
 
 ```clips
-         CLIPS (Forge Alpha 5/28/25)
+         CLIPS (6.4.2 1/14/25)
 CLIPS> (create-socket AF_INET SOCK_STREAM)
 3
 CLIPS> (connect 3 127.0.0.1 8889)
@@ -76,6 +76,71 @@ Build the project from the root directory:
 ```
 make
 ```
+
+That fetches the CLIPS source, copies the files this project adds over it, and
+builds. The binary is `./clips` in the root of the project.
+
+### Which CLIPS
+
+The build works against three sources of CLIPS, and `CLIPS_VERSION` selects
+one:
+
+| Value | What it is |
+| --- | --- |
+| `6.4.2` | The released tarball from SourceForge. This is the default. |
+| `svn-6x` | `branches/64x/core` of the CLIPS Subversion repository, the 6.4 maintenance branch. |
+| `svn-7x` | `branches/70x/core`, the 7.0 development branch. This is the branch that adds the deftable construct and goal-driven facts. |
+
+```
+make                          # CLIPS 6.4.2
+make CLIPS_VERSION=svn-6x
+make CLIPS_VERSION=svn-7x
+```
+
+The two `svn-` legs need `svn` installed. The package is `subversion` on
+Debian, Ubuntu and Fedora. The `6.4.2` leg needs only `curl` or `wget`, and
+the tarball is checked against the SHA-256 published for it.
+
+Build a branch at another
+revision, or at whatever is there now, with `CLIPS_SVN_REV`:
+
+```
+make CLIPS_VERSION=svn-7x CLIPS_SVN_REV=1002
+make CLIPS_VERSION=svn-7x CLIPS_SVN_REV=HEAD
+```
+
+`HEAD` is how a change upstream is found while it is still on a branch. The
+directory a tree is fetched into is named after the revision asked for, so
+`CLIPS_SVN_REV=HEAD` reuses whatever `HEAD` meant the first time; remove that
+directory to fetch it again.
+
+### Where it all goes
+
+```
+vendor/clips-source/<tag>   the tree as it was fetched, never written to
+vendor/clips-build/<tag>    a copy of it, with this project's files over it
+vendor/clips                a symlink to the version built last
+./clips                     the binary
+```
+
+`<tag>` is `6.4.2`, `svn-6x-r967` or `svn-7x-r978`.
+`make print-clips` says which version a build uses and
+where each of those is.
+
+`make clean` removes the build trees and the binary and keeps the fetched
+sources, which are the slow half to get back. `make distclean` removes those
+too, along with the release tarball beside the repository.
+
+`make test-clips` builds against all three in turn and runs the whole suite on
+each:
+
+```
+6.4.2    6.4.2            files: 61 passed, 0 failed, 1 skipped  PASSED
+svn-6x   svn-6x-r967      files: 61 passed, 0 failed, 1 skipped  PASSED
+svn-7x   svn-7x-r978      files: 61 passed, 0 failed, 1 skipped  PASSED
+```
+
+### TLS
 
 This build has TLS. To build with no TLS,
 which needs no library more than the C standard library:
@@ -121,19 +186,28 @@ contents, so the list always agrees with the file:
 ```
   all            Build clips with TLS (the default)
   asan           Rebuild under AddressSanitizer and run the suite
-  clean          Remove the binary and every object file
-  coverage-all   Line coverage merged across every configuration
+  clean          Remove the binary and every build tree
+  clips-source   Fetch the selected CLIPS source and stop
+  coverage-all   Line coverage merged across every TLS library
   coverage       Line coverage for the current build's TLS backend
+  debug          Build with debugging symbols and no optimisation
+  distclean      Also remove the fetched CLIPS source and the archive
   help           List these targets
-  magic          Build with libmagic, enabling (mimetype)
+  magic          Build with the optional libmagic dependency, enabling the (mimetype) function
   matrix         Build and test every configuration this machine can build
-  no-tls         Build with no TLS at all
-  provision      Report which TLS libraries are present, and how to get the rest
+  no-tls         Build with no TLS
+  print-clips    Say which CLIPS this build uses and where it is
+  provision      Report which TLS libraries are present and how to get the rest
+  release        Synonym for the default build
   test-%         Build and test one configuration, e.g. "make test-gnutls"
+  test-clips     Build and test against 6.4.2, branches/64x and branches/70x
   test-list      Name the configurations this machine can build
   test           Run the test suite against the current build
   tls            Synonym for the default build
 ```
+
+`make help` also prints which CLIPS the build uses and the revision each
+branch is pinned at.
 
 `make matrix` builds all the configurations that the machine can build. This
 is each TLS library that it finds, with libmagic and without libmagic, and
@@ -190,14 +264,18 @@ make MAGIC=1
 | `make` | Build with TLS. The build selects a library. |
 | `make magic` | The same build, with libmagic. `(mimetype)` needs libmagic. |
 | `make no-tls` | Build with no TLS. This needs no library more than the C standard library. |
-| `make clean` | Remove the binary and all the object files, for all the backends and not for the selected one only. |
+| `make clean` | Remove the binary and the build trees, for all the backends and all the CLIPS versions, not for the selected one only. The fetched CLIPS source stays. |
+| `make distclean` | The same, and also remove `vendor/` and the release tarball. The next build fetches CLIPS again. |
 
-Four variables control a build. The root makefile sends them to the makefile
-in `src`, so you can use more than one together: `make magic
-TLS_BACKEND=gnutls`.
+These variables control a build. The root makefile sends them to `clips.mk`,
+the makefile it copies into the build tree, so you can use more than one
+together: `make magic TLS_BACKEND=gnutls CLIPS_VERSION=svn-7x`.
+Switching any of them rebuilds from clean.
 
 | Variable | Values |
 | --- | --- |
+| `CLIPS_VERSION` | `6.4.2`, `svn-6x` or `svn-7x`. The default is `6.4.2`. See [Which CLIPS](#which-clips). |
+| `CLIPS_SVN_REV` | A Subversion revision, or `HEAD`. It applies to `svn-6x` and `svn-7x` only, and each is pinned to a revision without it. |
 | `TLS_BACKEND` | `openssl`, `libressl`, `wolfssl`, `mbedtls`, `gnutls`, `s2n`, `boringssl`, or `auto`. The default is `auto`. |
 | `TLS_PREFIX` | The directory of the installation, when the compiler does not find the library itself. `boringssl` and `s2n` always need this, because they have no pkg-config files. |
 | `MAGIC` | `1` to build `(mimetype)`. `make magic` sets this. |
@@ -273,6 +351,7 @@ is thus a failure that one command can repeat on your machine.
 | Job | What it runs | Rows |
 | --- | --- | --- |
 | `suite` | `make`, then `make test` | 1, the build that `make` gives you |
+| `clips-versions` | `make CLIPS_VERSION=<v>`, then `make test` | 3: `6.4.2`, `svn-6x` and `svn-7x` |
 | `backends` | `./tests/backend.sh <name>`, then the same with `--magic` | 11 |
 | `asan` | `./tests/asan.sh <name>` | 11 |
 | `coverage` | `./tests/backend.sh <name> --magic --coverage`, then an upload | 11 |
@@ -284,6 +363,10 @@ The eleven configurations are `no-tls`, `system`, and nine TLS builds:
 version in `tests/provision.sh`, and compares it against a digest or a commit.
 It keeps the result in a cache in `~/opt`, with `tests/provision.sh` as the
 key.
+
+`clips-versions` is the one job whose rows are not TLS libraries. All three
+are fixed -- the release by its digest, each branch by the revision the
+makefile pins it at.
 
 ## Tests
 
@@ -545,7 +628,7 @@ error occurs. For example, bind a socket two times:
 
 ```
 $ ./clips
-         CLIPS (Forge Alpha 5/28/25)
+         CLIPS (6.4.2 1/14/25)
 CLIPS> (errno)
 0
 CLIPS> (errno-sym)
@@ -1478,16 +1561,13 @@ tcpdump -nn -i any port 8888
 
 ### Notes on the Source Files
 
-This code is a copy of
-[CLIPS 7.0.x](https://sourceforge.net/p/clipsrules/code/HEAD/tree/branches/70x/core/)
-of 5/28/25. I added `socketrtr.h` and `socketrtr.c` for the reads and the
-writes on sockets. I add user-defined functions (UDFs) in `userfunctions.c`.
-The CLIPS environments that use this source code then have those functions. I
-start the socket router in `router.c`, in the function
-`InitializeDefaultRouters`.
+`make` fetches CLIPS into `vendor/clips-source/<tag>`,
+copies that tree to `vendor/clips-build/<tag>`,
+and copies the files in the root of this project
+over the copy before building. Nothing under `vendor/`
+is edited by hand, and `make distclean` removes all of it.
 
-These are the files that this library adds. All the other files in `src/` are
-CLIPS itself:
+These are the files this library adds:
 
 | File | Contents |
 | --- | --- |
@@ -1498,3 +1578,7 @@ CLIPS itself:
 | `socktls-openssl.c` | OpenSSL, and the three libraries that use its API: LibreSSL, BoringSSL, and wolfSSL through its compatibility layer. |
 | `socktls-mbedtls.c`, `socktls-gnutls.c`, `socktls-s2n.c` | One file for each of those libraries. |
 | `tlscheck.c` | A check at build time. It is not part of the binary. It asks the library at the link step if it is the same implementation as the headers at the compile step. The compiler and the linker use different search sequences, so the two can be different. |
+| `clips.mk` | The makefile the build uses. `make` copies it into the build tree over the one CLIPS ships. |
+| `makefile` | The targets you run. It fetches CLIPS, stages the files above, and calls `clips.mk`. |
+| `scripts/fetch-clips.sh` | Fetches one CLIPS source tree, from the release tarball or from Subversion. |
+| `scripts/test-clips-versions.sh` | Builds and runs the suite against each supported CLIPS version. `make test-clips`. |

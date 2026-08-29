@@ -18,7 +18,7 @@
 ;;; of the test. It is why a server that writes replies of a size that it does
 ;;; not control needs O_NONBLOCK, and why this code needs a test.
 ;;;
-;;; The rules below are not new here. src/socktls.c already applies them to
+;;; The rules below are not new here. socktls.c already applies them to
 ;;; encrypted sockets, in FlushOutput. On a short write that function moves the
 ;;; remainder to the start of its buffer, sets errno to EAGAIN and gives false.
 ;;; Its comment says that the code keeps the data and does not discard it, so
