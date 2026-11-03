@@ -760,6 +760,19 @@ bool TLSFlushSession(
 }
 
 /*******************************************************************/
+/* TLSWriteSession: Writes bytes to a socket that has a TLS session.  */
+/*   The session encrypts the bytes. The data can contain the value 0. */
+/*******************************************************************/
+void TLSWriteSession(
+		Environment *theEnv,
+		struct socketRouter *sptr,
+		const char *data,
+		size_t len)
+{
+	WriteBytes(theEnv,(struct tlsSession *) sptr->tls,data,len);
+}
+
+/*******************************************************************/
 /* TLSEmptySession: Does empty-connection for an encrypted socket. */
 /*                                                                 */
 /*   One character at a time empties a datagram session as well as */

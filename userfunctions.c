@@ -450,6 +450,13 @@ void UserFunctions(
 	     6.4.2, the 6.x branch and the 7.x branch. */
 	  InitializeSocketRouter(env);
 
+	  /* This library supplies the put-char function. The function writes one
+	     byte to a socket or to a file. The byte can have the value 0. RemoveUDF
+	     removes the put-char function of CLIPS first, because AddUDF does not
+	     accept a name that is in use. */
+	  RemoveUDF(env,"put-char");
+	  AddUDF(env,"put-char","v",1,2,";ldsyn;l",SocketPutCharFunction,"SocketPutCharFunction",NULL);
+
 	  AddUDF(env,"accept","bl",1,1,"lsy",AcceptFunction,"AcceptFunction",NULL);
 	  AddUDF(env,"bind-socket","bsy",2,3,";l;sy;l",BindSocketFunction,"BindSocketFunction",NULL);
 	  AddUDF(env,"connect","bl",2,3,";l;sy;l",ConnectFunction,"ConnectFunction",NULL);

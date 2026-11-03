@@ -40,6 +40,7 @@
 
 #include "setup.h"
 
+#include "argacces.h"
 #include "constant.h"
 #include "envrnmnt.h"
 #include "extnfunc.h"
@@ -64,7 +65,6 @@ static int                     UnreadSocket(Environment *, const char *, int, vo
 static void                    ExitSocket(Environment *, int, void *);
 static void                    DeallocateSocketRouterData(Environment *);
 static bool                    DecryptedBytesWaiting(Environment *, int, int);
-static void                    WriteSocketBytes(Environment *, struct socketRouter *, const char *, size_t);
 static bool                    PushPending(Environment *, struct socketRouter *);
 static void                    RetainTail(Environment *, struct socketRouter *, const char *, size_t);
 static void                    DisposeStream(Environment *, struct socketRouter *);
@@ -151,7 +151,7 @@ static void WriteSocket(
 /*   It sends the data that the socket accepts and keeps the     */
 /*   data that the socket refuses.                               */
 /*****************************************************************/
-static void WriteSocketBytes(
+void WriteSocketBytes(
 		Environment *theEnv,
 		struct socketRouter *sptr,
 		const char *data,
@@ -1174,6 +1174,76 @@ FlushConnectionFunction(
 	}
 
 	returnValue->lexemeValue = CreateBoolean(theEnv,FlushConnection(theEnv,sptr));
+}
+
+/******************************************************************************/
+/* SocketPutCharFunction: The put-char function. It writes one byte to a      */
+/*   logical name. For a socket, it gives the byte to the write code of the   */
+/*   socket. The byte goes out after the data that the program wrote before   */
+/*   it. If the socket does not accept the byte, the library keeps the byte,  */
+/*   and the next flush sends it. If the socket has a TLS session, the        */
+/*   session encrypts the byte. For a logical name that is not a socket, the  */
+/*   function writes the byte to the file that has that name. The function    */
+/*   writes the low eight bits of the integer. The byte can have the value 0. */
+/******************************************************************************/
+void SocketPutCharFunction(
+		Environment *theEnv,
+		UDFContext *context,
+		UDFValue *returnValue)
+{
+	const char *logicalName;
+	UDFValue theArg;
+	struct socketRouter *sptr;
+	FILE *theFile;
+	long long theChar;
+	char byte;
+
+	if (UDFArgumentCount(context) == 1)
+	{ logicalName = STDOUT; }
+	else
+	{
+		logicalName = GetLogicalName(context,STDOUT);
+		if (logicalName == NULL)
+		{
+			IllegalLogicalNameMessage(theEnv,"put-char");
+			SetHaltExecution(theEnv,true);
+			SetEvaluationError(theEnv,true);
+			return;
+		}
+	}
+
+	if (QueryRouters(theEnv,logicalName) == false)
+	{
+		UnrecognizedRouterMessage(theEnv,logicalName);
+		SetHaltExecution(theEnv,true);
+		SetEvaluationError(theEnv,true);
+		return;
+	}
+
+	if (! UDFNextArgument(context,INTEGER_BIT,&theArg))
+	{ return; }
+
+	theChar = theArg.integerValue->contents;
+
+	sptr = LogicalNameToSocketRouter(theEnv,logicalName);
+	if (sptr != NULL)
+	{
+		byte = (char) (theChar & 0xFF);
+
+		if (SocketIsTLS(sptr))
+		{
+			TLSWriteSession(theEnv,sptr,&byte,1);
+			return;
+		}
+
+		sptr->ioStarted = true;
+		WriteSocketBytes(theEnv,sptr,&byte,1);
+		return;
+	}
+
+	theFile = FindFptr(theEnv,logicalName);
+	if (theFile != NULL)
+	{ putc((int) theChar,theFile); }
 }
 
 bool EmptyConnection(

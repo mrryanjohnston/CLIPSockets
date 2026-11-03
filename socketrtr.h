@@ -67,6 +67,7 @@ struct connectionRouter
    void                           PollFunction(Environment *,UDFContext *,UDFValue *);
    void                           ShutdownConnectionFunction(Environment *,UDFContext *,UDFValue *);
    void                           FlushConnectionFunction(Environment *,UDFContext *,UDFValue *);
+   void                           SocketPutCharFunction(Environment *,UDFContext *,UDFValue *);
    void                           EmptyConnectionFunction(Environment *,UDFContext *,UDFValue *);
    void                           CloseConnectionFunction(Environment *,UDFContext *,UDFValue *);
    void                           GetsockoptFunction(Environment *,UDFContext *,UDFValue *);
@@ -84,6 +85,7 @@ struct connectionRouter
    int                             GenCloseSocket(Environment *,int);
 
    bool                           FindSocket(Environment *,const char *,void *);
+   void                           WriteSocketBytes(Environment *,struct socketRouter *,const char *,size_t);
    void                           CloseAllSockets(Environment *);
    void                           RecvfromFunction(Environment *, UDFContext *, UDFValue *);
    void                           SendtoFunction(Environment *, UDFContext *, UDFValue *);

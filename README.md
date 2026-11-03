@@ -708,6 +708,30 @@ If the socket has a TLS session, the data goes through that session. The rules i
 this section are also correct for that socket. This function does not change if a
 program uses TLS.
 
+#### `(put-char ?logicalName ?byte)`
+
+This function writes one byte to a logical name. This library supplies the
+function. It does the work of the `put-char` function of CLIPS, and it also
+writes to a socket.
+
+For a socket, the byte goes out after the data that the program wrote before it.
+If the socket does not accept the byte, the library keeps the byte. The next
+`flush-connection` sends it. If the socket has a TLS session, the session
+encrypts the byte.
+
+For a logical name that is not a socket, the function writes the byte to the
+file that has that name.
+
+The function writes the low eight bits of the integer. The byte can have the
+value 0. `printout` and `format` cannot write that value, because a string stops
+at a NUL. Use `put-char` for binary data, for example a WebSocket frame.
+
+```clips
+(put-char ?name 129)
+(put-char ?name 0)
+(flush-connection ?sock)
+```
+
 #### `(get-retained-bytes ?socketfdOrLogicalName)`
 
 This function gives the number of bytes that this library keeps for the socket. It

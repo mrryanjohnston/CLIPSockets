@@ -26,6 +26,7 @@
    encrypted. */
    bool                           TLSFlushSession(Environment *,struct socketRouter *);
    bool                           TLSEmptySession(Environment *,struct socketRouter *);
+   void                           TLSWriteSession(Environment *,struct socketRouter *,const char *,size_t);
    void                           TLSCloseSession(Environment *,struct socketRouter *);
    bool                           TLSSetSessionBuffered(Environment *,struct socketRouter *,int);
    int                            TLSSessionPending(Environment *,struct socketRouter *);
@@ -77,6 +78,7 @@
 #define TLSInitialize(theEnv)                ((void) (theEnv))
 #define TLSFlushSession(theEnv,sptr)         (false)
 #define TLSEmptySession(theEnv,sptr)         (false)
+#define TLSWriteSession(theEnv,sptr,data,len) ((void) 0)
 #define TLSCloseSession(theEnv,sptr)         ((void) 0)
 #define TLSSetSessionBuffered(theEnv,sptr,m) (false)
 #define TLSSessionPending(theEnv,sptr)       (0)
